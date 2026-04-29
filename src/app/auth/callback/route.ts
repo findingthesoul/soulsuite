@@ -31,16 +31,8 @@ export async function GET(request: NextRequest) {
 
   // Google's refresh token is only present in the session at exchange time — it's not persisted
   // in auth.identities. Capture it here and pass it through so we can store it on the Host row.
-  const session = exchangeData.session as
-    | { provider_token?: string | null; provider_refresh_token?: string | null }
-    | null;
-  const providerRefreshToken = session?.provider_refresh_token ?? null;
-  // eslint-disable-next-line no-console
-  console.log("[auth/callback] tokens", {
-    hasProviderToken: !!session?.provider_token,
-    hasProviderRefreshToken: !!providerRefreshToken,
-    sessionKeys: session ? Object.keys(session) : null,
-  });
+  const providerRefreshToken =
+    (exchangeData.session as { provider_refresh_token?: string | null } | null)?.provider_refresh_token ?? null;
 
   const host = await ensureHostFromAuthUser(userData.user, providerRefreshToken);
   const outcome = await resolvePostSignIn(host);

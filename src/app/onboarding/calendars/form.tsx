@@ -89,7 +89,7 @@ export function CalendarPickerForm({
             <select
               value={selections[cal.id]}
               onChange={(e) => setRole(cal.id, e.target.value as Selection)}
-              className="rounded-md border border-neutral-300 bg-white px-2 py-1 text-sm"
+              className="rounded-md border border-neutral-300 bg-white px-2 py-1 text-sm text-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
             >
               <option value="off">Ignore</option>
               <option value="conflict">Conflict source</option>

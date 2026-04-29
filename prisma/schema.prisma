@@ -1,0 +1,357 @@
+// Soul Scheduler — Prisma schema.
+// Mirrors the domain model in soul-scheduler-brief.md. Three layers: Workspace → Project → Personal.
+//
+// Cross-table slug uniqueness (Host.slug ⊥ Project.slug) is enforced at the application layer
+// via src/lib/slugs.ts inside a transaction. A future raw-SQL migration should add a Postgres
+// trigger to back this up at the DB level — see brief §"Slug collisions".
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = []
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Workspace + membership
+// ────────────────────────────────────────────────────────────────────────────
+
+model Workspace {
+  id                  String   @id @default(cuid())
+  name                String
+  slug                String   @unique
+  primaryEmailDomain  String
+  createdAt           DateTime @default(now())
+
+  members  WorkspaceMember[]
+  projects Project[]
+  invites  Invite[]
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+model WorkspaceMember {
+  id          String        @id @default(cuid())
+  workspaceId String
+  hostId      String
+  role        WorkspaceRole @default(MEMBER)
+  joinedAt    DateTime      @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  host      Host      @relation(fields: [hostId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, hostId])
+  @@index([hostId])
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Host (one per Google identity) + their calendars
+// ────────────────────────────────────────────────────────────────────────────
+
+model Host {
+  id                  String   @id @default(cuid())
+  // Mirrors auth.users.id in Supabase Auth so we can join cleanly.
+  authUserId          String   @unique
+  email               String   @unique
+  name                String
+  slug                String   @unique
+  // Cached from auth.identities.identity_data.provider_refresh_token. Refreshed on every sign-in.
+  // Nullable because Supabase doesn't always surface it on the very first callback.
+  googleRefreshToken  String?
+  timezone            String   @default("Europe/Amsterdam")
+  // JSON shape: { mon: [{start: "09:00", end: "17:00"}], tue: [...], ... }
+  workingHours        Json?
+  createdAt           DateTime @default(now())
+
+  calendars         Calendar[]
+  workspaceMembers  WorkspaceMember[]
+  projectMembers    ProjectMember[]
+  personalMeetingTypes MeetingType[]    @relation("PersonalMeetingTypeHost")
+  personalIntakeForms  IntakeForm[]    @relation("PersonalIntakeFormHost")
+  personalPolls        Poll[]          @relation("PersonalPollHost")
+  ownedPolls           Poll[]          @relation("PollOwner")
+  bookings             Booking[]
+  invitesSent          Invite[]        @relation("InviteSender")
+}
+
+enum CalendarRole {
+  PRIMARY
+  CONFLICT_CHECK
+  WRITE_TARGET
+}
+
+model Calendar {
+  id               String       @id @default(cuid())
+  hostId           String
+  googleCalendarId String
+  summary          String?
+  role             CalendarRole
+  createdAt        DateTime     @default(now())
+
+  host Host @relation(fields: [hostId], references: [id], onDelete: Cascade)
+
+  @@unique([hostId, googleCalendarId])
+  @@index([hostId])
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Project + membership (workspace members or external collaborators)
+// ────────────────────────────────────────────────────────────────────────────
+
+model Project {
+  id          String   @id @default(cuid())
+  workspaceId String
+  slug        String   @unique
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  workspace    Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  members      ProjectMember[]
+  meetingTypes MeetingType[]   @relation("ProjectMeetingType")
+  intakeForms  IntakeForm[]    @relation("ProjectIntakeForm")
+  polls        Poll[]          @relation("ProjectPoll")
+  bookings     Booking[]
+  invites      Invite[]
+
+  @@index([workspaceId])
+}
+
+enum ProjectRole {
+  LEAD
+  MEMBER
+}
+
+model ProjectMember {
+  id         String      @id @default(cuid())
+  projectId  String
+  hostId     String
+  role       ProjectRole @default(MEMBER)
+  isExternal Boolean     @default(false)
+  addedAt    DateTime    @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  host    Host    @relation(fields: [hostId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, hostId])
+  @@index([hostId])
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Meeting types + intake forms
+// ────────────────────────────────────────────────────────────────────────────
+
+enum Scope {
+  PERSONAL
+  PROJECT
+}
+
+enum RoutingMode {
+  SINGLE
+  ROUND_ROBIN
+}
+
+model MeetingType {
+  id                    String      @id @default(cuid())
+  scope                 Scope
+  hostId                String?     // set when scope = PERSONAL
+  projectId             String?     // set when scope = PROJECT
+  slug                  String
+  name                  String
+  description           String?
+  durationMinutes       Int
+  bufferBeforeMinutes   Int         @default(0)
+  bufferAfterMinutes    Int         @default(0)
+  minNoticeMinutes      Int         @default(60)
+  maxAdvanceDays        Int         @default(60)
+  routingMode           RoutingMode @default(SINGLE)
+  // For project scope round-robin: hostIds drawn from ProjectMember.hostId.
+  // Validation lives in src/lib/meeting-types.ts.
+  assignedHostIds       String[]
+  intakeFormId          String?
+  // Privacy: by default intake answers are not added to the calendar event description (brief §Privacy).
+  includeAnswersInEvent Boolean     @default(false)
+  isActive              Boolean     @default(true)
+  createdAt             DateTime    @default(now())
+
+  host       Host?       @relation("PersonalMeetingTypeHost", fields: [hostId], references: [id], onDelete: Cascade)
+  project    Project?    @relation("ProjectMeetingType", fields: [projectId], references: [id], onDelete: Cascade)
+  intakeForm IntakeForm? @relation(fields: [intakeFormId], references: [id], onDelete: SetNull)
+  bookings   Booking[]
+  rrState    RoundRobinState?
+
+  // Slug is unique within its scope (per host or per project), not globally.
+  @@unique([hostId, slug])
+  @@unique([projectId, slug])
+  @@index([scope])
+}
+
+model IntakeForm {
+  id        String   @id @default(cuid())
+  scope     Scope
+  hostId    String?
+  projectId String?
+  name      String
+  // JSON shape:
+  //   [{ key, label, type: 'short'|'long'|'email'|'select'|'multi'|'checkbox',
+  //      required, options?, conditionalOn?: { fieldKey, equals } }]
+  fields    Json
+  createdAt DateTime @default(now())
+
+  host         Host?         @relation("PersonalIntakeFormHost", fields: [hostId], references: [id], onDelete: Cascade)
+  project      Project?      @relation("ProjectIntakeForm", fields: [projectId], references: [id], onDelete: Cascade)
+  meetingTypes MeetingType[]
+
+  @@index([hostId])
+  @@index([projectId])
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Bookings
+// ────────────────────────────────────────────────────────────────────────────
+
+enum BookingStatus {
+  CONFIRMED
+  CANCELLED
+  RESCHEDULED
+}
+
+model Booking {
+  id              String        @id @default(cuid())
+  meetingTypeId   String
+  hostId          String        // resolved at booking time (round-robin → final host)
+  projectId       String?       // copied from MeetingType for reporting
+  inviteeEmail    String
+  inviteeName     String
+  inviteeAnswers  Json?
+  startsAt        DateTime
+  endsAt          DateTime
+  googleEventId   String?
+  // Idempotency key for Google event creation (brief §Idempotency).
+  requestId       String        @unique
+  status          BookingStatus @default(CONFIRMED)
+  createdAt       DateTime      @default(now())
+
+  meetingType MeetingType @relation(fields: [meetingTypeId], references: [id])
+  host        Host        @relation(fields: [hostId], references: [id])
+  project     Project?    @relation(fields: [projectId], references: [id])
+  finalizedFromPoll Poll? @relation("PollFinalizedBooking")
+
+  @@index([hostId, startsAt])
+  @@index([projectId])
+  @@index([meetingTypeId])
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Polls
+// ────────────────────────────────────────────────────────────────────────────
+
+enum PollStatus {
+  OPEN
+  FINALIZED
+  CANCELLED
+}
+
+model Poll {
+  id                  String     @id @default(cuid())
+  scope               Scope
+  hostId              String?
+  projectId           String?
+  ownerHostId         String
+  name                String
+  durationMinutes     Int
+  // JSON shape: [{ id, startsAt, endsAt }]
+  proposedSlots       Json
+  inviteeEmails       String[]
+  status              PollStatus @default(OPEN)
+  finalizedSlot       Json?
+  finalizedBookingId  String?    @unique
+  createdAt           DateTime   @default(now())
+
+  host              Host?         @relation("PersonalPollHost", fields: [hostId], references: [id], onDelete: Cascade)
+  project           Project?      @relation("ProjectPoll", fields: [projectId], references: [id], onDelete: Cascade)
+  owner             Host          @relation("PollOwner", fields: [ownerHostId], references: [id])
+  responses         PollResponse[]
+  finalizedBooking  Booking?      @relation("PollFinalizedBooking", fields: [finalizedBookingId], references: [id])
+
+  @@index([hostId])
+  @@index([projectId])
+}
+
+model PollResponse {
+  id           String   @id @default(cuid())
+  pollId       String
+  inviteeEmail String
+  // JSON shape: { [slotId]: 'YES' | 'NO' | 'MAYBE' }
+  votes        Json
+  // Signed token used by the public voting page; identifies this invitee without an account.
+  token        String   @unique
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  poll Poll @relation(fields: [pollId], references: [id], onDelete: Cascade)
+
+  @@unique([pollId, inviteeEmail])
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Round-robin state — fairness via least-recently-assigned (brief default)
+// ────────────────────────────────────────────────────────────────────────────
+
+model RoundRobinState {
+  meetingTypeId       String   @id
+  lastAssignedHostId  String?
+  updatedAt           DateTime @updatedAt
+
+  meetingType MeetingType @relation(fields: [meetingTypeId], references: [id], onDelete: Cascade)
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Invites — workspace + project scope
+// ────────────────────────────────────────────────────────────────────────────
+
+enum InviteKind {
+  WORKSPACE
+  PROJECT
+}
+
+model Invite {
+  id              String     @id @default(cuid())
+  kind            InviteKind
+  workspaceId     String?
+  projectId       String?
+  email           String
+  // For WORKSPACE invites: WorkspaceRole. For PROJECT invites: ProjectRole. Stored as string to keep one column.
+  role            String
+  token           String     @unique
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  invitedByHostId String
+  createdAt       DateTime   @default(now())
+
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project     Project?   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  invitedBy   Host       @relation("InviteSender", fields: [invitedByHostId], references: [id])
+
+  @@index([email])
+  @@index([workspaceId])
+  @@index([projectId])
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Reserved route slugs — populated by seed; checked alongside Host/Project on slug creation.
+// ────────────────────────────────────────────────────────────────────────────
+
+model ReservedSlug {
+  value     String   @id
+  createdAt DateTime @default(now())
+}

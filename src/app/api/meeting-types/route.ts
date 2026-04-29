@@ -26,6 +26,8 @@ const bodySchema = z.object({
     .number()
     .int()
     .refine((v) => (MAX_ADVANCE_DAYS as readonly number[]).includes(v)),
+  // Empty array = use the host's default conflict calendars. Non-empty = restrict to these.
+  conflictCalendarIds: z.array(z.string().min(1)).default([]),
 });
 
 export async function POST(request: NextRequest) {
@@ -38,6 +40,18 @@ export async function POST(request: NextRequest) {
     return new NextResponse(parsed.error.issues[0]?.message ?? "invalid body", { status: 400 });
   }
   const data = parsed.data;
+
+  // If conflictCalendarIds is non-empty, every ID must reference a calendar owned by the
+  // current host — defends against a client passing IDs that belong to someone else.
+  if (data.conflictCalendarIds.length > 0) {
+    const owned = await prisma.calendar.findMany({
+      where: { hostId: host.id, id: { in: data.conflictCalendarIds } },
+      select: { id: true },
+    });
+    if (owned.length !== data.conflictCalendarIds.length) {
+      return new NextResponse("One or more selected calendars don't belong to you.", { status: 400 });
+    }
+  }
 
   // Slug uniqueness within this host's personal meeting types is enforced by the DB unique
   // index (hostId, slug). Catch the conflict and return a clean error.
@@ -56,6 +70,7 @@ export async function POST(request: NextRequest) {
         bufferAfterMinutes: data.bufferAfterMinutes,
         minNoticeMinutes: data.minNoticeMinutes,
         maxAdvanceDays: data.maxAdvanceDays,
+        conflictCalendarIds: data.conflictCalendarIds,
       },
     });
     return NextResponse.json({ ok: true, id: created.id });

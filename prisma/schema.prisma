@@ -181,6 +181,9 @@ model MeetingType {
   // For project scope round-robin: hostIds drawn from ProjectMember.hostId.
   // Validation lives in src/lib/meeting-types.ts.
   assignedHostIds       String[]
+  // Optional per-meeting-type override of which Calendar.id rows count as conflict sources.
+  // Empty = use the host's default conflict-source set (CONFLICT_CHECK + WRITE_TARGET roles).
+  conflictCalendarIds   String[]
   intakeFormId          String?
   // Privacy: by default intake answers are not added to the calendar event description (brief §Privacy).
   includeAnswersInEvent Boolean     @default(false)

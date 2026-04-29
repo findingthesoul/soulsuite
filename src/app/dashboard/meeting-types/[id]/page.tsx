@@ -12,7 +12,13 @@ export default async function EditMeetingTypePage({
   const { id } = await params;
   const ctx = await getPageContextOrRedirect();
 
-  const mt = await prisma.meetingType.findUnique({ where: { id } });
+  const [mt, calendars] = await Promise.all([
+    prisma.meetingType.findUnique({ where: { id } }),
+    prisma.calendar.findMany({
+      where: { hostId: ctx.host.id },
+      orderBy: { createdAt: "asc" },
+    }),
+  ]);
   if (!mt || mt.scope !== "PERSONAL" || mt.hostId !== ctx.host.id) notFound();
 
   return (
@@ -26,6 +32,11 @@ export default async function EditMeetingTypePage({
         </header>
         <MeetingTypeForm
           hostSlug={ctx.host.slug}
+          hostCalendars={calendars.map((c) => ({
+            id: c.id,
+            summary: c.summary ?? c.googleCalendarId,
+            role: c.role,
+          }))}
           initial={{
             id: mt.id,
             name: mt.name,
@@ -36,6 +47,7 @@ export default async function EditMeetingTypePage({
             bufferAfterMinutes: mt.bufferAfterMinutes,
             minNoticeMinutes: mt.minNoticeMinutes,
             maxAdvanceDays: mt.maxAdvanceDays,
+            conflictCalendarIds: mt.conflictCalendarIds,
             isActive: mt.isActive,
           }}
         />

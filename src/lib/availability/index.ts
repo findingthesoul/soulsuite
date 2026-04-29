@@ -17,7 +17,7 @@ export async function getAvailableSlotsForMeetingType(
   range: { from: Date; to: Date },
 ): Promise<AvailableSlot[]> {
   const wh = (host.workingHours as WorkingHours | null) ?? {};
-  const busy = await fetchHostBusy(host, range);
+  const busy = await fetchHostBusy(host, range, meetingType);
   return computeAvailableSlots({
     host: { timezone: host.timezone, workingHours: wh },
     meetingType: {

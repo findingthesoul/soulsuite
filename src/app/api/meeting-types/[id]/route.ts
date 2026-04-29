@@ -25,6 +25,7 @@ const patchSchema = z.object({
     .number()
     .int()
     .refine((v) => (MAX_ADVANCE_DAYS as readonly number[]).includes(v)),
+  conflictCalendarIds: z.array(z.string().min(1)).default([]),
   isActive: z.boolean(),
 });
 
@@ -49,6 +50,17 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return new NextResponse(parsed.error.issues[0]?.message ?? "invalid body", { status: 400 });
   }
 
+  // Validate that any conflict-calendar IDs belong to this host.
+  if (parsed.data.conflictCalendarIds.length > 0) {
+    const owned = await prisma.calendar.findMany({
+      where: { hostId: host.id, id: { in: parsed.data.conflictCalendarIds } },
+      select: { id: true },
+    });
+    if (owned.length !== parsed.data.conflictCalendarIds.length) {
+      return new NextResponse("One or more selected calendars don't belong to you.", { status: 400 });
+    }
+  }
+
   try {
     await prisma.meetingType.update({
       where: { id },
@@ -61,6 +73,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         bufferAfterMinutes: parsed.data.bufferAfterMinutes,
         minNoticeMinutes: parsed.data.minNoticeMinutes,
         maxAdvanceDays: parsed.data.maxAdvanceDays,
+        conflictCalendarIds: parsed.data.conflictCalendarIds,
         isActive: parsed.data.isActive,
       },
     });

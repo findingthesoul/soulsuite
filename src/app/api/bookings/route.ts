@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
 
   let busy;
   try {
-    busy = await fetchHostBusy(host, range);
+    busy = await fetchHostBusy(host, range, meetingType);
   } catch (err) {
     if (isGoogleAuthError(err)) {
       await prisma.host.update({ where: { id: host.id }, data: { googleRefreshToken: null } });

@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -27,7 +28,14 @@ interface Initial {
   bufferAfterMinutes: number;
   minNoticeMinutes: number;
   maxAdvanceDays: number;
+  conflictCalendarIds: string[];
   isActive: boolean;
+}
+
+export interface HostCalendar {
+  id: string;
+  summary: string;
+  role: "PRIMARY" | "CONFLICT_CHECK" | "WRITE_TARGET";
 }
 
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
@@ -51,6 +59,7 @@ interface DraftValues {
   bufferAfterMinutes: number;
   minNoticeMinutes: number;
   maxAdvanceDays: number;
+  conflictCalendarIds: string[];
   isActive: boolean;
 }
 
@@ -63,14 +72,17 @@ const DRAFT_DEFAULT: DraftValues = {
   bufferAfterMinutes: 0,
   minNoticeMinutes: 60,
   maxAdvanceDays: 60,
+  conflictCalendarIds: [],
   isActive: true,
 };
 
 export function MeetingTypeForm({
   hostSlug,
+  hostCalendars,
   initial,
 }: {
   hostSlug: string;
+  hostCalendars: HostCalendar[];
   initial?: Initial;
 }) {
   const router = useRouter();
@@ -89,6 +101,7 @@ export function MeetingTypeForm({
           bufferAfterMinutes: initial.bufferAfterMinutes,
           minNoticeMinutes: initial.minNoticeMinutes,
           maxAdvanceDays: initial.maxAdvanceDays,
+          conflictCalendarIds: initial.conflictCalendarIds,
           isActive: initial.isActive,
         }
       : DRAFT_DEFAULT,
@@ -151,6 +164,7 @@ export function MeetingTypeForm({
           bufferAfterMinutes: draft.bufferAfterMinutes,
           minNoticeMinutes: draft.minNoticeMinutes,
           maxAdvanceDays: draft.maxAdvanceDays,
+          conflictCalendarIds: draft.conflictCalendarIds,
           isActive: draft.isActive,
         }),
       });
@@ -229,6 +243,23 @@ export function MeetingTypeForm({
             <SchedulingReadOnly committed={committed} />
           ) : (
             <SchedulingEditor draft={draft} update={update} />
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Conflict calendars</CardTitle>
+          <CardDescription>
+            Which of your calendars block this meeting type. Default uses every conflict-source you set in
+            <Link href="/settings/calendars" className="underline ml-1">Settings → Calendars</Link>.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {!editing ? (
+            <ConflictCalendarsReadOnly committed={committed} hostCalendars={hostCalendars} />
+          ) : (
+            <ConflictCalendarsEditor draft={draft} update={update} hostCalendars={hostCalendars} />
           )}
         </CardContent>
       </Card>
@@ -446,6 +477,110 @@ function Row({ label, value, mono }: { label: string; value: string; mono?: bool
     <div className="grid grid-cols-[140px_1fr] gap-3">
       <dt className="text-xs uppercase tracking-wide text-subtle-foreground pt-0.5">{label}</dt>
       <dd className={mono ? "font-mono text-sm text-foreground" : "text-foreground"}>{value}</dd>
+    </div>
+  );
+}
+
+function ConflictCalendarsReadOnly({
+  committed,
+  hostCalendars,
+}: {
+  committed: DraftValues;
+  hostCalendars: HostCalendar[];
+}) {
+  if (committed.conflictCalendarIds.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Using host default — every calendar marked as a conflict source.
+      </p>
+    );
+  }
+  const ids = new Set(committed.conflictCalendarIds);
+  const picked = hostCalendars.filter((c) => ids.has(c.id));
+  if (picked.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        No matching calendars (selections may have been removed). Edit to choose again.
+      </p>
+    );
+  }
+  return (
+    <ul className="space-y-1.5 text-sm">
+      {picked.map((c) => (
+        <li key={c.id} className="flex items-center gap-2">
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-foreground" />
+          <span className="text-foreground">{c.summary}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ConflictCalendarsEditor({
+  draft,
+  update,
+  hostCalendars,
+}: {
+  draft: DraftValues;
+  update: <K extends keyof DraftValues>(key: K, value: DraftValues[K]) => void;
+  hostCalendars: HostCalendar[];
+}) {
+  const overrideOn = draft.conflictCalendarIds.length > 0;
+
+  function toggleOverride(on: boolean) {
+    if (on) {
+      // Pre-select the host's current default set so the override matches today's behaviour
+      // before the user starts unticking calendars.
+      const defaults = hostCalendars
+        .filter((c) => c.role === "CONFLICT_CHECK" || c.role === "WRITE_TARGET")
+        .map((c) => c.id);
+      update("conflictCalendarIds", defaults);
+    } else {
+      update("conflictCalendarIds", []);
+    }
+  }
+
+  function toggleCalendar(id: string, checked: boolean) {
+    const set = new Set(draft.conflictCalendarIds);
+    if (checked) set.add(id);
+    else set.delete(id);
+    update("conflictCalendarIds", Array.from(set));
+  }
+
+  return (
+    <div className="space-y-3">
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={!overrideOn}
+          onChange={(e) => toggleOverride(!e.target.checked)}
+          className="h-4 w-4 rounded border-border accent-foreground"
+        />
+        Use host default (every conflict-source calendar)
+      </label>
+      {overrideOn && (
+        <ul className="rounded-md border border-border divide-y divide-border">
+          {hostCalendars.map((c) => {
+            const checked = draft.conflictCalendarIds.includes(c.id);
+            return (
+              <li key={c.id} className="flex items-center justify-between gap-3 p-3">
+                <label className="flex items-center gap-2 text-sm flex-1 min-w-0">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(e) => toggleCalendar(c.id, e.target.checked)}
+                    className="h-4 w-4 rounded border-border accent-foreground shrink-0"
+                  />
+                  <span className="truncate text-foreground">{c.summary}</span>
+                </label>
+                <span className="text-xs uppercase tracking-wide text-subtle-foreground shrink-0">
+                  {c.role === "WRITE_TARGET" ? "Write" : c.role === "CONFLICT_CHECK" ? "Conflict" : "—"}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight, Clock, Globe, Video } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -26,13 +26,13 @@ interface SerializedSlot {
   endsAt: string;
 }
 
-const DETECTED_TZ = (() => {
+function detectTz(): string {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone;
   } catch {
     return "UTC";
   }
-})();
+}
 
 export function BookingFlow({
   host,
@@ -44,7 +44,13 @@ export function BookingFlow({
   initialSlots: SerializedSlot[];
 }) {
   const router = useRouter();
-  const [tz, setTz] = useState(DETECTED_TZ);
+  // Start with the host's tz so server-rendered HTML matches client first paint. Swap to the
+  // browser's detected tz after mount.
+  const [tz, setTz] = useState(host.timezone);
+  useEffect(() => {
+    const detected = detectTz();
+    if (detected && detected !== host.timezone) setTz(detected);
+  }, [host.timezone]);
 
   // Group slots by their local date in the invitee's tz, then derive what dates are bookable
   // and which calendar month to display first.

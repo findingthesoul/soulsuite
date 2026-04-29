@@ -60,10 +60,10 @@ export default async function DashboardPage() {
                 </p>
               </div>
               <div className="flex gap-3 pt-1 text-sm">
-                <Link href="/onboarding/calendars" className="underline text-muted-foreground hover:text-foreground">
+                <Link href="/settings/calendars" className="underline text-muted-foreground hover:text-foreground">
                   Edit calendars
                 </Link>
-                <Link href="/onboarding/working-hours" className="underline text-muted-foreground hover:text-foreground">
+                <Link href="/settings/availability" className="underline text-muted-foreground hover:text-foreground">
                   Edit hours
                 </Link>
               </div>

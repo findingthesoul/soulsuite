@@ -8,6 +8,14 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import {
+  BUFFER_MINUTES,
+  MIN_NOTICE_MINUTES,
+  MAX_ADVANCE_DAYS,
+  formatMinutes,
+  formatBuffer,
+  formatMaxAdvanceDays,
+} from "@/lib/scheduling-rules";
 
 interface Initial {
   id: string;
@@ -15,6 +23,10 @@ interface Initial {
   slug: string;
   description: string | null;
   durationMinutes: number;
+  bufferBeforeMinutes: number;
+  bufferAfterMinutes: number;
+  minNoticeMinutes: number;
+  maxAdvanceDays: number;
   isActive: boolean;
 }
 
@@ -30,6 +42,30 @@ function autoSlug(s: string): string {
     .slice(0, 40);
 }
 
+interface DraftValues {
+  name: string;
+  slug: string;
+  description: string;
+  durationMinutes: number;
+  bufferBeforeMinutes: number;
+  bufferAfterMinutes: number;
+  minNoticeMinutes: number;
+  maxAdvanceDays: number;
+  isActive: boolean;
+}
+
+const DRAFT_DEFAULT: DraftValues = {
+  name: "",
+  slug: "",
+  description: "",
+  durationMinutes: 30,
+  bufferBeforeMinutes: 0,
+  bufferAfterMinutes: 0,
+  minNoticeMinutes: 60,
+  maxAdvanceDays: 60,
+  isActive: true,
+};
+
 export function MeetingTypeForm({
   hostSlug,
   initial,
@@ -40,40 +76,41 @@ export function MeetingTypeForm({
   const router = useRouter();
   const isEdit = Boolean(initial);
 
-  // For new meeting types, the form is always in "edit" mode. For existing ones we follow the
-  // app-wide read-only-by-default → click Edit → Save/Cancel pattern (see CLAUDE.md).
   const [editing, setEditing] = useState(!isEdit);
 
-  const [committed, setCommitted] = useState({
-    name: initial?.name ?? "",
-    slug: initial?.slug ?? "",
-    description: initial?.description ?? "",
-    durationMinutes: initial?.durationMinutes ?? 30,
-    isActive: initial?.isActive ?? true,
-  });
+  const [committed, setCommitted] = useState<DraftValues>(() =>
+    initial
+      ? {
+          name: initial.name,
+          slug: initial.slug,
+          description: initial.description ?? "",
+          durationMinutes: initial.durationMinutes,
+          bufferBeforeMinutes: initial.bufferBeforeMinutes,
+          bufferAfterMinutes: initial.bufferAfterMinutes,
+          minNoticeMinutes: initial.minNoticeMinutes,
+          maxAdvanceDays: initial.maxAdvanceDays,
+          isActive: initial.isActive,
+        }
+      : DRAFT_DEFAULT,
+  );
 
-  const [name, setName] = useState(committed.name);
-  const [slug, setSlug] = useState(committed.slug);
+  const [draft, setDraft] = useState<DraftValues>(committed);
   const [slugTouched, setSlugTouched] = useState(Boolean(initial));
-  const [description, setDescription] = useState(committed.description);
-  const [durationMinutes, setDurationMinutes] = useState(committed.durationMinutes);
-  const [isActive, setIsActive] = useState(committed.isActive);
-
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
+  function update<K extends keyof DraftValues>(key: K, value: DraftValues[K]) {
+    setDraft((prev) => ({ ...prev, [key]: value }));
+  }
+
   function handleNameChange(value: string) {
-    setName(value);
-    if (!slugTouched) setSlug(autoSlug(value));
+    update("name", value);
+    if (!slugTouched) update("slug", autoSlug(value));
   }
 
   function startEdit() {
-    setName(committed.name);
-    setSlug(committed.slug);
+    setDraft(committed);
     setSlugTouched(true);
-    setDescription(committed.description);
-    setDurationMinutes(committed.durationMinutes);
-    setIsActive(committed.isActive);
     setError(null);
     setEditing(true);
   }
@@ -83,23 +120,19 @@ export function MeetingTypeForm({
       router.push("/dashboard/meeting-types");
       return;
     }
-    setName(committed.name);
-    setSlug(committed.slug);
+    setDraft(committed);
     setSlugTouched(true);
-    setDescription(committed.description);
-    setDurationMinutes(committed.durationMinutes);
-    setIsActive(committed.isActive);
     setError(null);
     setEditing(false);
   }
 
   function submit() {
     setError(null);
-    if (name.trim().length < 2) return setError("Name is required.");
-    if (!SLUG_RE.test(slug)) {
+    if (draft.name.trim().length < 2) return setError("Name is required.");
+    if (!SLUG_RE.test(draft.slug)) {
       return setError("Slug must be 2–40 chars, lowercase letters/digits/hyphens.");
     }
-    if (![15, 30, 45, 60, 90, 120].includes(durationMinutes)) {
+    if (![15, 30, 45, 60, 90, 120].includes(draft.durationMinutes)) {
       return setError("Duration must be 15, 30, 45, 60, 90, or 120 minutes.");
     }
 
@@ -110,11 +143,15 @@ export function MeetingTypeForm({
         method,
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          name: name.trim(),
-          slug,
-          description: description.trim() || null,
-          durationMinutes,
-          isActive,
+          name: draft.name.trim(),
+          slug: draft.slug,
+          description: draft.description.trim() || null,
+          durationMinutes: draft.durationMinutes,
+          bufferBeforeMinutes: draft.bufferBeforeMinutes,
+          bufferAfterMinutes: draft.bufferAfterMinutes,
+          minNoticeMinutes: draft.minNoticeMinutes,
+          maxAdvanceDays: draft.maxAdvanceDays,
+          isActive: draft.isActive,
         }),
       });
       if (!res.ok) {
@@ -122,7 +159,7 @@ export function MeetingTypeForm({
         return;
       }
       if (isEdit) {
-        setCommitted({ name: name.trim(), slug, description: description.trim(), durationMinutes, isActive });
+        setCommitted({ ...draft, name: draft.name.trim(), description: draft.description.trim() });
         setEditing(false);
         router.refresh();
       } else {
@@ -165,75 +202,33 @@ export function MeetingTypeForm({
         </CardHeader>
         <CardContent className="space-y-4">
           {!editing ? (
-            <ReadOnlyView
-              committed={committed}
-              hostSlug={hostSlug}
-              meetingTypeSlug={committed.slug}
-            />
+            <DetailsReadOnly committed={committed} hostSlug={hostSlug} />
           ) : (
-            <>
-              <div className="space-y-1.5">
-                <Label htmlFor="name">Name</Label>
-                <Input
-                  id="name"
-                  value={name}
-                  onChange={(e) => handleNameChange(e.target.value)}
-                  placeholder="Intro call"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="slug">Slug</Label>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">/{hostSlug}/</span>
-                  <Input
-                    id="slug"
-                    value={slug}
-                    onChange={(e) => {
-                      setSlug(e.target.value.toLowerCase());
-                      setSlugTouched(true);
-                    }}
-                    placeholder="intro-call"
-                  />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="duration">Duration</Label>
-                <Select
-                  id="duration"
-                  value={String(durationMinutes)}
-                  onChange={(e) => setDurationMinutes(Number(e.target.value))}
-                >
-                  <option value="15">15 minutes</option>
-                  <option value="30">30 minutes</option>
-                  <option value="45">45 minutes</option>
-                  <option value="60">60 minutes</option>
-                  <option value="90">90 minutes</option>
-                  <option value="120">120 minutes</option>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="description">Description (optional)</Label>
-                <textarea
-                  id="description"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  rows={3}
-                  placeholder="Shown on the booking page."
-                  className="flex w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                />
-              </div>
-              {isEdit && (
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={isActive}
-                    onChange={(e) => setIsActive(e.target.checked)}
-                    className="h-4 w-4 rounded border-border accent-foreground"
-                  />
-                  Active — accept new bookings
-                </label>
-              )}
-            </>
+            <DetailsEditor
+              draft={draft}
+              update={update}
+              hostSlug={hostSlug}
+              isEdit={isEdit}
+              onNameChange={handleNameChange}
+              onSlugChange={(v) => {
+                update("slug", v.toLowerCase());
+                setSlugTouched(true);
+              }}
+            />
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Scheduling rules</CardTitle>
+          <CardDescription>Buffers, how soon people can book, and how far ahead.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {!editing ? (
+            <SchedulingReadOnly committed={committed} />
+          ) : (
+            <SchedulingEditor draft={draft} update={update} />
           )}
         </CardContent>
       </Card>
@@ -263,29 +258,186 @@ export function MeetingTypeForm({
   );
 }
 
-function ReadOnlyView({
-  committed,
-  hostSlug,
-  meetingTypeSlug,
-}: {
-  committed: {
-    name: string;
-    slug: string;
-    description: string;
-    durationMinutes: number;
-    isActive: boolean;
-  };
-  hostSlug: string;
-  meetingTypeSlug: string;
-}) {
+// ────────────────────────────────────────────────────────────
+// Subviews
+// ────────────────────────────────────────────────────────────
+
+function DetailsReadOnly({ committed, hostSlug }: { committed: DraftValues; hostSlug: string }) {
   return (
     <dl className="space-y-3 text-sm">
       <Row label="Name" value={committed.name} />
-      <Row label="Booking link" value={`/${hostSlug}/${meetingTypeSlug}`} mono />
+      <Row label="Booking link" value={`/${hostSlug}/${committed.slug}`} mono />
       <Row label="Duration" value={`${committed.durationMinutes} minutes`} />
       <Row label="Description" value={committed.description || "—"} />
       <Row label="Status" value={committed.isActive ? "Active" : "Inactive"} />
     </dl>
+  );
+}
+
+function SchedulingReadOnly({ committed }: { committed: DraftValues }) {
+  return (
+    <dl className="space-y-3 text-sm">
+      <Row label="Buffer" value={formatBuffer(committed.bufferBeforeMinutes, committed.bufferAfterMinutes)} />
+      <Row label="Min notice" value={formatMinutes(committed.minNoticeMinutes)} />
+      <Row label="Max advance" value={formatMaxAdvanceDays(committed.maxAdvanceDays)} />
+    </dl>
+  );
+}
+
+function DetailsEditor({
+  draft,
+  update,
+  hostSlug,
+  isEdit,
+  onNameChange,
+  onSlugChange,
+}: {
+  draft: DraftValues;
+  update: <K extends keyof DraftValues>(key: K, value: DraftValues[K]) => void;
+  hostSlug: string;
+  isEdit: boolean;
+  onNameChange: (v: string) => void;
+  onSlugChange: (v: string) => void;
+}) {
+  return (
+    <>
+      <div className="space-y-1.5">
+        <Label htmlFor="name">Name</Label>
+        <Input
+          id="name"
+          value={draft.name}
+          onChange={(e) => onNameChange(e.target.value)}
+          placeholder="Intro call"
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="slug">Slug</Label>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">/{hostSlug}/</span>
+          <Input
+            id="slug"
+            value={draft.slug}
+            onChange={(e) => onSlugChange(e.target.value)}
+            placeholder="intro-call"
+          />
+        </div>
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="duration">Duration</Label>
+        <Select
+          id="duration"
+          value={String(draft.durationMinutes)}
+          onChange={(e) => update("durationMinutes", Number(e.target.value))}
+        >
+          <option value="15">15 minutes</option>
+          <option value="30">30 minutes</option>
+          <option value="45">45 minutes</option>
+          <option value="60">60 minutes</option>
+          <option value="90">90 minutes</option>
+          <option value="120">120 minutes</option>
+        </Select>
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="description">Description (optional)</Label>
+        <textarea
+          id="description"
+          value={draft.description}
+          onChange={(e) => update("description", e.target.value)}
+          rows={3}
+          placeholder="Shown on the booking page."
+          className="flex w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        />
+      </div>
+      {isEdit && (
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={draft.isActive}
+            onChange={(e) => update("isActive", e.target.checked)}
+            className="h-4 w-4 rounded border-border accent-foreground"
+          />
+          Active — accept new bookings
+        </label>
+      )}
+    </>
+  );
+}
+
+function SchedulingEditor({
+  draft,
+  update,
+}: {
+  draft: DraftValues;
+  update: <K extends keyof DraftValues>(key: K, value: DraftValues[K]) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="bufferBefore">Buffer before</Label>
+          <Select
+            id="bufferBefore"
+            value={String(draft.bufferBeforeMinutes)}
+            onChange={(e) => update("bufferBeforeMinutes", Number(e.target.value))}
+          >
+            {BUFFER_MINUTES.map((m) => (
+              <option key={m} value={String(m)}>
+                {m === 0 ? "None" : `${m} min`}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="bufferAfter">Buffer after</Label>
+          <Select
+            id="bufferAfter"
+            value={String(draft.bufferAfterMinutes)}
+            onChange={(e) => update("bufferAfterMinutes", Number(e.target.value))}
+          >
+            {BUFFER_MINUTES.map((m) => (
+              <option key={m} value={String(m)}>
+                {m === 0 ? "None" : `${m} min`}
+              </option>
+            ))}
+          </Select>
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Buffers reserve quiet time around the meeting; e.g. 15 min after means the next slot can&apos;t start
+        until 15 min after this one ends.
+      </p>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="minNotice">Minimum notice</Label>
+          <Select
+            id="minNotice"
+            value={String(draft.minNoticeMinutes)}
+            onChange={(e) => update("minNoticeMinutes", Number(e.target.value))}
+          >
+            {MIN_NOTICE_MINUTES.map((m) => (
+              <option key={m} value={String(m)}>
+                {formatMinutes(m)}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="maxAdvance">Bookable up to</Label>
+          <Select
+            id="maxAdvance"
+            value={String(draft.maxAdvanceDays)}
+            onChange={(e) => update("maxAdvanceDays", Number(e.target.value))}
+          >
+            {MAX_ADVANCE_DAYS.map((d) => (
+              <option key={d} value={String(d)}>
+                {formatMaxAdvanceDays(d)}
+              </option>
+            ))}
+          </Select>
+        </div>
+      </div>
+    </div>
   );
 }
 

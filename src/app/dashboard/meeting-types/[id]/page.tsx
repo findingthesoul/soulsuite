@@ -32,6 +32,10 @@ export default async function EditMeetingTypePage({
             slug: mt.slug,
             description: mt.description,
             durationMinutes: mt.durationMinutes,
+            bufferBeforeMinutes: mt.bufferBeforeMinutes,
+            bufferAfterMinutes: mt.bufferAfterMinutes,
+            minNoticeMinutes: mt.minNoticeMinutes,
+            maxAdvanceDays: mt.maxAdvanceDays,
             isActive: mt.isActive,
           }}
         />

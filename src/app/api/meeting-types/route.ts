@@ -3,12 +3,29 @@ import { z } from "zod";
 import { Scope, RoutingMode } from "@prisma/client";
 import { getCurrentHost } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { BUFFER_MINUTES, MIN_NOTICE_MINUTES, MAX_ADVANCE_DAYS } from "@/lib/scheduling-rules";
 
 const bodySchema = z.object({
   name: z.string().trim().min(2).max(80),
   slug: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/),
   description: z.string().nullable().optional(),
   durationMinutes: z.number().int().refine((v) => [15, 30, 45, 60, 90, 120].includes(v)),
+  bufferBeforeMinutes: z
+    .number()
+    .int()
+    .refine((v) => (BUFFER_MINUTES as readonly number[]).includes(v)),
+  bufferAfterMinutes: z
+    .number()
+    .int()
+    .refine((v) => (BUFFER_MINUTES as readonly number[]).includes(v)),
+  minNoticeMinutes: z
+    .number()
+    .int()
+    .refine((v) => (MIN_NOTICE_MINUTES as readonly number[]).includes(v)),
+  maxAdvanceDays: z
+    .number()
+    .int()
+    .refine((v) => (MAX_ADVANCE_DAYS as readonly number[]).includes(v)),
 });
 
 export async function POST(request: NextRequest) {
@@ -35,10 +52,10 @@ export async function POST(request: NextRequest) {
         durationMinutes: data.durationMinutes,
         routingMode: RoutingMode.SINGLE,
         assignedHostIds: [host.id],
-        bufferBeforeMinutes: 0,
-        bufferAfterMinutes: 0,
-        // Step 2 of build order: no notice / no advance limits yet. Schema defaults to sensible
-        // values (60 min notice, 60 day advance) which keeps the engine well-behaved.
+        bufferBeforeMinutes: data.bufferBeforeMinutes,
+        bufferAfterMinutes: data.bufferAfterMinutes,
+        minNoticeMinutes: data.minNoticeMinutes,
+        maxAdvanceDays: data.maxAdvanceDays,
       },
     });
     return NextResponse.json({ ok: true, id: created.id });

@@ -2,12 +2,29 @@ import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { getCurrentHost } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { BUFFER_MINUTES, MIN_NOTICE_MINUTES, MAX_ADVANCE_DAYS } from "@/lib/scheduling-rules";
 
 const patchSchema = z.object({
   name: z.string().trim().min(2).max(80),
   slug: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/),
   description: z.string().nullable().optional(),
   durationMinutes: z.number().int().refine((v) => [15, 30, 45, 60, 90, 120].includes(v)),
+  bufferBeforeMinutes: z
+    .number()
+    .int()
+    .refine((v) => (BUFFER_MINUTES as readonly number[]).includes(v)),
+  bufferAfterMinutes: z
+    .number()
+    .int()
+    .refine((v) => (BUFFER_MINUTES as readonly number[]).includes(v)),
+  minNoticeMinutes: z
+    .number()
+    .int()
+    .refine((v) => (MIN_NOTICE_MINUTES as readonly number[]).includes(v)),
+  maxAdvanceDays: z
+    .number()
+    .int()
+    .refine((v) => (MAX_ADVANCE_DAYS as readonly number[]).includes(v)),
   isActive: z.boolean(),
 });
 
@@ -40,6 +57,10 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         slug: parsed.data.slug,
         description: parsed.data.description ?? null,
         durationMinutes: parsed.data.durationMinutes,
+        bufferBeforeMinutes: parsed.data.bufferBeforeMinutes,
+        bufferAfterMinutes: parsed.data.bufferAfterMinutes,
+        minNoticeMinutes: parsed.data.minNoticeMinutes,
+        maxAdvanceDays: parsed.data.maxAdvanceDays,
         isActive: parsed.data.isActive,
       },
     });

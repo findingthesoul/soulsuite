@@ -95,13 +95,18 @@ export default async function DashboardPage() {
           </Card>
         </section>
 
-        <Card className="border-dashed">
-          <CardContent className="pt-5 text-sm text-muted-foreground">
-            <p className="font-medium text-foreground">Step 1 of build order is live.</p>
-            <p className="mt-1">
-              Up next: single-host personal meeting type + availability engine + booking flow (no buffers, no
-              forms). See <code>soul-scheduler-brief.md §Build order</code>.
-            </p>
+        <Card>
+          <CardHeader>
+            <CardTitle>Meeting types</CardTitle>
+            <CardDescription>Personal bookable links.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link
+              href="/dashboard/meeting-types"
+              className="text-sm underline text-muted-foreground hover:text-foreground"
+            >
+              Manage meeting types →
+            </Link>
           </CardContent>
         </Card>
       </div>

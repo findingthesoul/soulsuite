@@ -278,7 +278,7 @@ function CalendarGrid({
   selectedDate: string | null;
   onSelect: (date: string) => void;
 }) {
-  const monthLabel = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(
+  const monthLabel = new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric" }).format(
     new Date(displayed.year, displayed.month - 1, 1),
   );
 
@@ -527,8 +527,12 @@ function groupByLocalDate(slots: SerializedSlot[], tz: string): Record<string, S
   return out;
 }
 
+// Locale is pinned to en-GB so server-rendered HTML matches the client's first paint regardless
+// of the visitor's browser locale. Format is unambiguous ("Friday 1 May", "11:45"). Switching
+// to the visitor's locale post-mount is possible but requires more state plumbing — defer.
+
 function formatTime(iso: string, tz: string): string {
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat("en-GB", {
     timeZone: tz,
     hour: "2-digit",
     minute: "2-digit",
@@ -538,7 +542,7 @@ function formatTime(iso: string, tz: string): string {
 
 function formatLongDate(yyyymmdd: string, tz: string): string {
   const d = new Date(`${yyyymmdd}T12:00:00Z`);
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat("en-GB", {
     timeZone: tz,
     weekday: "long",
     month: "long",

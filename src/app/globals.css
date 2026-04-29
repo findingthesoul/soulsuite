@@ -1,24 +1,96 @@
 @import "tailwindcss";
 
+/*
+ * Design tokens — light default, dark via `.dark` class on <html>.
+ * Components reference these via Tailwind theme tokens (e.g. `bg-background`, `text-foreground`).
+ * Never hardcode hex values in components; always go through a token.
+ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #0a0a0a;
+  --radius: 0.625rem;
+
+  /* Surfaces */
+  --background: #fafaf9;            /* page bg */
+  --surface: #ffffff;               /* cards, popovers */
+  --surface-muted: #f4f4f5;         /* subtle fills */
+
+  /* Text */
+  --foreground: #0c0a09;            /* primary text */
+  --muted-foreground: #57534e;      /* secondary text */
+  --subtle-foreground: #a8a29e;     /* tertiary / placeholders */
+
+  /* Borders */
+  --border: #e7e5e4;
+  --border-strong: #d6d3d1;
+  --ring: #1c1917;                  /* focus ring */
+
+  /* Brand / accent — warm, calm. Refine later. */
+  --primary: #1c1917;
+  --primary-foreground: #fafafa;
+  --accent: #f59e0b;                /* amber for emphasis */
+  --accent-foreground: #1c1917;
+
+  /* Status */
+  --destructive: #b91c1c;
+  --destructive-foreground: #fef2f2;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #fafafa;
-  }
+.dark {
+  --background: #0a0a0a;
+  --surface: #18181b;
+  --surface-muted: #27272a;
+
+  --foreground: #fafafa;
+  --muted-foreground: #a1a1aa;
+  --subtle-foreground: #71717a;
+
+  --border: #27272a;
+  --border-strong: #3f3f46;
+  --ring: #fafafa;
+
+  --primary: #fafafa;
+  --primary-foreground: #18181b;
+  --accent: #f59e0b;
+  --accent-foreground: #18181b;
+
+  --destructive: #ef4444;
+  --destructive-foreground: #fef2f2;
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
   --color-foreground: var(--foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-subtle-foreground: var(--subtle-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-ring: var(--ring);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
 }
 
 html, body {
   background: var(--background);
   color: var(--foreground);
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-feature-settings: "ss01", "cv11";
+}
+
+* {
+  border-color: var(--border);
+}
+
+/* Avoid theme flash before the ThemeProvider mounts. */
+html.theme-loading * {
+  transition: none !important;
 }

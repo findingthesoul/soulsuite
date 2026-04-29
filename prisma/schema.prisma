@@ -26,6 +26,9 @@ model Workspace {
   name                String
   slug                String   @unique
   primaryEmailDomain  String
+  // Branding — surfaced in the app header and (later) public booking pages.
+  logoUrl             String?
+  brandColor          String?  // hex like "#1c1917"
   createdAt           DateTime @default(now())
 
   members  WorkspaceMember[]

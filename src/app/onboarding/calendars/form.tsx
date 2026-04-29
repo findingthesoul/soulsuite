@@ -2,6 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Select } from "@/components/ui/select";
 
 type GoogleCalendar = { id: string; summary: string; primary: boolean; accessRole: string | null };
 type SavedCalendar = { googleCalendarId: string; role: "PRIMARY" | "CONFLICT_CHECK" | "WRITE_TARGET" };
@@ -76,42 +79,40 @@ export function CalendarPickerForm({
 
   return (
     <div className="space-y-4">
-      <ul className="divide-y divide-neutral-200 rounded-lg border border-neutral-200">
-        {calendars.map((cal) => (
-          <li key={cal.id} className="flex items-center justify-between gap-4 p-3">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium">{cal.summary}</p>
-              <p className="truncate text-xs text-neutral-500">
-                {cal.primary ? "Primary · " : ""}
-                {cal.accessRole ?? "—"}
-              </p>
-            </div>
-            <select
-              value={selections[cal.id]}
-              onChange={(e) => setRole(cal.id, e.target.value as Selection)}
-              className="rounded-md border border-neutral-300 bg-white px-2 py-1 text-sm text-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
-            >
-              <option value="off">Ignore</option>
-              <option value="conflict">Conflict source</option>
-              <option value="write">Write target</option>
-            </select>
-          </li>
-        ))}
-      </ul>
+      <Card>
+        <ul className="divide-y divide-border">
+          {calendars.map((cal) => (
+            <li key={cal.id} className="flex items-center justify-between gap-4 p-4">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-foreground">{cal.summary}</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {cal.primary ? "Primary · " : ""}
+                  {cal.accessRole ?? "—"}
+                </p>
+              </div>
+              <Select
+                value={selections[cal.id]}
+                onChange={(e) => setRole(cal.id, e.target.value as Selection)}
+                className="w-44"
+              >
+                <option value="off">Ignore</option>
+                <option value="conflict">Conflict source</option>
+                <option value="write">Write target</option>
+              </Select>
+            </li>
+          ))}
+        </ul>
+      </Card>
       {writeCount !== 1 && (
-        <p className="text-xs text-amber-700">
+        <p className="text-xs text-accent">
           Pick exactly one write target — that&apos;s where new bookings get created.
         </p>
       )}
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-destructive">{error}</p>}
       <div className="flex justify-end">
-        <button
-          onClick={submit}
-          disabled={!canSubmit}
-          className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 hover:bg-neutral-800"
-        >
+        <Button onClick={submit} disabled={!canSubmit}>
           {pending ? "Saving…" : "Continue"}
-        </button>
+        </Button>
       </div>
     </div>
   );

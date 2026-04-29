@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { publicEnv } from "@/lib/env";
+import { Button } from "@/components/ui/button";
+import { CenterShell } from "@/components/app-shell";
 
 // Calendar scopes per the brief. `calendar.events` covers read+write; `freebusy` is implied.
 // `offline_access` makes Google return a refresh token, which Supabase persists in auth.identities.
@@ -40,24 +42,23 @@ export default function SignInPage() {
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center p-6">
+    <CenterShell>
       <div className="w-full max-w-sm space-y-6">
         <div className="space-y-2 text-center">
-          <h1 className="text-2xl font-semibold">Soul Suite</h1>
-          <p className="text-sm text-neutral-500">Sign in with your Google account.</p>
+          <div className="mx-auto inline-flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground font-semibold">
+            S
+          </div>
+          <h1 className="text-2xl font-semibold tracking-tight">Soul Suite</h1>
+          <p className="text-sm text-muted-foreground">Sign in with your Google account.</p>
         </div>
-        <button
-          onClick={handleSignIn}
-          disabled={busy}
-          className="w-full rounded-lg bg-neutral-900 text-white py-2.5 text-sm font-medium hover:bg-neutral-800 disabled:opacity-50"
-        >
+        <Button onClick={handleSignIn} disabled={busy} className="w-full" size="lg">
           {busy ? "Redirecting…" : "Continue with Google"}
-        </button>
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        <p className="text-xs text-neutral-500 text-center">
+        </Button>
+        {error && <p className="text-sm text-destructive text-center">{error}</p>}
+        <p className="text-xs text-muted-foreground text-center">
           Workspace members must use an @soul.com account. External collaborators need a project invite.
         </p>
       </div>
-    </main>
+    </CenterShell>
   );
 }

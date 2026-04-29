@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
   }
 
   const supabase = await createSupabaseServerClient();
-  const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+  const { data: exchangeData, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
   if (exchangeError) {
     return NextResponse.redirect(new URL(`/auth/error?reason=${encodeURIComponent(exchangeError.message)}`, url));
   }
@@ -29,7 +29,20 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL("/auth/error?reason=no-user", url));
   }
 
-  const host = await ensureHostFromAuthUser(userData.user);
+  // Google's refresh token is only present in the session at exchange time — it's not persisted
+  // in auth.identities. Capture it here and pass it through so we can store it on the Host row.
+  const session = exchangeData.session as
+    | { provider_token?: string | null; provider_refresh_token?: string | null }
+    | null;
+  const providerRefreshToken = session?.provider_refresh_token ?? null;
+  // eslint-disable-next-line no-console
+  console.log("[auth/callback] tokens", {
+    hasProviderToken: !!session?.provider_token,
+    hasProviderRefreshToken: !!providerRefreshToken,
+    sessionKeys: session ? Object.keys(session) : null,
+  });
+
+  const host = await ensureHostFromAuthUser(userData.user, providerRefreshToken);
   const outcome = await resolvePostSignIn(host);
 
   switch (outcome.kind) {

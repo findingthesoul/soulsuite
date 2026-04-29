@@ -1,5 +1,6 @@
-// Soul Scheduler — Prisma schema.
-// Mirrors the domain model in soul-scheduler-brief.md. Three layers: Workspace → Project → Personal.
+// Soul Suite — Prisma schema.
+// Mirrors the domain model in soul-scheduler-brief.md (filename predates the rename).
+// Three layers: Workspace → Project → Personal.
 //
 // Cross-table slug uniqueness (Host.slug ⊥ Project.slug) is enforced at the application layer
 // via src/lib/slugs.ts inside a transaction. A future raw-SQL migration should add a Postgres

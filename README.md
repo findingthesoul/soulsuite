@@ -1,4 +1,4 @@
-# Soul Scheduler
+# Soul Suite
 
 Self-hosted scheduling layer on top of Google Calendar for the Soul collective.
 
@@ -38,7 +38,7 @@ You need an OAuth client whose ID/secret you'll plug into both Supabase and the 
 2. **APIs & Services → Library**: enable **Google Calendar API**.
 3. **APIs & Services → OAuth consent screen**:
    - User type: **External** (Internal only works if your domain is on Google Workspace and you don't need external collaborators — but external collaborators are part of v1, so use External).
-   - App name: `Soul Scheduler`. Support email: yours.
+   - App name: `Soul Suite`. Support email: yours.
    - **Scopes**: add
      - `.../auth/userinfo.email`
      - `.../auth/userinfo.profile`

@@ -43,7 +43,7 @@ export default function SignInPage() {
     <main className="min-h-screen flex items-center justify-center p-6">
       <div className="w-full max-w-sm space-y-6">
         <div className="space-y-2 text-center">
-          <h1 className="text-2xl font-semibold">Soul Scheduler</h1>
+          <h1 className="text-2xl font-semibold">Soul Suite</h1>
           <p className="text-sm text-neutral-500">Sign in with your Google account.</p>
         </div>
         <button

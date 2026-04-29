@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { buttonVariants } from "@/components/ui/button";
+import { CenterShell } from "@/components/app-shell";
 
 export default async function AuthErrorPage({
   searchParams,
@@ -7,19 +9,16 @@ export default async function AuthErrorPage({
 }) {
   const { reason } = await searchParams;
   return (
-    <main className="min-h-screen flex items-center justify-center p-6">
+    <CenterShell>
       <div className="w-full max-w-md space-y-4 text-center">
-        <h1 className="text-2xl font-semibold">Sign-in failed</h1>
-        <p className="text-sm text-neutral-600">
+        <h1 className="text-2xl font-semibold tracking-tight">Sign-in failed</h1>
+        <p className="text-sm text-muted-foreground">
           {reason ?? "Something went wrong during sign-in."}
         </p>
-        <Link
-          href="/auth/signin"
-          className="inline-block rounded-lg border border-neutral-300 px-4 py-2 text-sm hover:bg-neutral-50"
-        >
+        <Link href="/auth/signin" className={buttonVariants({ variant: "secondary" })}>
           Try again
         </Link>
       </div>
-    </main>
+    </CenterShell>
   );
 }

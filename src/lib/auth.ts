@@ -34,13 +34,21 @@ export function isWorkspaceDomain(email: string): boolean {
 // Idempotently creates the Host row for a freshly authenticated user, capturing the Google
 // refresh token so the availability engine can call freebusy on their behalf.
 //
+// `sessionRefreshToken` is what Supabase returns from `exchangeCodeForSession` — the most
+// reliable source. Falls back to `auth.identities.identity_data.provider_refresh_token` (older
+// Supabase versions stash it there). Both can be null on subsequent sign-ins where Google
+// doesn't re-issue a refresh token.
+//
 // Does NOT create memberships — that's workspace.ts's job, since the rules differ for
 // @soul.com vs external collaborators.
-export async function ensureHostFromAuthUser(user: User): Promise<Host> {
+export async function ensureHostFromAuthUser(
+  user: User,
+  sessionRefreshToken: string | null = null,
+): Promise<Host> {
   const email = user.email;
   if (!email) throw new Error("Auth user has no email");
 
-  const refreshToken = await getGoogleRefreshTokenForAuthUser(user.id);
+  const refreshToken = sessionRefreshToken ?? (await getGoogleRefreshTokenForAuthUser(user.id));
   const name =
     (user.user_metadata?.full_name as string | undefined) ??
     (user.user_metadata?.name as string | undefined) ??
@@ -56,6 +64,21 @@ export async function ensureHostFromAuthUser(user: User): Promise<Host> {
       });
     }
     return existing;
+  }
+
+  // Seed inserts placeholder Host rows (e.g. owner sjoerd@soul.com with a fake authUserId) so
+  // workspace ownership and demo data exist before anyone signs in. On first real sign-in, claim
+  // the row by linking it to the real Supabase auth user.
+  const claimable = await prisma.host.findUnique({ where: { email } });
+  if (claimable) {
+    return prisma.host.update({
+      where: { id: claimable.id },
+      data: {
+        authUserId: user.id,
+        name: claimable.name || name,
+        googleRefreshToken: refreshToken ?? claimable.googleRefreshToken,
+      },
+    });
   }
 
   const slug = await generateUniqueSlug(name);

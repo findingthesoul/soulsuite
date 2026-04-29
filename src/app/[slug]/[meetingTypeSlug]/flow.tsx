@@ -38,10 +38,12 @@ export function BookingFlow({
   host,
   meetingType,
   initialSlots,
+  projectName,
 }: {
   host: Host;
   meetingType: MeetingType;
   initialSlots: SerializedSlot[];
+  projectName?: string | null;
 }) {
   const router = useRouter();
   // Start with the host's tz so server-rendered HTML matches client first paint. Swap to the
@@ -81,7 +83,7 @@ export function BookingFlow({
       <div className="mx-auto max-w-5xl px-4 py-8 md:px-6 md:py-14">
         <div className="rounded-xl border border-border bg-surface shadow-xs overflow-hidden">
           <div className="grid md:grid-cols-[280px_1fr]">
-            <EventPanel host={host} meetingType={meetingType} tz={tz} />
+            <EventPanel host={host} meetingType={meetingType} tz={tz} projectName={projectName} />
             <div className="p-6 md:p-8 border-t md:border-t-0 md:border-l border-border min-h-[480px]">
               {step === "pick" ? (
                 <PickPanel
@@ -128,12 +130,24 @@ export function BookingFlow({
 // Left column — event metadata
 // ────────────────────────────────────────────────────────────
 
-function EventPanel({ host, meetingType, tz }: { host: Host; meetingType: MeetingType; tz: string }) {
+function EventPanel({
+  host,
+  meetingType,
+  tz,
+  projectName,
+}: {
+  host: Host;
+  meetingType: MeetingType;
+  tz: string;
+  projectName?: string | null;
+}) {
   return (
     <aside className="p-6 md:p-8 bg-surface-muted/40 space-y-5">
-      <Avatar name={host.name} size="lg" />
+      <Avatar name={projectName ?? host.name} size="lg" />
       <div className="space-y-1">
-        <p className="text-sm text-muted-foreground">{host.name}</p>
+        <p className="text-sm text-muted-foreground">
+          {projectName ? `${projectName} · with ${host.name}` : host.name}
+        </p>
         <h1 className="text-2xl font-semibold tracking-tight leading-tight">{meetingType.name}</h1>
       </div>
       <ul className="space-y-2 text-sm text-muted-foreground">

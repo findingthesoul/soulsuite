@@ -81,16 +81,29 @@ export default async function DashboardPage() {
               ) : (
                 <ul className="divide-y divide-border -mx-1">
                   {projectMemberships.map((pm) => (
-                    <li key={pm.id} className="flex items-center justify-between px-1 py-2 text-sm">
-                      <div>
-                        <p className="font-medium text-foreground">{pm.project.name}</p>
-                        <p className="text-xs text-muted-foreground">/{pm.project.slug}</p>
-                      </div>
-                      <span className="text-xs uppercase tracking-wide text-subtle-foreground">{pm.role}</span>
+                    <li key={pm.id}>
+                      <Link
+                        href={`/dashboard/projects/${pm.project.slug}`}
+                        className="flex items-center justify-between px-1 py-2 text-sm hover:bg-surface-muted rounded-md -mx-1 px-2"
+                      >
+                        <div>
+                          <p className="font-medium text-foreground">{pm.project.name}</p>
+                          <p className="text-xs text-muted-foreground">/{pm.project.slug}</p>
+                        </div>
+                        <span className="text-xs uppercase tracking-wide text-subtle-foreground">{pm.role}</span>
+                      </Link>
                     </li>
                   ))}
                 </ul>
               )}
+              <div className="pt-3">
+                <Link
+                  href="/dashboard/projects"
+                  className="text-sm underline text-muted-foreground hover:text-foreground"
+                >
+                  All projects →
+                </Link>
+              </div>
             </CardContent>
           </Card>
         </section>

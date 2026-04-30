@@ -4,7 +4,8 @@ import { InviteKind } from "@prisma/client";
 import { getCurrentHost } from "@/lib/auth";
 import { getWorkspaceRole, canManageWorkspace } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
-import { generateInviteToken, inviteExpiresAt } from "@/lib/invites";
+import { generateInviteToken, inviteExpiresAt, inviteUrl } from "@/lib/invites";
+import { sendEmail, memberInviteTemplate } from "@/lib/email";
 
 const bodySchema = z.object({
   email: z.string().email().max(200).transform((s) => s.toLowerCase()),
@@ -59,16 +60,35 @@ export async function POST(request: NextRequest) {
     },
   });
 
+  const token = generateInviteToken();
+  const expiresAt = inviteExpiresAt();
   await prisma.invite.create({
     data: {
       kind: InviteKind.WORKSPACE,
       workspaceId: membership.workspaceId,
       email,
       role,
-      token: generateInviteToken(),
-      expiresAt: inviteExpiresAt(),
+      token,
+      expiresAt,
       invitedByHostId: host.id,
     },
+  });
+
+  const tmpl = memberInviteTemplate({
+    inviterName: host.name,
+    workspaceName: membership.workspace.name,
+    scopeLabel: `the ${membership.workspace.name} workspace`,
+    acceptUrl: inviteUrl(token),
+    recipientEmail: email,
+    expiresAt,
+  });
+  void sendEmail({
+    to: email,
+    subject: tmpl.subject,
+    html: tmpl.html,
+    text: tmpl.text,
+    fromName: host.name,
+    replyTo: host.email,
   });
 
   return NextResponse.json({ ok: true });

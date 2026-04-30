@@ -172,6 +172,38 @@ export function pollInviteTemplate(args: {
   return { html, text, subject };
 }
 
+// Workspace member invite — sent when an OWNER/ADMIN adds someone to the workspace.
+// Project invite re-uses the same template with a different scope label.
+export function memberInviteTemplate(args: {
+  inviterName: string;
+  workspaceName: string;
+  scopeLabel: string; // e.g. "the Soul workspace" or "the EBBF Athens project"
+  acceptUrl: string;
+  recipientEmail: string;
+  expiresAt: Date;
+}): { html: string; text: string; subject: string } {
+  const subject = `${args.inviterName} invited you to ${args.scopeLabel} on ${args.workspaceName}`;
+  const expiresStr = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "UTC",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(args.expiresAt);
+  const html = brandFrame(
+    "You've been invited",
+    `<p>${escapeHtml(args.inviterName)} has invited you to <strong>${escapeHtml(args.scopeLabel)}</strong> on Soul Suite.</p>
+    <p style="margin-top:20px">
+      <a href="${escapeAttr(args.acceptUrl)}" style="display:inline-block;padding:10px 18px;background:#1c1917;color:#fafafa;border-radius:6px;text-decoration:none">Accept invite</a>
+    </p>
+    <p style="font-size:12px;color:#a8a29e;margin-top:16px">This link is for ${escapeHtml(args.recipientEmail)} and expires on ${escapeHtml(expiresStr)}.</p>`,
+  );
+  const text =
+    `${args.inviterName} invited you to ${args.scopeLabel} on Soul Suite.\n\n` +
+    `Accept here: ${args.acceptUrl}\n\n` +
+    `Link expires on ${expiresStr}.\n`;
+  return { html, text, subject };
+}
+
 // ────────────────────────────────────────────────────────────
 // Helpers
 // ────────────────────────────────────────────────────────────

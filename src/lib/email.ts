@@ -79,6 +79,9 @@ interface BookingTemplateInput {
   cancelUrl: string;
   rescheduleUrl: string;
   meetUrl?: string | null;
+  // Public URL serving an .ics file for this booking. Linked from the email so invitees on
+  // Apple/Outlook/etc. can add the meeting to their calendar in one click.
+  icalUrl?: string | null;
 }
 
 function brandFrame(title: string, body: string): string {
@@ -105,6 +108,7 @@ export function bookingConfirmationTemplate(b: BookingTemplateInput): { html: st
       <tr><td style="padding:4px 0;color:#57534e">What</td><td style="padding:4px 0 4px 24px">${escapeHtml(b.meetingTypeName)}</td></tr>
       ${b.meetUrl ? `<tr><td style="padding:4px 0;color:#57534e">Join</td><td style="padding:4px 0 4px 24px"><a href="${escapeAttr(b.meetUrl)}">${escapeHtml(b.meetUrl)}</a></td></tr>` : ""}
     </table>
+    ${b.icalUrl ? `<p style="margin-top:12px"><a href="${escapeAttr(b.icalUrl)}" style="display:inline-block;padding:8px 14px;border:1px solid #e7e5e4;color:#0c0a09;border-radius:6px;text-decoration:none">Add to calendar (.ics)</a></p>` : ""}
     <p>Need to change something?</p>
     <p>
       <a href="${escapeAttr(b.rescheduleUrl)}" style="display:inline-block;padding:8px 14px;background:#1c1917;color:#fafafa;border-radius:6px;text-decoration:none;margin-right:8px">Reschedule</a>
@@ -115,6 +119,7 @@ export function bookingConfirmationTemplate(b: BookingTemplateInput): { html: st
     `You're booked: ${b.meetingTypeName} with ${b.hostName}\n\n` +
     `When: ${when}\n` +
     (b.meetUrl ? `Join: ${b.meetUrl}\n` : "") +
+    (b.icalUrl ? `Add to calendar: ${b.icalUrl}\n` : "") +
     `\nReschedule: ${b.rescheduleUrl}\nCancel: ${b.cancelUrl}\n`;
   return { html, text, subject };
 }
@@ -139,6 +144,7 @@ export function bookingRescheduleTemplate(b: BookingTemplateInput): { html: stri
     `<p>Hi ${escapeHtml(b.inviteeName)},</p>
     <p>Your meeting with <strong>${escapeHtml(b.hostName)}</strong> has been moved to <strong>${escapeHtml(when)}</strong>.</p>
     ${b.meetUrl ? `<p>Join link: <a href="${escapeAttr(b.meetUrl)}">${escapeHtml(b.meetUrl)}</a></p>` : ""}
+    ${b.icalUrl ? `<p style="margin-top:12px"><a href="${escapeAttr(b.icalUrl)}" style="display:inline-block;padding:8px 14px;border:1px solid #e7e5e4;color:#0c0a09;border-radius:6px;text-decoration:none">Add updated time to calendar (.ics)</a></p>` : ""}
     <p>Need to change again?</p>
     <p>
       <a href="${escapeAttr(b.rescheduleUrl)}" style="display:inline-block;padding:8px 14px;background:#1c1917;color:#fafafa;border-radius:6px;text-decoration:none;margin-right:8px">Reschedule</a>
@@ -148,6 +154,7 @@ export function bookingRescheduleTemplate(b: BookingTemplateInput): { html: stri
   const text =
     `Rescheduled to ${when}\n` +
     (b.meetUrl ? `Join: ${b.meetUrl}\n` : "") +
+    (b.icalUrl ? `Add to calendar: ${b.icalUrl}\n` : "") +
     `\nReschedule again: ${b.rescheduleUrl}\nCancel: ${b.cancelUrl}\n`;
   return { html, text, subject };
 }

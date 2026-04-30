@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { Calendar, Clock, Mail, Video, X, RefreshCw } from "lucide-react";
+import { Calendar, CalendarPlus, Clock, Mail, Video, X, RefreshCw } from "lucide-react";
 import { Avatar } from "@/components/ui/avatar";
 import { buttonVariants } from "@/components/ui/button";
 import { resolvePublicBooking } from "@/lib/booking-public";
@@ -88,6 +88,10 @@ export default async function ConfirmedPage({
 
           {!isCancelled && (
             <div className="flex flex-wrap gap-2 pt-1">
+              <a href={`${baseUrl}/calendar.ics`} className={buttonVariants({ variant: "secondary" })}>
+                <CalendarPlus className="h-3.5 w-3.5" />
+                Add to calendar
+              </a>
               <Link href={`${baseUrl}/reschedule`} className={buttonVariants({ variant: "secondary" })}>
                 <RefreshCw className="h-3.5 w-3.5" />
                 Reschedule

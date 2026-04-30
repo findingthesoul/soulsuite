@@ -16,7 +16,7 @@ const patchSchema = z.object({
   bufferAfterMinutes: z.number().int().refine((v) => (BUFFER_MINUTES as readonly number[]).includes(v)),
   minNoticeMinutes: z.number().int().refine((v) => (MIN_NOTICE_MINUTES as readonly number[]).includes(v)),
   maxAdvanceDays: z.number().int().refine((v) => (MAX_ADVANCE_DAYS as readonly number[]).includes(v)),
-  routingMode: z.enum(["SINGLE", "ROUND_ROBIN"]).default("SINGLE"),
+  routingMode: z.enum(["SINGLE", "ROUND_ROBIN", "COLLECTIVE"]).default("SINGLE"),
   assignedHostIds: z.array(z.string().min(1)).min(1),
   conflictCalendarIds: z.array(z.string().min(1)).default([]),
   intakeFields: intakeFieldsSchema.default([]),
@@ -59,6 +59,9 @@ export async function PATCH(
   if (data.routingMode === "ROUND_ROBIN" && data.assignedHostIds.length < 2) {
     return new NextResponse("Round-robin needs at least two assigned hosts.", { status: 400 });
   }
+  if (data.routingMode === "COLLECTIVE" && data.assignedHostIds.length < 2) {
+    return new NextResponse("Collective needs at least two assigned hosts.", { status: 400 });
+  }
 
   const members = await prisma.projectMember.findMany({
     where: { projectId, hostId: { in: data.assignedHostIds } },
@@ -80,6 +83,12 @@ export async function PATCH(
   if (data.routingMode === "ROUND_ROBIN" && data.conflictCalendarIds.length > 0) {
     return new NextResponse(
       "Round-robin can't use a single conflict-calendar override — each host's defaults apply.",
+      { status: 400 },
+    );
+  }
+  if (data.routingMode === "COLLECTIVE" && data.conflictCalendarIds.length > 0) {
+    return new NextResponse(
+      "Collective can't use a single conflict-calendar override — each host's defaults apply.",
       { status: 400 },
     );
   }

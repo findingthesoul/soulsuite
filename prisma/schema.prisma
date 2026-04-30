@@ -176,6 +176,7 @@ enum Scope {
 enum RoutingMode {
   SINGLE
   ROUND_ROBIN
+  COLLECTIVE
 }
 
 model MeetingType {

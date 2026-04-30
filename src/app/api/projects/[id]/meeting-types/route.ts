@@ -17,7 +17,7 @@ const bodySchema = z.object({
   bufferAfterMinutes: z.number().int().refine((v) => (BUFFER_MINUTES as readonly number[]).includes(v)),
   minNoticeMinutes: z.number().int().refine((v) => (MIN_NOTICE_MINUTES as readonly number[]).includes(v)),
   maxAdvanceDays: z.number().int().refine((v) => (MAX_ADVANCE_DAYS as readonly number[]).includes(v)),
-  routingMode: z.enum(["SINGLE", "ROUND_ROBIN"]).default("SINGLE"),
+  routingMode: z.enum(["SINGLE", "ROUND_ROBIN", "COLLECTIVE"]).default("SINGLE"),
   // SINGLE → exactly 1 host. ROUND_ROBIN → 2 or more.
   assignedHostIds: z.array(z.string().min(1)).min(1),
   conflictCalendarIds: z.array(z.string().min(1)).default([]),
@@ -49,6 +49,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (data.routingMode === "ROUND_ROBIN" && data.assignedHostIds.length < 2) {
     return new NextResponse("Round-robin needs at least two assigned hosts.", { status: 400 });
   }
+  if (data.routingMode === "COLLECTIVE" && data.assignedHostIds.length < 2) {
+    return new NextResponse("Collective needs at least two assigned hosts.", { status: 400 });
+  }
 
   // Every assignedHostId must be a ProjectMember of this project.
   const members = await prisma.projectMember.findMany({
@@ -74,6 +77,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (data.routingMode === "ROUND_ROBIN" && data.conflictCalendarIds.length > 0) {
     return new NextResponse(
       "Round-robin can't use a single conflict-calendar override — each host's defaults apply.",
+      { status: 400 },
+    );
+  }
+  if (data.routingMode === "COLLECTIVE" && data.conflictCalendarIds.length > 0) {
+    return new NextResponse(
+      "Collective can't use a single conflict-calendar override — each host's defaults apply.",
       { status: 400 },
     );
   }
@@ -105,7 +114,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           name: data.name,
           description: data.description ?? null,
           durationMinutes: data.durationMinutes,
-          routingMode: data.routingMode === "ROUND_ROBIN" ? RoutingMode.ROUND_ROBIN : RoutingMode.SINGLE,
+          routingMode:
+            data.routingMode === "ROUND_ROBIN"
+              ? RoutingMode.ROUND_ROBIN
+              : data.routingMode === "COLLECTIVE"
+                ? RoutingMode.COLLECTIVE
+                : RoutingMode.SINGLE,
           assignedHostIds: data.assignedHostIds,
           bufferBeforeMinutes: data.bufferBeforeMinutes,
           bufferAfterMinutes: data.bufferAfterMinutes,

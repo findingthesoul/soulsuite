@@ -118,12 +118,19 @@ export async function POST(request: NextRequest) {
     if (isFree) freeHosts.push(cand);
   }
 
-  if (freeHosts.length === 0) {
+  // COLLECTIVE requires every assigned host to be free. ROUND_ROBIN/SINGLE only need at least one.
+  if (meetingType.routingMode === "COLLECTIVE") {
+    if (freeHosts.length !== candidateHostIds.length) {
+      return new NextResponse("That slot is no longer available — please pick another time.", { status: 409 });
+    }
+  } else if (freeHosts.length === 0) {
     return new NextResponse("That slot is no longer available — please pick another time.", { status: 409 });
   }
 
   // Pick the actual booking host. SINGLE → only candidate. ROUND_ROBIN → least-recently-assigned
   // among the free candidates (tie-broken by ProjectMember.addedAt for stable behaviour).
+  // COLLECTIVE → deterministic first id in assignedHostIds (the "saving" host owns the calendar
+  // event + Zoom meeting; everyone else is added as an attendee so the Meet link works for all).
   let host: (typeof freeHosts)[number];
   if (meetingType.scope === "PROJECT" && meetingType.routingMode === "ROUND_ROBIN" && freeHosts.length > 1) {
     const winnerId = await pickRoundRobinHost(
@@ -131,9 +138,19 @@ export async function POST(request: NextRequest) {
       freeHosts.map((h) => h.id),
     );
     host = freeHosts.find((h) => h.id === winnerId) ?? freeHosts[0];
+  } else if (meetingType.routingMode === "COLLECTIVE") {
+    const firstId = candidateHostIds[0];
+    host = freeHosts.find((h) => h.id === firstId) ?? freeHosts[0];
   } else {
     host = freeHosts[0];
   }
+
+  // For COLLECTIVE: every assigned host (other than the saving host) is added as an attendee
+  // on the Google event so the Meet link works for everyone.
+  const collectiveCoHosts =
+    meetingType.routingMode === "COLLECTIVE"
+      ? freeHosts.filter((h) => h.id !== host.id)
+      : [];
 
   const writeTarget = host.calendars.find((c) => c.role === "WRITE_TARGET")!;
 
@@ -240,6 +257,7 @@ export async function POST(request: NextRequest) {
         attendees: [
           { email: body.inviteeEmail, displayName: body.inviteeName },
           { email: host.email, displayName: host.name, organizer: true },
+          ...collectiveCoHosts.map((h) => ({ email: h.email, displayName: h.name })),
         ],
         conferenceData: useGoogleMeet
           ? { createRequest: { requestId: randomUUID(), conferenceSolutionKey: { type: "hangoutsMeet" } } }

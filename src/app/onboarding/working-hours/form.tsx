@@ -39,8 +39,11 @@ function defaultSchedule(): Schedule {
 
 function timezoneOptions(): string[] {
   const intl = Intl as typeof Intl & { supportedValuesOf?: (key: string) => string[] };
-  if (typeof intl.supportedValuesOf === "function") return intl.supportedValuesOf("timeZone");
-  return ["Europe/Amsterdam", "Europe/London", "Europe/Berlin", "America/New_York", "America/Los_Angeles", "UTC"];
+  const list =
+    typeof intl.supportedValuesOf === "function"
+      ? intl.supportedValuesOf("timeZone")
+      : ["Europe/Amsterdam", "Europe/London", "Europe/Berlin", "America/New_York", "America/Los_Angeles", "UTC"];
+  return [...list].sort();
 }
 
 interface Initial {

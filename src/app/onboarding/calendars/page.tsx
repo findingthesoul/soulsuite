@@ -1,4 +1,4 @@
-import { calendarFor, isGoogleAuthError } from "@/lib/google/client";
+import { calendarFor, isGoogleAuthError, isHostOwnedCalendar } from "@/lib/google/client";
 import { prisma } from "@/lib/prisma";
 import { getPageContextOrRedirect, shellProps, type PageContext } from "@/lib/page-context";
 import { CalendarPickerForm } from "./form";
@@ -22,12 +22,14 @@ export default async function CalendarPickerPage() {
   try {
     const cal = calendarFor(ctx.host.googleRefreshToken);
     const res = await cal.calendarList.list({ maxResults: 100 });
-    calendars = (res.data.items ?? []).map((c) => ({
-      id: c.id ?? "",
-      summary: c.summaryOverride ?? c.summary ?? c.id ?? "(unnamed)",
-      primary: Boolean(c.primary),
-      accessRole: c.accessRole ?? null,
-    }));
+    calendars = (res.data.items ?? [])
+      .filter((c) => c.id && isHostOwnedCalendar(c.id, ctx.host.email))
+      .map((c) => ({
+        id: c.id ?? "",
+        summary: c.summaryOverride ?? c.summary ?? c.id ?? "(unnamed)",
+        primary: Boolean(c.primary),
+        accessRole: c.accessRole ?? null,
+      }));
   } catch (err) {
     if (isGoogleAuthError(err)) {
       // Token revoked or expired — wipe the cached value so the user re-consents.

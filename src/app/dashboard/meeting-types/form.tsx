@@ -17,6 +17,8 @@ import {
   formatBuffer,
   formatMaxAdvanceDays,
 } from "@/lib/scheduling-rules";
+import { type IntakeField, FIELD_TYPE_LABELS } from "@/lib/intake";
+import { IntakeFieldsEditor } from "@/components/intake-fields-editor";
 
 interface Initial {
   id: string;
@@ -29,6 +31,7 @@ interface Initial {
   minNoticeMinutes: number;
   maxAdvanceDays: number;
   conflictCalendarIds: string[];
+  intakeFields: IntakeField[];
   isActive: boolean;
 }
 
@@ -60,6 +63,7 @@ interface DraftValues {
   minNoticeMinutes: number;
   maxAdvanceDays: number;
   conflictCalendarIds: string[];
+  intakeFields: IntakeField[];
   isActive: boolean;
 }
 
@@ -73,6 +77,7 @@ const DRAFT_DEFAULT: DraftValues = {
   minNoticeMinutes: 60,
   maxAdvanceDays: 60,
   conflictCalendarIds: [],
+  intakeFields: [],
   isActive: true,
 };
 
@@ -102,6 +107,7 @@ export function MeetingTypeForm({
           minNoticeMinutes: initial.minNoticeMinutes,
           maxAdvanceDays: initial.maxAdvanceDays,
           conflictCalendarIds: initial.conflictCalendarIds,
+          intakeFields: initial.intakeFields,
           isActive: initial.isActive,
         }
       : DRAFT_DEFAULT,
@@ -165,6 +171,7 @@ export function MeetingTypeForm({
           minNoticeMinutes: draft.minNoticeMinutes,
           maxAdvanceDays: draft.maxAdvanceDays,
           conflictCalendarIds: draft.conflictCalendarIds,
+          intakeFields: draft.intakeFields,
           isActive: draft.isActive,
         }),
       });
@@ -243,6 +250,25 @@ export function MeetingTypeForm({
             <SchedulingReadOnly committed={committed} />
           ) : (
             <SchedulingEditor draft={draft} update={update} />
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Intake questions</CardTitle>
+          <CardDescription>
+            Optional questions shown after the slot is picked. Answers are stored on the booking.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {!editing ? (
+            <IntakeReadOnly fields={committed.intakeFields} />
+          ) : (
+            <IntakeFieldsEditor
+              fields={draft.intakeFields}
+              onChange={(next) => update("intakeFields", next)}
+            />
           )}
         </CardContent>
       </Card>
@@ -478,6 +504,34 @@ function Row({ label, value, mono }: { label: string; value: string; mono?: bool
       <dt className="text-xs uppercase tracking-wide text-subtle-foreground pt-0.5">{label}</dt>
       <dd className={mono ? "font-mono text-sm text-foreground" : "text-foreground"}>{value}</dd>
     </div>
+  );
+}
+
+function IntakeReadOnly({ fields }: { fields: IntakeField[] }) {
+  if (fields.length === 0) {
+    return <p className="text-sm text-muted-foreground">No intake questions — bookings only collect name + email.</p>;
+  }
+  return (
+    <ul className="space-y-2 text-sm">
+      {fields.map((f) => (
+        <li key={f.key} className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-foreground">
+              {f.label || <span className="italic text-muted-foreground">Untitled</span>}
+              {f.required && <span className="text-destructive ml-0.5">*</span>}
+            </p>
+            {f.conditionalOn && (
+              <p className="text-xs text-muted-foreground">
+                Shown when <span className="font-mono">{f.conditionalOn.fieldKey}</span> = &ldquo;{f.conditionalOn.equals}&rdquo;
+              </p>
+            )}
+          </div>
+          <span className="text-xs uppercase tracking-wide text-subtle-foreground shrink-0">
+            {FIELD_TYPE_LABELS[f.type]}
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 

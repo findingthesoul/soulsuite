@@ -1,10 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { createHash, randomUUID } from "node:crypto";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { calendarFor, isGoogleAuthError } from "@/lib/google/client";
 import { computeAvailableSlots, type WorkingHours } from "@/lib/availability/engine";
 import { fetchHostBusy } from "@/lib/availability/freebusy";
+import { type IntakeField, validateAnswers, pruneHiddenAnswers } from "@/lib/intake";
+import { pickRoundRobinHost } from "@/lib/round-robin";
 
 const bodySchema = z.object({
   meetingTypeId: z.string().min(1),
@@ -13,6 +16,8 @@ const bodySchema = z.object({
   inviteeName: z.string().trim().min(1).max(120),
   inviteeEmail: z.string().email().max(200),
   inviteeTimezone: z.string().min(1).max(80),
+  // Free-form answers; validated against the meeting type's intake form fields below.
+  intakeAnswers: z.record(z.string(), z.unknown()).optional(),
 });
 
 /**
@@ -43,63 +48,98 @@ export async function POST(request: NextRequest) {
     return new NextResponse("End must be after start.", { status: 400 });
   }
 
-  const meetingType = await prisma.meetingType.findUnique({ where: { id: body.meetingTypeId } });
+  const meetingType = await prisma.meetingType.findUnique({
+    where: { id: body.meetingTypeId },
+    include: { intakeForm: true },
+  });
   if (!meetingType || !meetingType.isActive) return new NextResponse("Meeting type not found", { status: 404 });
-  if (meetingType.scope !== "PERSONAL" || !meetingType.hostId) {
-    return new NextResponse("Project meeting types are not yet supported.", { status: 400 });
-  }
   if ((endsAt.getTime() - startsAt.getTime()) / 60000 !== meetingType.durationMinutes) {
     return new NextResponse("Slot duration mismatch.", { status: 400 });
   }
 
-  const host = await prisma.host.findUnique({
-    where: { id: meetingType.hostId },
-    include: { calendars: true },
-  });
-  if (!host) return new NextResponse("Host not found", { status: 404 });
-  const writeTarget = host.calendars.find((c) => c.role === "WRITE_TARGET");
-  if (!writeTarget) {
-    return new NextResponse("Host hasn't picked a write-target calendar.", { status: 409 });
-  }
-  if (!host.googleRefreshToken) {
-    return new NextResponse("Host needs to reconnect Google.", { status: 503 });
+  // Resolve the host. PERSONAL → meetingType.hostId. PROJECT/SINGLE → assignedHostIds[0].
+  // PROJECT/ROUND_ROBIN → pick the least-recently-assigned host that's actually free at the
+  // requested slot. We compute that below after running freebusy.
+  let candidateHostIds: string[];
+  if (meetingType.scope === "PERSONAL") {
+    if (!meetingType.hostId) return new NextResponse("Meeting type has no host", { status: 404 });
+    candidateHostIds = [meetingType.hostId];
+  } else {
+    candidateHostIds = meetingType.assignedHostIds;
+    if (candidateHostIds.length === 0) {
+      return new NextResponse("Meeting type has no host", { status: 404 });
+    }
   }
 
-  // Re-validate availability with a fresh freebusy call. We expand the query window slightly
-  // around the requested slot to give the engine context for buffer logic (brief §6).
+  // Re-validate availability with a fresh freebusy call against EVERY candidate host (one for
+  // SINGLE, many for ROUND_ROBIN). A host counts as "free" only if their fresh slots include
+  // the requested time. We collect the free ones and pick the fairness winner below.
   const margin = (Math.max(meetingType.bufferBeforeMinutes, meetingType.bufferAfterMinutes) + 60) * 60000;
   const range = { from: new Date(startsAt.getTime() - margin), to: new Date(endsAt.getTime() + margin) };
 
-  let busy;
-  try {
-    busy = await fetchHostBusy(host, range, meetingType);
-  } catch (err) {
-    if (isGoogleAuthError(err)) {
-      await prisma.host.update({ where: { id: host.id }, data: { googleRefreshToken: null } });
-      return new NextResponse("Host needs to reconnect Google.", { status: 503 });
-    }
-    throw err;
-  }
-
-  const slots = computeAvailableSlots({
-    host: { timezone: host.timezone, workingHours: (host.workingHours as WorkingHours | null) ?? {} },
-    meetingType: {
-      durationMinutes: meetingType.durationMinutes,
-      bufferBeforeMinutes: meetingType.bufferBeforeMinutes,
-      bufferAfterMinutes: meetingType.bufferAfterMinutes,
-      minNoticeMinutes: meetingType.minNoticeMinutes,
-      maxAdvanceDays: meetingType.maxAdvanceDays,
-    },
-    range,
-    busy,
+  const candidateHosts = await prisma.host.findMany({
+    where: { id: { in: candidateHostIds } },
+    include: { calendars: true },
   });
 
-  const stillAvailable = slots.some(
-    (s) => s.startsAt.getTime() === startsAt.getTime() && s.endsAt.getTime() === endsAt.getTime(),
-  );
-  if (!stillAvailable) {
+  const freeHosts: typeof candidateHosts = [];
+  for (const cand of candidateHosts) {
+    if (!cand.googleRefreshToken) continue;
+    if (!cand.calendars.some((c) => c.role === "WRITE_TARGET")) continue;
+    let busy;
+    try {
+      busy = await fetchHostBusy(cand, range, meetingType);
+    } catch (err) {
+      if (isGoogleAuthError(err)) {
+        await prisma.host.update({ where: { id: cand.id }, data: { googleRefreshToken: null } });
+        continue; // skip — try the next candidate
+      }
+      throw err;
+    }
+    const slots = computeAvailableSlots({
+      host: { timezone: cand.timezone, workingHours: (cand.workingHours as WorkingHours | null) ?? {} },
+      meetingType: {
+        durationMinutes: meetingType.durationMinutes,
+        bufferBeforeMinutes: meetingType.bufferBeforeMinutes,
+        bufferAfterMinutes: meetingType.bufferAfterMinutes,
+        minNoticeMinutes: meetingType.minNoticeMinutes,
+        maxAdvanceDays: meetingType.maxAdvanceDays,
+      },
+      range,
+      busy,
+    });
+    const isFree = slots.some(
+      (s) => s.startsAt.getTime() === startsAt.getTime() && s.endsAt.getTime() === endsAt.getTime(),
+    );
+    if (isFree) freeHosts.push(cand);
+  }
+
+  if (freeHosts.length === 0) {
     return new NextResponse("That slot is no longer available — please pick another time.", { status: 409 });
   }
+
+  // Pick the actual booking host. SINGLE → only candidate. ROUND_ROBIN → least-recently-assigned
+  // among the free candidates (tie-broken by ProjectMember.addedAt for stable behaviour).
+  let host: (typeof freeHosts)[number];
+  if (meetingType.scope === "PROJECT" && meetingType.routingMode === "ROUND_ROBIN" && freeHosts.length > 1) {
+    const winnerId = await pickRoundRobinHost(
+      meetingType.projectId!,
+      freeHosts.map((h) => h.id),
+    );
+    host = freeHosts.find((h) => h.id === winnerId) ?? freeHosts[0];
+  } else {
+    host = freeHosts[0];
+  }
+
+  const writeTarget = host.calendars.find((c) => c.role === "WRITE_TARGET")!;
+
+  // Validate intake answers against the meeting type's form (if any). Hidden answers are pruned
+  // so the stored row only reflects what the user actually saw.
+  const intakeFields = (meetingType.intakeForm?.fields as unknown as IntakeField[] | undefined) ?? [];
+  const rawAnswers = body.intakeAnswers ?? {};
+  const intakeError = validateAnswers(intakeFields, rawAnswers);
+  if (intakeError) return new NextResponse(intakeError.message, { status: 400 });
+  const cleanedAnswers = pruneHiddenAnswers(intakeFields, rawAnswers);
 
   // Idempotent request id: derived from (meetingType, host, startsAt, inviteeEmail) so retries
   // collide on the unique index instead of double-booking. UUID prefix lets us see distinct
@@ -122,6 +162,10 @@ export async function POST(request: NextRequest) {
         projectId: meetingType.projectId,
         inviteeEmail: body.inviteeEmail,
         inviteeName: body.inviteeName,
+        inviteeAnswers:
+          Object.keys(cleanedAnswers).length > 0
+            ? (cleanedAnswers as Prisma.InputJsonValue)
+            : undefined,
         startsAt,
         endsAt,
         requestId,
@@ -139,7 +183,9 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const cal = calendarFor(host.googleRefreshToken);
+    // Non-null assertion: the candidate-filter loop above already excluded hosts without a
+    // refresh token, so host.googleRefreshToken can't be null here.
+    const cal = calendarFor(host.googleRefreshToken!);
     const ev = await cal.events.insert({
       calendarId: writeTarget.googleCalendarId,
       conferenceDataVersion: 1,
@@ -168,6 +214,14 @@ export async function POST(request: NextRequest) {
       where: { id: bookingId },
       data: { googleEventId: ev.data.id ?? null },
     });
+    // Round-robin fairness: stamp the picked host so the next ROUND_ROBIN booking on this
+    // project considers them most-recently-assigned (i.e. ranks them last).
+    if (meetingType.scope === "PROJECT" && meetingType.routingMode === "ROUND_ROBIN") {
+      await prisma.projectMember.update({
+        where: { projectId_hostId: { projectId: meetingType.projectId!, hostId: host.id } },
+        data: { lastAssignedAt: new Date() },
+      });
+    }
   } catch (err) {
     if (isGoogleAuthError(err)) {
       await prisma.host.update({ where: { id: host.id }, data: { googleRefreshToken: null } });

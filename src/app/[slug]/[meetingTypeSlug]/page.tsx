@@ -4,6 +4,8 @@ import { getAvailableSlotsForMeetingType } from "@/lib/availability";
 import { isGoogleAuthError } from "@/lib/google/client";
 import { BookingFlow } from "./flow";
 import { RESERVED_SLUGS } from "@/lib/slugs.constants";
+import type { IntakeField } from "@/lib/intake";
+import { computeRoundRobinSlots } from "@/lib/round-robin";
 
 // Public booking page — no auth. URL pattern is shared between hosts and projects, so we
 // resolve the first segment as a Host first, then fall back to Project (brief §"URL patterns").
@@ -21,7 +23,7 @@ export default async function PublicBookingPage({
   const resolved = await resolveMeetingTypeAndHost(slug, meetingTypeSlug);
   if (!resolved) notFound();
 
-  const { host, meetingType, projectName, publicSlug } = resolved;
+  const { host, meetingType, projectName, publicSlug, intakeFields } = resolved;
 
   const now = new Date();
   const range = {
@@ -32,8 +34,16 @@ export default async function PublicBookingPage({
   let slots: { startsAt: string; endsAt: string }[] = [];
   let needsHostReauth = false;
   try {
-    const computed = await getAvailableSlotsForMeetingType(meetingType, host, range);
-    slots = computed.map((s) => ({ startsAt: s.startsAt.toISOString(), endsAt: s.endsAt.toISOString() }));
+    if (meetingType.routingMode === "ROUND_ROBIN" && resolved.roundRobinHosts) {
+      const computed = await computeRoundRobinSlots(meetingType, resolved.roundRobinHosts, range);
+      slots = computed.map((s) => ({
+        startsAt: s.startsAt.toISOString(),
+        endsAt: s.endsAt.toISOString(),
+      }));
+    } else {
+      const computed = await getAvailableSlotsForMeetingType(meetingType, host, range);
+      slots = computed.map((s) => ({ startsAt: s.startsAt.toISOString(), endsAt: s.endsAt.toISOString() }));
+    }
   } catch (err) {
     if (isGoogleAuthError(err)) needsHostReauth = true;
     else throw err;
@@ -63,6 +73,7 @@ export default async function PublicBookingPage({
         durationMinutes: meetingType.durationMinutes,
       }}
       projectName={projectName}
+      intakeFields={intakeFields}
       initialSlots={slots}
     />
   );
@@ -81,32 +92,50 @@ async function resolveMeetingTypeAndHost(slug: string, meetingTypeSlug: string) 
   if (host) {
     const meetingType = await prisma.meetingType.findFirst({
       where: { scope: "PERSONAL", hostId: host.id, slug: meetingTypeSlug, isActive: true },
+      include: { intakeForm: true },
     });
     if (!meetingType) return null;
-    return { host, meetingType, projectName: null as string | null, publicSlug: host.slug };
+    const intakeFields = (meetingType.intakeForm?.fields as unknown as IntakeField[] | undefined) ?? [];
+    return {
+      host,
+      meetingType,
+      projectName: null as string | null,
+      publicSlug: host.slug,
+      intakeFields,
+      roundRobinHosts: null,
+    };
   }
 
-  // Path B: project meeting type under a project slug. We resolve the SINGLE assigned host.
+  // Path B: project meeting type under a project slug. SINGLE → resolve the one assigned host.
+  // ROUND_ROBIN → load all assigned hosts and let the round-robin engine union their availability.
   const project = await prisma.project.findUnique({ where: { slug } });
   if (!project || !project.isActive) return null;
 
   const meetingType = await prisma.meetingType.findFirst({
     where: { scope: "PROJECT", projectId: project.id, slug: meetingTypeSlug, isActive: true },
+    include: { intakeForm: true },
   });
   if (!meetingType) return null;
+  if (meetingType.assignedHostIds.length === 0) return null;
 
-  const assignedHostId = meetingType.assignedHostIds[0];
-  if (!assignedHostId) return null;
-  const assignedHost = await prisma.host.findUnique({
-    where: { id: assignedHostId },
+  const assignedHosts = await prisma.host.findMany({
+    where: { id: { in: meetingType.assignedHostIds } },
     include: { calendars: true },
   });
-  if (!assignedHost) return null;
+  if (assignedHosts.length === 0) return null;
+
+  // The "primary" host for the public-facing avatar/name on the booking page. For ROUND_ROBIN
+  // we just show the first assigned host's name; the actual booked host is decided at submit
+  // time. Round-robin avatars / "any of N hosts" UX is a future polish item.
+  const primaryHost = assignedHosts[0];
+  const intakeFields = (meetingType.intakeForm?.fields as unknown as IntakeField[] | undefined) ?? [];
 
   return {
-    host: assignedHost,
+    host: primaryHost,
     meetingType,
     projectName: project.name,
     publicSlug: project.slug,
+    intakeFields,
+    roundRobinHosts: meetingType.routingMode === "ROUND_ROBIN" ? assignedHosts : null,
   };
 }

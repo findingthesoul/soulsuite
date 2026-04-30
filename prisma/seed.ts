@@ -70,12 +70,12 @@ async function main() {
 
   // Project containing both — guest joins as external.
   const project = await prisma.project.upsert({
-    where: { slug: "nme-schouwen-duiveland" },
+    where: { slug: "demo-project" },
     update: {},
     create: {
       workspaceId: workspace.id,
-      slug: "nme-schouwen-duiveland",
-      name: "NME Schouwen-Duiveland",
+      slug: "demo-project",
+      name: "Demo Project",
       description: "Demo engagement seeded by prisma/seed.ts",
     },
   });

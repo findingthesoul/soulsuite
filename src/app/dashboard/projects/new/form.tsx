@@ -73,7 +73,7 @@ export function NewProjectForm() {
               id="name"
               value={name}
               onChange={(e) => handleNameChange(e.target.value)}
-              placeholder="NME Schouwen-Duiveland"
+              placeholder="My project"
             />
           </div>
           <div className="space-y-1.5">
@@ -87,7 +87,7 @@ export function NewProjectForm() {
                   setSlug(e.target.value.toLowerCase());
                   setSlugTouched(true);
                 }}
-                placeholder="nme-schouwen-duiveland"
+                placeholder="my-project"
               />
             </div>
             <p className="text-xs text-muted-foreground">

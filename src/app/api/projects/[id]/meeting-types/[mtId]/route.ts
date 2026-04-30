@@ -4,6 +4,8 @@ import { getCurrentHost } from "@/lib/auth";
 import { canManageProject, getProjectMembership } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { BUFFER_MINUTES, MIN_NOTICE_MINUTES, MAX_ADVANCE_DAYS } from "@/lib/scheduling-rules";
+import { intakeFieldsSchema } from "@/lib/intake";
+import { syncIntakeForm } from "@/lib/intake-server";
 
 const patchSchema = z.object({
   name: z.string().trim().min(2).max(80),
@@ -14,8 +16,10 @@ const patchSchema = z.object({
   bufferAfterMinutes: z.number().int().refine((v) => (BUFFER_MINUTES as readonly number[]).includes(v)),
   minNoticeMinutes: z.number().int().refine((v) => (MIN_NOTICE_MINUTES as readonly number[]).includes(v)),
   maxAdvanceDays: z.number().int().refine((v) => (MAX_ADVANCE_DAYS as readonly number[]).includes(v)),
-  assignedHostIds: z.array(z.string().min(1)).length(1),
+  routingMode: z.enum(["SINGLE", "ROUND_ROBIN"]).default("SINGLE"),
+  assignedHostIds: z.array(z.string().min(1)).min(1),
   conflictCalendarIds: z.array(z.string().min(1)).default([]),
+  intakeFields: intakeFieldsSchema.default([]),
   isActive: z.boolean(),
 });
 
@@ -46,41 +50,70 @@ export async function PATCH(
     return new NextResponse(parsed.error.issues[0]?.message ?? "invalid body", { status: 400 });
   }
   const data = parsed.data;
-  const assignedHostId = data.assignedHostIds[0];
 
   // Same invariants as POST.
-  const isMember = await prisma.projectMember.findUnique({
-    where: { projectId_hostId: { projectId, hostId: assignedHostId } },
-  });
-  if (!isMember) {
-    return new NextResponse("Assigned host must be a project member.", { status: 400 });
+  if (data.routingMode === "SINGLE" && data.assignedHostIds.length !== 1) {
+    return new NextResponse("Single-host mode needs exactly one assigned host.", { status: 400 });
   }
-  if (data.conflictCalendarIds.length > 0) {
+  if (data.routingMode === "ROUND_ROBIN" && data.assignedHostIds.length < 2) {
+    return new NextResponse("Round-robin needs at least two assigned hosts.", { status: 400 });
+  }
+
+  const members = await prisma.projectMember.findMany({
+    where: { projectId, hostId: { in: data.assignedHostIds } },
+    select: { hostId: true },
+  });
+  if (members.length !== data.assignedHostIds.length) {
+    return new NextResponse("All assigned hosts must be project members.", { status: 400 });
+  }
+
+  if (data.routingMode === "SINGLE" && data.conflictCalendarIds.length > 0) {
     const owned = await prisma.calendar.findMany({
-      where: { hostId: assignedHostId, id: { in: data.conflictCalendarIds } },
+      where: { hostId: data.assignedHostIds[0], id: { in: data.conflictCalendarIds } },
       select: { id: true },
     });
     if (owned.length !== data.conflictCalendarIds.length) {
       return new NextResponse("Selected calendars must belong to the assigned host.", { status: 400 });
     }
   }
+  if (data.routingMode === "ROUND_ROBIN" && data.conflictCalendarIds.length > 0) {
+    return new NextResponse(
+      "Round-robin can't use a single conflict-calendar override — each host's defaults apply.",
+      { status: 400 },
+    );
+  }
 
   try {
-    await prisma.meetingType.update({
-      where: { id: mtId },
-      data: {
-        name: data.name,
-        slug: data.slug,
-        description: data.description ?? null,
-        durationMinutes: data.durationMinutes,
-        bufferBeforeMinutes: data.bufferBeforeMinutes,
-        bufferAfterMinutes: data.bufferAfterMinutes,
-        minNoticeMinutes: data.minNoticeMinutes,
-        maxAdvanceDays: data.maxAdvanceDays,
-        assignedHostIds: [assignedHostId],
-        conflictCalendarIds: data.conflictCalendarIds,
-        isActive: data.isActive,
-      },
+    await prisma.$transaction(async (tx) => {
+      await tx.meetingType.update({
+        where: { id: mtId },
+        data: {
+          name: data.name,
+          slug: data.slug,
+          description: data.description ?? null,
+          durationMinutes: data.durationMinutes,
+          bufferBeforeMinutes: data.bufferBeforeMinutes,
+          bufferAfterMinutes: data.bufferAfterMinutes,
+          minNoticeMinutes: data.minNoticeMinutes,
+          maxAdvanceDays: data.maxAdvanceDays,
+          routingMode: data.routingMode,
+          assignedHostIds: data.assignedHostIds,
+          conflictCalendarIds: data.conflictCalendarIds,
+          isActive: data.isActive,
+        },
+      });
+      const newFormId = await syncIntakeForm({
+        meetingTypeId: mtId,
+        scope: "PROJECT",
+        projectId,
+        fields: data.intakeFields,
+        formName: data.name,
+        existingIntakeFormId: auth.mt.intakeFormId,
+        tx,
+      });
+      if (newFormId !== auth.mt.intakeFormId) {
+        await tx.meetingType.update({ where: { id: mtId }, data: { intakeFormId: newFormId } });
+      }
     });
   } catch (err) {
     if (err && typeof err === "object" && (err as { code?: string }).code === "P2002") {

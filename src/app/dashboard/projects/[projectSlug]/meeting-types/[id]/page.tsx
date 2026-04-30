@@ -4,6 +4,7 @@ import { getProjectMembership, canManageProject } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { AppShell } from "@/components/app-shell";
 import { ProjectMeetingTypeForm } from "../form";
+import type { IntakeField } from "@/lib/intake";
 
 export default async function EditProjectMeetingTypePage({
   params,
@@ -19,7 +20,7 @@ export default async function EditProjectMeetingTypePage({
   if (!membership || !canManageProject(membership.role)) notFound();
 
   const [mt, members] = await Promise.all([
-    prisma.meetingType.findUnique({ where: { id } }),
+    prisma.meetingType.findUnique({ where: { id }, include: { intakeForm: true } }),
     prisma.projectMember.findMany({
       where: { projectId: project.id },
       include: { host: { include: { calendars: true } } },
@@ -27,6 +28,7 @@ export default async function EditProjectMeetingTypePage({
     }),
   ]);
   if (!mt || mt.scope !== "PROJECT" || mt.projectId !== project.id) notFound();
+  const intakeFields = (mt.intakeForm?.fields as unknown as IntakeField[] | undefined) ?? [];
 
   return (
     <AppShell {...shellProps(ctx)}>
@@ -62,7 +64,9 @@ export default async function EditProjectMeetingTypePage({
             minNoticeMinutes: mt.minNoticeMinutes,
             maxAdvanceDays: mt.maxAdvanceDays,
             conflictCalendarIds: mt.conflictCalendarIds,
+            routingMode: mt.routingMode,
             assignedHostIds: mt.assignedHostIds,
+            intakeFields,
             isActive: mt.isActive,
           }}
         />

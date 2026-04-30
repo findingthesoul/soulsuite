@@ -16,6 +16,8 @@ import {
   formatBuffer,
   formatMaxAdvanceDays,
 } from "@/lib/scheduling-rules";
+import { type IntakeField, FIELD_TYPE_LABELS } from "@/lib/intake";
+import { IntakeFieldsEditor } from "@/components/intake-fields-editor";
 
 interface ProjectMember {
   hostId: string;
@@ -36,7 +38,9 @@ interface Initial {
   minNoticeMinutes: number;
   maxAdvanceDays: number;
   conflictCalendarIds: string[];
+  routingMode: "SINGLE" | "ROUND_ROBIN";
   assignedHostIds: string[];
+  intakeFields: IntakeField[];
   isActive: boolean;
 }
 
@@ -62,7 +66,9 @@ interface DraftValues {
   minNoticeMinutes: number;
   maxAdvanceDays: number;
   conflictCalendarIds: string[];
-  assignedHostId: string; // single host for v1; round-robin lands in step 10
+  routingMode: "SINGLE" | "ROUND_ROBIN";
+  assignedHostIds: string[];
+  intakeFields: IntakeField[];
   isActive: boolean;
 }
 
@@ -91,7 +97,9 @@ export function ProjectMeetingTypeForm({
     minNoticeMinutes: 60,
     maxAdvanceDays: 60,
     conflictCalendarIds: [],
-    assignedHostId: members[0]?.hostId ?? "",
+    routingMode: "SINGLE",
+    assignedHostIds: members[0]?.hostId ? [members[0].hostId] : [],
+    intakeFields: [],
     isActive: true,
   };
 
@@ -107,7 +115,9 @@ export function ProjectMeetingTypeForm({
           minNoticeMinutes: initial.minNoticeMinutes,
           maxAdvanceDays: initial.maxAdvanceDays,
           conflictCalendarIds: initial.conflictCalendarIds,
-          assignedHostId: initial.assignedHostIds[0] ?? draftDefault.assignedHostId,
+          routingMode: initial.routingMode,
+          assignedHostIds: initial.assignedHostIds,
+          intakeFields: initial.intakeFields,
           isActive: initial.isActive,
         }
       : draftDefault,
@@ -122,19 +132,46 @@ export function ProjectMeetingTypeForm({
     setDraft((prev) => ({ ...prev, [key]: value }));
   }
 
-  // Active host's calendars — used for the conflict-calendar override.
-  const activeHostCalendars =
-    members.find((m) => m.hostId === draft.assignedHostId)?.calendars ?? [];
+  // SINGLE-mode active host's calendars — used for the conflict-calendar override (which is
+  // disabled in ROUND_ROBIN since each host has their own calendars).
+  const singleHostId = draft.routingMode === "SINGLE" ? draft.assignedHostIds[0] : undefined;
+  const activeHostCalendars = members.find((m) => m.hostId === singleHostId)?.calendars ?? [];
 
-  // If the assigned host changes, we have to drop any conflict calendar IDs that don't belong
-  // to the new host (otherwise the API rejects with "doesn't belong to the host").
-  function setAssignedHost(hostId: string) {
+  // SINGLE → swap the one assigned host. Drops conflict calendar IDs that don't belong.
+  function setSingleAssignedHost(hostId: string) {
     const host = members.find((m) => m.hostId === hostId);
     const validIds = new Set((host?.calendars ?? []).map((c) => c.id));
     setDraft((prev) => ({
       ...prev,
-      assignedHostId: hostId,
+      assignedHostIds: [hostId],
       conflictCalendarIds: prev.conflictCalendarIds.filter((id) => validIds.has(id)),
+    }));
+  }
+
+  // ROUND_ROBIN → toggle a host on/off in the assigned set.
+  function toggleAssignedHost(hostId: string, on: boolean) {
+    setDraft((prev) => {
+      const set = new Set(prev.assignedHostIds);
+      if (on) set.add(hostId);
+      else set.delete(hostId);
+      return { ...prev, assignedHostIds: [...set] };
+    });
+  }
+
+  // Switching routing modes resets selection so we don't end up with invalid combinations.
+  function setRoutingMode(mode: "SINGLE" | "ROUND_ROBIN") {
+    setDraft((prev) => ({
+      ...prev,
+      routingMode: mode,
+      assignedHostIds:
+        mode === "SINGLE"
+          ? prev.assignedHostIds.slice(0, 1).length > 0
+            ? [prev.assignedHostIds[0]]
+            : members[0]?.hostId
+              ? [members[0].hostId]
+              : []
+          : prev.assignedHostIds,
+      conflictCalendarIds: mode === "ROUND_ROBIN" ? [] : prev.conflictCalendarIds,
     }));
   }
 
@@ -169,8 +206,17 @@ export function ProjectMeetingTypeForm({
     if (![15, 30, 45, 60, 90, 120].includes(draft.durationMinutes)) {
       return setError("Duration must be 15, 30, 45, 60, 90, or 120 minutes.");
     }
-    if (!draft.assignedHostId || !members.some((m) => m.hostId === draft.assignedHostId)) {
-      return setError("Pick an assigned host from the project members.");
+    if (draft.routingMode === "SINGLE") {
+      const id = draft.assignedHostIds[0];
+      if (!id || !members.some((m) => m.hostId === id)) {
+        return setError("Pick an assigned host from the project members.");
+      }
+    } else {
+      if (draft.assignedHostIds.length < 2) {
+        return setError("Round-robin needs at least two assigned hosts.");
+      }
+      const allValid = draft.assignedHostIds.every((id) => members.some((m) => m.hostId === id));
+      if (!allValid) return setError("All assigned hosts must be project members.");
     }
 
     startTransition(async () => {
@@ -188,7 +234,9 @@ export function ProjectMeetingTypeForm({
         minNoticeMinutes: draft.minNoticeMinutes,
         maxAdvanceDays: draft.maxAdvanceDays,
         conflictCalendarIds: draft.conflictCalendarIds,
-        assignedHostIds: [draft.assignedHostId],
+        routingMode: draft.routingMode,
+        assignedHostIds: draft.assignedHostIds,
+        intakeFields: draft.intakeFields,
         isActive: draft.isActive,
       };
       const res = await fetch(url, {
@@ -254,7 +302,9 @@ export function ProjectMeetingTypeForm({
                 update("slug", v.toLowerCase());
                 setSlugTouched(true);
               }}
-              setAssignedHost={setAssignedHost}
+              setSingleAssignedHost={setSingleAssignedHost}
+              toggleAssignedHost={toggleAssignedHost}
+              setRoutingMode={setRoutingMode}
               members={members}
               projectSlug={projectSlug}
               isEdit={isEdit}
@@ -275,20 +325,41 @@ export function ProjectMeetingTypeForm({
 
       <Card>
         <CardHeader>
-          <CardTitle>Conflict calendars</CardTitle>
+          <CardTitle>Intake questions</CardTitle>
           <CardDescription>
-            Which of the assigned host&apos;s calendars block this meeting type. Default uses every
-            conflict-source they configured.
+            Optional questions shown after the slot is picked. Answers are stored on the booking.
           </CardDescription>
         </CardHeader>
         <CardContent>
           {!editing ? (
-            <ConflictCalendarsReadOnly committed={committed} hostCalendars={activeHostCalendars} />
+            <IntakeReadOnly fields={committed.intakeFields} />
           ) : (
-            <ConflictCalendarsEditor draft={draft} update={update} hostCalendars={activeHostCalendars} />
+            <IntakeFieldsEditor
+              fields={draft.intakeFields}
+              onChange={(next) => update("intakeFields", next)}
+            />
           )}
         </CardContent>
       </Card>
+
+      {draft.routingMode === "SINGLE" && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Conflict calendars</CardTitle>
+            <CardDescription>
+              Which of the assigned host&apos;s calendars block this meeting type. Default uses every
+              conflict-source they configured.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {!editing ? (
+              <ConflictCalendarsReadOnly committed={committed} hostCalendars={activeHostCalendars} />
+            ) : (
+              <ConflictCalendarsEditor draft={draft} update={update} hostCalendars={activeHostCalendars} />
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 
@@ -328,13 +399,21 @@ function DetailsReadOnly({
   projectSlug: string;
   members: ProjectMember[];
 }) {
-  const host = members.find((m) => m.hostId === committed.assignedHostId);
+  const assignedNames = committed.assignedHostIds
+    .map((id) => members.find((m) => m.hostId === id))
+    .filter((m): m is ProjectMember => Boolean(m))
+    .map((m) => m.name);
+  const routingLabel =
+    committed.routingMode === "ROUND_ROBIN"
+      ? `Round-robin · ${assignedNames.length} hosts`
+      : "Single host";
   return (
     <dl className="space-y-3 text-sm">
       <Row label="Name" value={committed.name} />
       <Row label="Booking link" value={`/${projectSlug}/${committed.slug}`} mono />
       <Row label="Duration" value={`${committed.durationMinutes} minutes`} />
-      <Row label="Assigned host" value={host ? `${host.name} (${host.email})` : "—"} />
+      <Row label="Routing" value={routingLabel} />
+      <Row label="Assigned" value={assignedNames.length > 0 ? assignedNames.join(", ") : "—"} />
       <Row label="Description" value={committed.description || "—"} />
       <Row label="Status" value={committed.isActive ? "Active" : "Inactive"} />
     </dl>
@@ -346,7 +425,9 @@ function DetailsEditor({
   update,
   onNameChange,
   onSlugChange,
-  setAssignedHost,
+  setSingleAssignedHost,
+  toggleAssignedHost,
+  setRoutingMode,
   members,
   projectSlug,
   isEdit,
@@ -355,7 +436,9 @@ function DetailsEditor({
   update: <K extends keyof DraftValues>(key: K, value: DraftValues[K]) => void;
   onNameChange: (v: string) => void;
   onSlugChange: (v: string) => void;
-  setAssignedHost: (hostId: string) => void;
+  setSingleAssignedHost: (hostId: string) => void;
+  toggleAssignedHost: (hostId: string, on: boolean) => void;
+  setRoutingMode: (mode: "SINGLE" | "ROUND_ROBIN") => void;
   members: ProjectMember[];
   projectSlug: string;
   isEdit: boolean;
@@ -389,17 +472,66 @@ function DetailsEditor({
         </Select>
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="assignedHost">Assigned host</Label>
-        <Select id="assignedHost" value={draft.assignedHostId} onChange={(e) => setAssignedHost(e.target.value)}>
-          {members.map((m) => (
-            <option key={m.hostId} value={m.hostId}>
-              {m.name} — {m.email}
-              {m.isExternal ? " (external)" : ""}
-            </option>
-          ))}
+        <Label htmlFor="routingMode">Routing</Label>
+        <Select
+          id="routingMode"
+          value={draft.routingMode}
+          onChange={(e) => setRoutingMode(e.target.value as "SINGLE" | "ROUND_ROBIN")}
+        >
+          <option value="SINGLE">Single host — one specific person</option>
+          <option value="ROUND_ROBIN">Round-robin — least-recently-booked host gets the slot</option>
         </Select>
-        <p className="text-xs text-muted-foreground">Round-robin among multiple hosts is on the backlog.</p>
       </div>
+
+      {draft.routingMode === "SINGLE" ? (
+        <div className="space-y-1.5">
+          <Label htmlFor="assignedHost">Assigned host</Label>
+          <Select
+            id="assignedHost"
+            value={draft.assignedHostIds[0] ?? ""}
+            onChange={(e) => setSingleAssignedHost(e.target.value)}
+          >
+            {members.map((m) => (
+              <option key={m.hostId} value={m.hostId}>
+                {m.name} — {m.email}
+                {m.isExternal ? " (external)" : ""}
+              </option>
+            ))}
+          </Select>
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          <Label>Assigned hosts (pick at least 2)</Label>
+          <ul className="rounded-md border border-border divide-y divide-border">
+            {members.map((m) => {
+              const checked = draft.assignedHostIds.includes(m.hostId);
+              return (
+                <li key={m.hostId} className="flex items-center justify-between gap-3 p-3">
+                  <label className="flex items-center gap-2 text-sm flex-1 min-w-0">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => toggleAssignedHost(m.hostId, e.target.checked)}
+                      className="h-4 w-4 rounded border-border accent-foreground shrink-0"
+                    />
+                    <span className="truncate text-foreground">
+                      {m.name} <span className="text-muted-foreground">— {m.email}</span>
+                      {m.isExternal && (
+                        <span className="ml-1 text-xs uppercase tracking-wide text-subtle-foreground">
+                          external
+                        </span>
+                      )}
+                    </span>
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+          <p className="text-xs text-muted-foreground">
+            A slot is offered when any selected host is free; we assign the least-recently-booked one.
+          </p>
+        </div>
+      )}
       <div className="space-y-1.5">
         <Label htmlFor="description">Description (optional)</Label>
         <textarea
@@ -506,6 +638,34 @@ function SchedulingEditor({
         </div>
       </div>
     </div>
+  );
+}
+
+function IntakeReadOnly({ fields }: { fields: IntakeField[] }) {
+  if (fields.length === 0) {
+    return <p className="text-sm text-muted-foreground">No intake questions — bookings only collect name + email.</p>;
+  }
+  return (
+    <ul className="space-y-2 text-sm">
+      {fields.map((f) => (
+        <li key={f.key} className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-foreground">
+              {f.label || <span className="italic text-muted-foreground">Untitled</span>}
+              {f.required && <span className="text-destructive ml-0.5">*</span>}
+            </p>
+            {f.conditionalOn && (
+              <p className="text-xs text-muted-foreground">
+                Shown when <span className="font-mono">{f.conditionalOn.fieldKey}</span> = &ldquo;{f.conditionalOn.equals}&rdquo;
+              </p>
+            )}
+          </div>
+          <span className="text-xs uppercase tracking-wide text-subtle-foreground shrink-0">
+            {FIELD_TYPE_LABELS[f.type]}
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 

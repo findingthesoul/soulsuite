@@ -136,12 +136,15 @@ enum ProjectRole {
 }
 
 model ProjectMember {
-  id         String      @id @default(cuid())
-  projectId  String
-  hostId     String
-  role       ProjectRole @default(MEMBER)
-  isExternal Boolean     @default(false)
-  addedAt    DateTime    @default(now())
+  id             String      @id @default(cuid())
+  projectId      String
+  hostId         String
+  role           ProjectRole @default(MEMBER)
+  isExternal     Boolean     @default(false)
+  addedAt        DateTime    @default(now())
+  // Round-robin fairness: tracks when this member was last assigned a booking via
+  // ROUND_ROBIN. Null means "never been assigned yet" → ranks first (oldest first).
+  lastAssignedAt DateTime?
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   host    Host    @relation(fields: [hostId], references: [id], onDelete: Cascade)

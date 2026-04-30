@@ -11,6 +11,7 @@ export const RESERVED_SLUGS = [
   "onboarding",
   "request-access",
   "invite",
+  "poll",
   "_next",
   "static",
   "public",

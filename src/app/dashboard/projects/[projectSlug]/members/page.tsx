@@ -19,9 +19,8 @@ export default async function ProjectMembersPage({
   const membership = await getProjectMembership(ctx.host, project.id);
   if (!membership || !canManageProject(membership.role)) notFound();
 
-  // Pull every project member + every workspace member, so the picker can show available
-  // workspace members not yet on the project.
-  const [projectMembers, workspaceMembers] = await Promise.all([
+  // Pull project members, workspace members (for picker), and pending invites.
+  const [projectMembers, workspaceMembers, pendingInvites] = await Promise.all([
     prisma.projectMember.findMany({
       where: { projectId: project.id },
       include: { host: true },
@@ -31,6 +30,10 @@ export default async function ProjectMembersPage({
       where: { workspaceId: project.workspaceId },
       include: { host: true },
       orderBy: { joinedAt: "asc" },
+    }),
+    prisma.invite.findMany({
+      where: { projectId: project.id, kind: "PROJECT", acceptedAt: null },
+      orderBy: { createdAt: "desc" },
     }),
   ]);
 
@@ -50,7 +53,7 @@ export default async function ProjectMembersPage({
           </p>
           <h1 className="text-2xl font-semibold tracking-tight">Members</h1>
           <p className="text-sm text-muted-foreground">
-            Add other workspace members to this project. External collaborators (any-domain) come in a future step.
+            Add workspace members directly, or invite external collaborators by email.
           </p>
         </header>
         <ProjectMembersClient
@@ -65,6 +68,12 @@ export default async function ProjectMembersPage({
             isExternal: m.isExternal,
           }))}
           candidates={candidates}
+          pendingInvites={pendingInvites.map((inv) => ({
+            id: inv.id,
+            email: inv.email,
+            role: inv.role,
+            expiresAt: inv.expiresAt.toISOString(),
+          }))}
         />
       </div>
     </AppShell>

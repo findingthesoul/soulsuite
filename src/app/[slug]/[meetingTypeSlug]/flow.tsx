@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Avatar } from "@/components/ui/avatar";
+import { type IntakeField, validateAnswers } from "@/lib/intake";
+import { IntakeFieldsRenderer } from "@/components/intake-fields-renderer";
 
 interface Host {
   slug: string;
@@ -39,11 +41,13 @@ export function BookingFlow({
   meetingType,
   initialSlots,
   projectName,
+  intakeFields,
 }: {
   host: Host;
   meetingType: MeetingType;
   initialSlots: SerializedSlot[];
   projectName?: string | null;
+  intakeFields: IntakeField[];
 }) {
   const router = useRouter();
   // Start with the host's tz so server-rendered HTML matches client first paint. Swap to the
@@ -105,6 +109,7 @@ export function BookingFlow({
                   tz={tz}
                   meetingType={meetingType}
                   host={host}
+                  intakeFields={intakeFields}
                   onBack={() => setStep("pick")}
                   onBooked={(id) => router.push(`/${host.slug}/${meetingType.slug}/confirmed/${id}`)}
                   onSlotGone={(message) => {
@@ -426,6 +431,7 @@ function DetailsPanel({
   tz,
   meetingType,
   host,
+  intakeFields,
   onBack,
   onBooked,
   onSlotGone,
@@ -434,20 +440,30 @@ function DetailsPanel({
   tz: string;
   meetingType: MeetingType;
   host: Host;
+  intakeFields: IntakeField[];
   onBack: () => void;
   onBooked: (id: string) => void;
   onSlotGone: (message?: string) => void;
 }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [answers, setAnswers] = useState<Record<string, unknown>>({});
+  const [intakeErrorKey, setIntakeErrorKey] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
   function submit() {
     setError(null);
+    setIntakeErrorKey(null);
     if (!slot) return setError("Pick a time first.");
     if (name.trim().length < 1) return setError("Name is required.");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setError("Enter a valid email address.");
+
+    const intakeErr = validateAnswers(intakeFields, answers);
+    if (intakeErr) {
+      setIntakeErrorKey(intakeErr.fieldKey);
+      return setError(intakeErr.message);
+    }
 
     startTransition(async () => {
       const res = await fetch("/api/bookings", {
@@ -460,6 +476,7 @@ function DetailsPanel({
           inviteeName: name.trim(),
           inviteeEmail: email.trim().toLowerCase(),
           inviteeTimezone: tz,
+          intakeAnswers: answers,
         }),
       });
       if (!res.ok) {
@@ -513,6 +530,17 @@ function DetailsPanel({
           A calendar invite from {host.name} will be sent to this email.
         </p>
       </div>
+
+      {intakeFields.length > 0 && (
+        <div className="space-y-4 pt-2 border-t border-border">
+          <IntakeFieldsRenderer
+            fields={intakeFields}
+            answers={answers}
+            onChange={setAnswers}
+            errorKey={intakeErrorKey}
+          />
+        </div>
+      )}
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 
@@ -580,6 +608,9 @@ function parseMonth(yyyymmdd: string): { year: number; month: number } {
 
 function tzOptions(): string[] {
   const intl = Intl as typeof Intl & { supportedValuesOf?: (key: string) => string[] };
-  if (typeof intl.supportedValuesOf === "function") return intl.supportedValuesOf("timeZone");
-  return ["Europe/Amsterdam", "Europe/London", "America/New_York", "America/Los_Angeles", "UTC"];
+  const list =
+    typeof intl.supportedValuesOf === "function"
+      ? intl.supportedValuesOf("timeZone")
+      : ["Europe/Amsterdam", "Europe/London", "America/New_York", "America/Los_Angeles", "UTC"];
+  return [...list].sort();
 }

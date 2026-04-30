@@ -57,7 +57,29 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
     );
   }
 
-  if (invite.kind === "PROJECT") notFound(); // Project invites land elsewhere — wired in step 7.
+  if (invite.kind === "PROJECT") {
+    const proj = invite.project!;
+    return (
+      <CenterShell>
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle>You&apos;ve been invited to a project</CardTitle>
+            <CardDescription>
+              {invite.invitedBy.name} invited you to join <strong>{proj.name}</strong> as a <strong>{invite.role.toLowerCase()}</strong>.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Sign in with the Google account for{" "}
+              <span className="font-mono text-foreground">{invite.email}</span>.
+              The invite is locked to that address.
+            </p>
+            <InviteSignInButton />
+          </CardContent>
+        </Card>
+      </CenterShell>
+    );
+  }
 
   const ws = invite.workspace!;
 

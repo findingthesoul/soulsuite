@@ -4,6 +4,8 @@ import { Scope, RoutingMode } from "@prisma/client";
 import { getCurrentHost } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { BUFFER_MINUTES, MIN_NOTICE_MINUTES, MAX_ADVANCE_DAYS } from "@/lib/scheduling-rules";
+import { intakeFieldsSchema } from "@/lib/intake";
+import { syncIntakeForm } from "@/lib/intake-server";
 
 const bodySchema = z.object({
   name: z.string().trim().min(2).max(80),
@@ -26,8 +28,8 @@ const bodySchema = z.object({
     .number()
     .int()
     .refine((v) => (MAX_ADVANCE_DAYS as readonly number[]).includes(v)),
-  // Empty array = use the host's default conflict calendars. Non-empty = restrict to these.
   conflictCalendarIds: z.array(z.string().min(1)).default([]),
+  intakeFields: intakeFieldsSchema.default([]),
 });
 
 export async function POST(request: NextRequest) {
@@ -41,8 +43,6 @@ export async function POST(request: NextRequest) {
   }
   const data = parsed.data;
 
-  // If conflictCalendarIds is non-empty, every ID must reference a calendar owned by the
-  // current host — defends against a client passing IDs that belong to someone else.
   if (data.conflictCalendarIds.length > 0) {
     const owned = await prisma.calendar.findMany({
       where: { hostId: host.id, id: { in: data.conflictCalendarIds } },
@@ -53,25 +53,38 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Slug uniqueness within this host's personal meeting types is enforced by the DB unique
-  // index (hostId, slug). Catch the conflict and return a clean error.
   try {
-    const created = await prisma.meetingType.create({
-      data: {
-        scope: Scope.PERSONAL,
+    const created = await prisma.$transaction(async (tx) => {
+      const mt = await tx.meetingType.create({
+        data: {
+          scope: Scope.PERSONAL,
+          hostId: host.id,
+          slug: data.slug,
+          name: data.name,
+          description: data.description ?? null,
+          durationMinutes: data.durationMinutes,
+          routingMode: RoutingMode.SINGLE,
+          assignedHostIds: [host.id],
+          bufferBeforeMinutes: data.bufferBeforeMinutes,
+          bufferAfterMinutes: data.bufferAfterMinutes,
+          minNoticeMinutes: data.minNoticeMinutes,
+          maxAdvanceDays: data.maxAdvanceDays,
+          conflictCalendarIds: data.conflictCalendarIds,
+        },
+      });
+      const intakeFormId = await syncIntakeForm({
+        meetingTypeId: mt.id,
+        scope: "PERSONAL",
         hostId: host.id,
-        slug: data.slug,
-        name: data.name,
-        description: data.description ?? null,
-        durationMinutes: data.durationMinutes,
-        routingMode: RoutingMode.SINGLE,
-        assignedHostIds: [host.id],
-        bufferBeforeMinutes: data.bufferBeforeMinutes,
-        bufferAfterMinutes: data.bufferAfterMinutes,
-        minNoticeMinutes: data.minNoticeMinutes,
-        maxAdvanceDays: data.maxAdvanceDays,
-        conflictCalendarIds: data.conflictCalendarIds,
-      },
+        fields: data.intakeFields,
+        formName: data.name,
+        existingIntakeFormId: null,
+        tx,
+      });
+      if (intakeFormId) {
+        await tx.meetingType.update({ where: { id: mt.id }, data: { intakeFormId } });
+      }
+      return mt;
     });
     return NextResponse.json({ ok: true, id: created.id });
   } catch (err) {

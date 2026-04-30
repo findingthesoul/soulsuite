@@ -3,6 +3,7 @@ import { getPageContextOrRedirect, shellProps } from "@/lib/page-context";
 import { prisma } from "@/lib/prisma";
 import { AppShell } from "@/components/app-shell";
 import { MeetingTypeForm } from "../form";
+import type { IntakeField } from "@/lib/intake";
 
 export default async function EditMeetingTypePage({
   params,
@@ -13,13 +14,14 @@ export default async function EditMeetingTypePage({
   const ctx = await getPageContextOrRedirect();
 
   const [mt, calendars] = await Promise.all([
-    prisma.meetingType.findUnique({ where: { id } }),
+    prisma.meetingType.findUnique({ where: { id }, include: { intakeForm: true } }),
     prisma.calendar.findMany({
       where: { hostId: ctx.host.id },
       orderBy: { createdAt: "asc" },
     }),
   ]);
   if (!mt || mt.scope !== "PERSONAL" || mt.hostId !== ctx.host.id) notFound();
+  const intakeFields = (mt.intakeForm?.fields as unknown as IntakeField[] | undefined) ?? [];
 
   return (
     <AppShell {...shellProps(ctx)}>
@@ -48,6 +50,7 @@ export default async function EditMeetingTypePage({
             minNoticeMinutes: mt.minNoticeMinutes,
             maxAdvanceDays: mt.maxAdvanceDays,
             conflictCalendarIds: mt.conflictCalendarIds,
+            intakeFields,
             isActive: mt.isActive,
           }}
         />

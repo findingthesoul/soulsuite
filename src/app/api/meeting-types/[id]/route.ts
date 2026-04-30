@@ -3,6 +3,8 @@ import { z } from "zod";
 import { getCurrentHost } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { BUFFER_MINUTES, MIN_NOTICE_MINUTES, MAX_ADVANCE_DAYS } from "@/lib/scheduling-rules";
+import { intakeFieldsSchema } from "@/lib/intake";
+import { syncIntakeForm } from "@/lib/intake-server";
 
 const patchSchema = z.object({
   name: z.string().trim().min(2).max(80),
@@ -26,6 +28,7 @@ const patchSchema = z.object({
     .int()
     .refine((v) => (MAX_ADVANCE_DAYS as readonly number[]).includes(v)),
   conflictCalendarIds: z.array(z.string().min(1)).default([]),
+  intakeFields: intakeFieldsSchema.default([]),
   isActive: z.boolean(),
 });
 
@@ -62,20 +65,34 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
 
   try {
-    await prisma.meetingType.update({
-      where: { id },
-      data: {
-        name: parsed.data.name,
-        slug: parsed.data.slug,
-        description: parsed.data.description ?? null,
-        durationMinutes: parsed.data.durationMinutes,
-        bufferBeforeMinutes: parsed.data.bufferBeforeMinutes,
-        bufferAfterMinutes: parsed.data.bufferAfterMinutes,
-        minNoticeMinutes: parsed.data.minNoticeMinutes,
-        maxAdvanceDays: parsed.data.maxAdvanceDays,
-        conflictCalendarIds: parsed.data.conflictCalendarIds,
-        isActive: parsed.data.isActive,
-      },
+    await prisma.$transaction(async (tx) => {
+      await tx.meetingType.update({
+        where: { id },
+        data: {
+          name: parsed.data.name,
+          slug: parsed.data.slug,
+          description: parsed.data.description ?? null,
+          durationMinutes: parsed.data.durationMinutes,
+          bufferBeforeMinutes: parsed.data.bufferBeforeMinutes,
+          bufferAfterMinutes: parsed.data.bufferAfterMinutes,
+          minNoticeMinutes: parsed.data.minNoticeMinutes,
+          maxAdvanceDays: parsed.data.maxAdvanceDays,
+          conflictCalendarIds: parsed.data.conflictCalendarIds,
+          isActive: parsed.data.isActive,
+        },
+      });
+      const newFormId = await syncIntakeForm({
+        meetingTypeId: id,
+        scope: "PERSONAL",
+        hostId: host.id,
+        fields: parsed.data.intakeFields,
+        formName: parsed.data.name,
+        existingIntakeFormId: existing.intakeFormId,
+        tx,
+      });
+      if (newFormId !== existing.intakeFormId) {
+        await tx.meetingType.update({ where: { id }, data: { intakeFormId: newFormId } });
+      }
     });
     return NextResponse.json({ ok: true });
   } catch (err) {

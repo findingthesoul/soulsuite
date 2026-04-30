@@ -1,11 +1,11 @@
 import Link from "next/link";
-import { Plus } from "lucide-react";
 import { getPageContextOrRedirect, shellProps } from "@/lib/page-context";
 import { prisma } from "@/lib/prisma";
 import { publicEnv } from "@/lib/env";
 import { AppShell } from "@/components/app-shell";
 import { buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { NewSchedulingMenu } from "@/components/new-scheduling-menu";
 
 export default async function MeetingTypesPage() {
   const ctx = await getPageContextOrRedirect();
@@ -19,19 +19,16 @@ export default async function MeetingTypesPage() {
       <div className="space-y-6">
         <header className="flex items-start justify-between gap-4">
           <div className="space-y-1">
-            <h1 className="text-2xl font-semibold tracking-tight">Meeting types</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">Scheduling</h1>
             <p className="text-sm text-muted-foreground">
-              Personal meeting types — your bookable links live at{" "}
+              Your personal bookable links live at{" "}
               <code className="rounded bg-surface-muted px-1 py-0.5 text-xs">
                 /{ctx.host.slug}/&lt;slug&gt;
               </code>
               .
             </p>
           </div>
-          <Link href="/dashboard/meeting-types/new" className={buttonVariants()}>
-            <Plus className="h-4 w-4" />
-            New
-          </Link>
+          <NewSchedulingMenu />
         </header>
 
         {meetingTypes.length === 0 ? (

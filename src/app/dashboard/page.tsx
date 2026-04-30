@@ -1,128 +1,209 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Calendar, ArrowRight } from "lucide-react";
 import { hostHasCompletedOnboarding } from "@/lib/workspace";
 import { prisma } from "@/lib/prisma";
 import { getPageContextOrRedirect, shellProps } from "@/lib/page-context";
 import { AppShell } from "@/components/app-shell";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
+import { BookingDateTime } from "./bookings/client";
 
 export default async function DashboardPage() {
   const ctx = await getPageContextOrRedirect();
   if (!(await hostHasCompletedOnboarding(ctx.host))) redirect("/onboarding/calendars");
 
-  const [calendars, workspaceRole, projectMemberships] = await Promise.all([
-    prisma.calendar.findMany({ where: { hostId: ctx.host.id } }),
-    prisma.workspaceMember.findFirst({ where: { hostId: ctx.host.id } }),
-    prisma.projectMember.findMany({
-      where: { hostId: ctx.host.id },
-      include: { project: true },
+  const now = new Date();
+  const todayEnd = new Date(now);
+  todayEnd.setUTCHours(23, 59, 59, 999);
+
+  const [todayBookings, upcomingBookings, openPolls] = await Promise.all([
+    // Today: starting today, not yet ended.
+    prisma.booking.findMany({
+      where: {
+        hostId: ctx.host.id,
+        status: { not: "CANCELLED" },
+        startsAt: { gte: now, lte: todayEnd },
+      },
+      include: { meetingType: true, project: true },
+      orderBy: { startsAt: "asc" },
+      take: 10,
+    }),
+    // Next up: from tomorrow onwards, top 5.
+    prisma.booking.findMany({
+      where: {
+        hostId: ctx.host.id,
+        status: { not: "CANCELLED" },
+        startsAt: { gt: todayEnd },
+      },
+      include: { meetingType: true, project: true },
+      orderBy: { startsAt: "asc" },
+      take: 5,
+    }),
+    // Polls awaiting your finalize decision.
+    prisma.poll.findMany({
+      where: { ownerHostId: ctx.host.id, status: "OPEN" },
+      orderBy: { createdAt: "desc" },
+      take: 5,
     }),
   ]);
 
-  const writeTarget = calendars.find((c) => c.role === "WRITE_TARGET");
-  const conflictSources = calendars.filter((c) => c.role === "CONFLICT_CHECK");
+  const firstName = ctx.host.name.split(" ")[0];
 
   return (
     <AppShell {...shellProps(ctx)}>
       <div className="space-y-8">
         <header className="space-y-1">
-          <h1 className="text-3xl font-semibold tracking-tight">Welcome, {ctx.host.name.split(" ")[0]}</h1>
-          <p className="text-sm text-muted-foreground">
-            {ctx.host.email} · /{ctx.host.slug}
-            {workspaceRole && ctx.workspace && (
-              <>
-                {" · "}
-                {workspaceRole.role.toLowerCase()} of {ctx.workspace.name}
-              </>
-            )}
-          </p>
+          <h1 className="text-3xl font-semibold tracking-tight">Welcome, {firstName}</h1>
+          <p className="text-sm text-muted-foreground">{niceDateLong(now)}</p>
         </header>
 
-        <section className="grid gap-4 md:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle>Calendars</CardTitle>
-              <CardDescription>Where conflicts are checked and bookings are created.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              <div>
-                <p className="text-xs uppercase tracking-wide text-subtle-foreground">Write target</p>
-                <p className="text-foreground">
-                  {writeTarget ? writeTarget.summary ?? writeTarget.googleCalendarId : "—"}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-wide text-subtle-foreground">Conflict sources</p>
-                <p className="text-foreground">
-                  {conflictSources.length > 0
-                    ? conflictSources.map((c) => c.summary ?? c.googleCalendarId).join(", ")
-                    : "—"}
-                </p>
-              </div>
-              <div className="flex gap-3 pt-1 text-sm">
-                <Link href="/settings/calendars" className="underline text-muted-foreground hover:text-foreground">
-                  Edit calendars
-                </Link>
-                <Link href="/settings/availability" className="underline text-muted-foreground hover:text-foreground">
-                  Edit hours
-                </Link>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Projects</CardTitle>
-              <CardDescription>Engagements you&apos;re a member of.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {projectMemberships.length === 0 ? (
-                <p className="text-sm text-muted-foreground">You aren&apos;t in any projects yet.</p>
-              ) : (
-                <ul className="divide-y divide-border -mx-1">
-                  {projectMemberships.map((pm) => (
-                    <li key={pm.id}>
-                      <Link
-                        href={`/dashboard/projects/${pm.project.slug}`}
-                        className="flex items-center justify-between px-1 py-2 text-sm hover:bg-surface-muted rounded-md -mx-1 px-2"
-                      >
-                        <div>
-                          <p className="font-medium text-foreground">{pm.project.name}</p>
-                          <p className="text-xs text-muted-foreground">/{pm.project.slug}</p>
-                        </div>
-                        <span className="text-xs uppercase tracking-wide text-subtle-foreground">{pm.role}</span>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <div className="pt-3">
-                <Link
-                  href="/dashboard/projects"
-                  className="text-sm underline text-muted-foreground hover:text-foreground"
-                >
-                  All projects →
-                </Link>
-              </div>
-            </CardContent>
-          </Card>
+        {/* Today */}
+        <section className="space-y-3">
+          <SectionHeader title="Today" count={todayBookings.length} href="/dashboard/bookings" />
+          {todayBookings.length === 0 ? (
+            <Card>
+              <div className="p-6 text-sm text-muted-foreground">Nothing on the calendar today.</div>
+            </Card>
+          ) : (
+            <Card>
+              <ul className="divide-y divide-border">
+                {todayBookings.map((b) => (
+                  <BookingRow
+                    key={b.id}
+                    href={hrefFor(b, ctx.host.slug)}
+                    name={b.inviteeName}
+                    meetingType={b.meetingType.name}
+                    projectName={b.project?.name}
+                    startsAt={b.startsAt.toISOString()}
+                    endsAt={b.endsAt.toISOString()}
+                  />
+                ))}
+              </ul>
+            </Card>
+          )}
         </section>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Meeting types</CardTitle>
-            <CardDescription>Personal bookable links.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Link
-              href="/dashboard/meeting-types"
-              className="text-sm underline text-muted-foreground hover:text-foreground"
-            >
-              Manage meeting types →
-            </Link>
-          </CardContent>
-        </Card>
+        {/* Next up */}
+        <section className="space-y-3">
+          <SectionHeader title="Next up" count={upcomingBookings.length} href="/dashboard/bookings" />
+          {upcomingBookings.length === 0 ? (
+            <Card>
+              <div className="p-6 text-sm text-muted-foreground">No upcoming bookings.</div>
+            </Card>
+          ) : (
+            <Card>
+              <ul className="divide-y divide-border">
+                {upcomingBookings.map((b) => (
+                  <BookingRow
+                    key={b.id}
+                    href={hrefFor(b, ctx.host.slug)}
+                    name={b.inviteeName}
+                    meetingType={b.meetingType.name}
+                    projectName={b.project?.name}
+                    startsAt={b.startsAt.toISOString()}
+                    endsAt={b.endsAt.toISOString()}
+                  />
+                ))}
+              </ul>
+            </Card>
+          )}
+        </section>
+
+        {/* Needs attention */}
+        {openPolls.length > 0 && (
+          <section className="space-y-3">
+            <SectionHeader title="Open polls" count={openPolls.length} href="/dashboard/meeting-types" />
+            <Card>
+              <ul className="divide-y divide-border">
+                {openPolls.map((p) => (
+                  <li key={p.id}>
+                    <Link
+                      href={`/dashboard/polls/${p.id}`}
+                      className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-surface-muted transition-colors"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-foreground truncate">{p.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {p.durationMinutes} min · {p.inviteeEmails.length} invitees
+                        </p>
+                      </div>
+                      <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          </section>
+        )}
       </div>
     </AppShell>
   );
+}
+
+function SectionHeader({ title, count, href }: { title: string; count: number; href: string }) {
+  return (
+    <div className="flex items-baseline justify-between">
+      <h2 className="text-xs uppercase tracking-wide text-subtle-foreground">
+        {title}
+        {count > 0 && <span className="ml-1 text-muted-foreground">({count})</span>}
+      </h2>
+      <Link href={href} className="text-xs text-muted-foreground underline hover:text-foreground">
+        View all
+      </Link>
+    </div>
+  );
+}
+
+function BookingRow({
+  href,
+  name,
+  meetingType,
+  projectName,
+  startsAt,
+  endsAt,
+}: {
+  href: string;
+  name: string;
+  meetingType: string;
+  projectName?: string;
+  startsAt: string;
+  endsAt: string;
+}) {
+  return (
+    <li>
+      <Link
+        href={href}
+        className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-surface-muted transition-colors"
+      >
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-foreground truncate">
+            {name}
+            <span className="text-muted-foreground font-normal"> · {meetingType}</span>
+          </p>
+          <p className="text-xs text-muted-foreground">
+            <BookingDateTime startsAt={startsAt} endsAt={endsAt} />
+            {projectName && <span className="ml-1.5">· {projectName}</span>}
+          </p>
+        </div>
+        <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
+      </Link>
+    </li>
+  );
+}
+
+function hrefFor(
+  booking: { project: { slug: string } | null; meetingType: { slug: string }; id: string },
+  hostSlug: string,
+): string {
+  const slug = booking.project ? booking.project.slug : hostSlug;
+  return `/${slug}/${booking.meetingType.slug}/confirmed/${booking.id}`;
+}
+
+function niceDateLong(d: Date): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(d);
 }

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Settings, Sun, Moon, Monitor, LogOut } from "lucide-react";
+import { Settings, Sun, Moon, Monitor, LogOut, PanelLeftOpen, PanelLeftClose, MousePointerClick } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -15,9 +15,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar } from "@/components/ui/avatar";
 import { useTheme } from "@/components/theme-provider";
+import { useSidebar } from "@/components/sidebar-provider";
 
 export function UserMenu({ name, email }: { name: string; email: string }) {
   const { mode, setMode } = useTheme();
+  const { mode: sidebarMode, setMode: setSidebarMode } = useSidebar();
 
   return (
     <DropdownMenu>
@@ -40,6 +42,25 @@ export function UserMenu({ name, email }: { name: string; email: string }) {
             Settings
           </Link>
         </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel>Sidebar</DropdownMenuLabel>
+        <DropdownMenuRadioGroup
+          value={sidebarMode}
+          onValueChange={(v) => setSidebarMode(v as "expanded" | "collapsed" | "hover")}
+        >
+          <DropdownMenuRadioItem value="expanded">
+            <PanelLeftOpen className="h-4 w-4" />
+            Expanded
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="collapsed">
+            <PanelLeftClose className="h-4 w-4" />
+            Collapsed
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="hover">
+            <MousePointerClick className="h-4 w-4" />
+            Expand on hover
+          </DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
         <DropdownMenuSeparator />
         <DropdownMenuLabel>Theme</DropdownMenuLabel>
         <DropdownMenuRadioGroup value={mode} onValueChange={(v) => setMode(v as "light" | "dark" | "system")}>

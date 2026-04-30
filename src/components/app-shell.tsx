@@ -1,8 +1,6 @@
 import * as React from "react";
-import Link from "next/link";
-import Image from "next/image";
 import { UserMenu } from "@/components/user-menu";
-import { SidebarNav } from "@/components/sidebar-nav";
+import { Sidebar } from "@/components/sidebar";
 
 export interface AppShellProps {
   user: { name: string; email: string };
@@ -22,34 +20,7 @@ export function AppShell({ user, workspaceName, logoUrl, brandColor, children }:
 
   return (
     <div className="flex h-screen overflow-hidden bg-background text-foreground" style={inlineStyle}>
-      {/* Sidebar — stays in flow, scrolls independently */}
-      <aside className="hidden md:flex w-52 shrink-0 flex-col border-r border-border bg-surface overflow-y-auto">
-        {/* Logo */}
-        <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-border px-4">
-          <Link href="/dashboard" className="flex items-center gap-2.5 text-sm font-semibold text-foreground">
-            {logoUrl ? (
-              <Image
-                src={logoUrl}
-                alt={`${workspaceName ?? "Soul Suite"} logo`}
-                width={24}
-                height={24}
-                unoptimized
-                className="h-6 w-6 object-contain rounded-md"
-              />
-            ) : (
-              <span
-                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground"
-                style={brandColor ? { backgroundColor: brandColor, color: "#0c0a09" } : undefined}
-              >
-                S
-              </span>
-            )}
-            <span className="truncate">{workspaceName ?? "Soul Suite"}</span>
-          </Link>
-        </div>
-
-        <SidebarNav />
-      </aside>
+      <Sidebar workspaceName={workspaceName} logoUrl={logoUrl} brandColor={brandColor} />
 
       {/* Main area */}
       <div className="flex flex-1 flex-col min-w-0 overflow-y-auto">

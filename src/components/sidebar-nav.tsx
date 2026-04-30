@@ -16,7 +16,12 @@ const SETTINGS_NAV_ITEMS = [
   { href: "/settings/members", label: "Members", icon: Users, exact: false },
 ];
 
-export function SidebarNav() {
+interface Props {
+  compact?: boolean; // collapsed (icons-only) sidebar
+  overlay?: boolean; // hover mode — labels appear on group-hover
+}
+
+export function SidebarNav({ compact = false, overlay = false }: Props) {
   const pathname = usePathname();
 
   function isActive(href: string, exact: boolean) {
@@ -25,32 +30,48 @@ export function SidebarNav() {
 
   function navItemClass(href: string, exact: boolean) {
     const active = isActive(href, exact);
+    const justify = compact && !overlay ? "justify-center" : "";
     return [
       "flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+      justify,
       active
         ? "bg-surface-muted text-foreground"
         : "text-muted-foreground hover:bg-surface-muted hover:text-foreground",
     ].join(" ");
   }
 
+  function labelClass() {
+    if (!compact) return "";
+    if (overlay) return "opacity-0 group-hover/sidebar:opacity-100 transition-opacity whitespace-nowrap";
+    return "hidden";
+  }
+
+  function sectionLabelClass() {
+    if (!compact) return "";
+    if (overlay) return "opacity-0 group-hover/sidebar:opacity-100 transition-opacity";
+    return "hidden";
+  }
+
   return (
     <div className="flex h-full flex-col">
       <nav className="flex-1 px-3 py-4 space-y-0.5">
         {NAV_ITEMS.map(({ href, label, icon: Icon, exact }) => (
-          <Link key={href} href={href} className={navItemClass(href, exact)}>
+          <Link key={href} href={href} className={navItemClass(href, exact)} title={label}>
             <Icon className="h-4 w-4 shrink-0" />
-            {label}
+            <span className={labelClass()}>{label}</span>
           </Link>
         ))}
 
         <div className="pt-4 pb-1">
-          <p className="px-3 text-xs font-medium text-subtle-foreground uppercase tracking-wide">Workspace</p>
+          <p className={`px-3 text-xs font-medium text-subtle-foreground uppercase tracking-wide ${sectionLabelClass()}`}>
+            Workspace
+          </p>
         </div>
 
         {SETTINGS_NAV_ITEMS.map(({ href, label, icon: Icon, exact }) => (
-          <Link key={href} href={href} className={navItemClass(href, exact)}>
+          <Link key={href} href={href} className={navItemClass(href, exact)} title={label}>
             <Icon className="h-4 w-4 shrink-0" />
-            {label}
+            <span className={labelClass()}>{label}</span>
           </Link>
         ))}
       </nav>
@@ -59,11 +80,12 @@ export function SidebarNav() {
         <a
           href="mailto:support@soul.com"
           className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          title="Support"
         >
           <HelpCircle className="h-3.5 w-3.5 shrink-0" />
-          Support
+          <span className={labelClass()}>Support</span>
         </a>
-        <p className="text-xs text-subtle-foreground pl-0.5">v0.1.0</p>
+        <p className={`text-xs text-subtle-foreground pl-0.5 ${labelClass()}`}>v0.1.0</p>
       </div>
     </div>
   );

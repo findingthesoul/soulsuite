@@ -67,10 +67,16 @@ export default async function ConfirmedPage({
                 <Clock className="h-4 w-4" />
                 <span>{booking.meetingType.durationMinutes} minutes</span>
               </li>
-              {!isCancelled && (
+              {!isCancelled && booking.conferencingProvider !== "NONE" && (
                 <li className="flex items-center gap-2">
                   <Video className="h-4 w-4" />
-                  <span>Google Meet — link in your calendar invite</span>
+                  {booking.meetUrl ? (
+                    <a href={booking.meetUrl} target="_blank" rel="noopener noreferrer" className="underline text-foreground">
+                      {providerLabel(booking.conferencingProvider)} — join link
+                    </a>
+                  ) : (
+                    <span>{providerLabel(booking.conferencingProvider)} — link in your calendar invite</span>
+                  )}
                 </li>
               )}
               <li className="flex items-center gap-2">
@@ -96,4 +102,13 @@ export default async function ConfirmedPage({
       </div>
     </main>
   );
+}
+
+function providerLabel(p: "GOOGLE_MEET" | "ZOOM" | "TEAMS" | "NONE"): string {
+  switch (p) {
+    case "ZOOM": return "Zoom";
+    case "TEAMS": return "Microsoft Teams";
+    case "NONE": return "No conferencing";
+    default: return "Google Meet";
+  }
 }

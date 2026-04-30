@@ -176,6 +176,7 @@ enum Scope {
 enum RoutingMode {
   SINGLE
   ROUND_ROBIN
+  COLLECTIVE
 }
 
 model MeetingType {
@@ -192,6 +193,9 @@ model MeetingType {
   minNoticeMinutes      Int                  @default(60)
   maxAdvanceDays        Int                  @default(60)
   routingMode           RoutingMode          @default(SINGLE)
+  // Group meetings: how many invitees can claim the same slot. 1 = traditional 1:1 meeting,
+  // >1 = shared event (single Google event, many bookings rows). Only valid for SINGLE routing.
+  maxInvitees           Int                  @default(1)
   // For project scope round-robin: hostIds drawn from ProjectMember.hostId.
   // Validation lives in src/lib/meeting-types.ts.
   assignedHostIds       String[]

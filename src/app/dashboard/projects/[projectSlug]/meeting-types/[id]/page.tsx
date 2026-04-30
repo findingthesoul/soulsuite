@@ -65,11 +65,12 @@ export default async function EditProjectMeetingTypePage({
             minNoticeMinutes: mt.minNoticeMinutes,
             maxAdvanceDays: mt.maxAdvanceDays,
             conflictCalendarIds: mt.conflictCalendarIds,
-            routingMode: mt.routingMode,
+            routingMode: mt.routingMode === "COLLECTIVE" ? "ROUND_ROBIN" : mt.routingMode,
             assignedHostIds: mt.assignedHostIds,
             intakeFields,
             isActive: mt.isActive,
             conferencingProvider: mt.conferencingProvider,
+            maxInvitees: mt.maxInvitees,
           }}
         />
       </div>

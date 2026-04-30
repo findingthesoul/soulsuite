@@ -22,6 +22,7 @@ const patchSchema = z.object({
   intakeFields: intakeFieldsSchema.default([]),
   isActive: z.boolean(),
   conferencingProvider: z.enum(["GOOGLE_MEET", "ZOOM", "TEAMS", "NONE"]),
+  maxInvitees: z.number().int().min(1).max(50).default(1),
 });
 
 async function authorize(host: { id: string }, projectId: string, mtId: string) {
@@ -58,6 +59,9 @@ export async function PATCH(
   }
   if (data.routingMode === "ROUND_ROBIN" && data.assignedHostIds.length < 2) {
     return new NextResponse("Round-robin needs at least two assigned hosts.", { status: 400 });
+  }
+  if (data.maxInvitees > 1 && data.routingMode !== "SINGLE") {
+    return new NextResponse("Group meetings (maxInvitees > 1) only work with single-host routing.", { status: 400 });
   }
 
   const members = await prisma.projectMember.findMany({
@@ -119,6 +123,7 @@ export async function PATCH(
           conflictCalendarIds: data.conflictCalendarIds,
           isActive: data.isActive,
           conferencingProvider: data.conferencingProvider,
+          maxInvitees: data.maxInvitees,
         },
       });
       const newFormId = await syncIntakeForm({

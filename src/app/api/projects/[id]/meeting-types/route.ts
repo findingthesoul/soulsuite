@@ -23,6 +23,7 @@ const bodySchema = z.object({
   conflictCalendarIds: z.array(z.string().min(1)).default([]),
   intakeFields: intakeFieldsSchema.default([]),
   conferencingProvider: z.enum(["GOOGLE_MEET", "ZOOM", "TEAMS", "NONE"]).default("GOOGLE_MEET"),
+  maxInvitees: z.number().int().min(1).max(50).default(1),
 });
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -48,6 +49,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
   if (data.routingMode === "ROUND_ROBIN" && data.assignedHostIds.length < 2) {
     return new NextResponse("Round-robin needs at least two assigned hosts.", { status: 400 });
+  }
+  if (data.maxInvitees > 1 && data.routingMode !== "SINGLE") {
+    return new NextResponse("Group meetings (maxInvitees > 1) only work with single-host routing.", { status: 400 });
   }
 
   // Every assignedHostId must be a ProjectMember of this project.
@@ -113,6 +117,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           maxAdvanceDays: data.maxAdvanceDays,
           conflictCalendarIds: data.conflictCalendarIds,
           conferencingProvider: data.conferencingProvider,
+          maxInvitees: data.maxInvitees,
         },
       });
       const intakeFormId = await syncIntakeForm({

@@ -54,6 +54,7 @@ export default async function EditMeetingTypePage({
             intakeFields,
             isActive: mt.isActive,
             conferencingProvider: mt.conferencingProvider,
+            maxInvitees: mt.maxInvitees,
           }}
         />
       </div>

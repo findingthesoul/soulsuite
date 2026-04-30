@@ -31,6 +31,7 @@ const patchSchema = z.object({
   intakeFields: intakeFieldsSchema.default([]),
   isActive: z.boolean(),
   conferencingProvider: z.enum(["GOOGLE_MEET", "ZOOM", "TEAMS", "NONE"]),
+  maxInvitees: z.number().int().min(1).max(50).default(1),
 });
 
 async function findOwnedMeetingType(id: string, hostId: string) {
@@ -88,6 +89,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
           conflictCalendarIds: parsed.data.conflictCalendarIds,
           isActive: parsed.data.isActive,
           conferencingProvider: parsed.data.conferencingProvider,
+          maxInvitees: parsed.data.maxInvitees,
         },
       });
       const newFormId = await syncIntakeForm({

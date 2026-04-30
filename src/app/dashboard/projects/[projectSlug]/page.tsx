@@ -42,7 +42,7 @@ export default async function ProjectDashboardPage({
       <div className="space-y-8">
         <header className="space-y-1">
           <p className="text-sm text-muted-foreground">
-            <Link href="/dashboard/projects" className="hover:text-foreground">Projects</Link>
+            <Link href="/dashboard/projects" className="hover:text-foreground">Teams</Link>
           </p>
           <div className="flex items-center gap-2">
             <h1 className="text-3xl font-semibold tracking-tight">{project.name}</h1>

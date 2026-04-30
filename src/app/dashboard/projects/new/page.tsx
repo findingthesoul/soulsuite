@@ -14,7 +14,7 @@ export default async function NewProjectPage() {
     <AppShell {...shellProps(ctx)}>
       <div className="mx-auto w-full max-w-2xl space-y-6">
         <header className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">New project</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">New team</h1>
           <p className="text-sm text-muted-foreground">
             You&apos;ll be the first lead. Add other workspace members or external collaborators later.
           </p>

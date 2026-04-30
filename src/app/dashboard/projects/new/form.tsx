@@ -115,7 +115,7 @@ export function NewProjectForm() {
           Cancel
         </Button>
         <Button onClick={submit} disabled={pending}>
-          {pending ? "Creating…" : "Create project"}
+          {pending ? "Creating…" : "Create team"}
         </Button>
       </div>
     </div>

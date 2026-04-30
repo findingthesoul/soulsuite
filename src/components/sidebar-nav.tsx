@@ -7,7 +7,7 @@ import { LayoutDashboard, FolderOpen, CalendarDays, Inbox, Clock, Users, HelpCir
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Home", icon: LayoutDashboard, exact: true },
   { href: "/dashboard/bookings", label: "Bookings", icon: Inbox, exact: false },
-  { href: "/dashboard/projects", label: "Projects", icon: FolderOpen, exact: false },
+  { href: "/dashboard/projects", label: "Teams", icon: FolderOpen, exact: false },
   { href: "/dashboard/meeting-types", label: "Scheduling", icon: CalendarDays, exact: false },
 ];
 

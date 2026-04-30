@@ -47,7 +47,7 @@ const ITEMS: ItemSpec[] = [
     title: "Round robin",
     hosts: "Rotating hosts",
     invitees: "1 invitee",
-    blurb: "Distribute incoming bookings across a team.",
+    blurb: "Distribute bookings across a team. Lives inside a Team — pick or create one next.",
     icon: Repeat,
     href: "/dashboard/projects",
   },

@@ -19,15 +19,16 @@ export default async function ProjectsListPage() {
       <div className="space-y-6">
         <header className="flex items-start justify-between gap-4">
           <div className="space-y-1">
-            <h1 className="text-2xl font-semibold tracking-tight">Projects</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">Teams</h1>
             <p className="text-sm text-muted-foreground">
-              Engagements you&apos;re a member of. Each project owns its own meeting types.
+              Shared engagements you&apos;re a member of. Each team owns its own meeting types and round-robin
+              routing.
             </p>
           </div>
           {canCreate && (
             <Link href="/dashboard/projects/new" className={buttonVariants()}>
               <Plus className="h-4 w-4" />
-              New project
+              New team
             </Link>
           )}
         </header>

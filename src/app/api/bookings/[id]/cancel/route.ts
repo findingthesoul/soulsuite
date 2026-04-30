@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { calendarFor, isGoogleAuthError } from "@/lib/google/client";
+import { sendEmail, bookingCancellationTemplate, appUrl } from "@/lib/email";
 
 // Public cancel — anyone with the booking ID can cancel. The booking ID is a CUID (~22
 // random chars), unguessable in practice, which mirrors the same access model as the
@@ -12,7 +13,7 @@ export async function POST(
   const { id } = await params;
   const booking = await prisma.booking.findUnique({
     where: { id },
-    include: { host: true },
+    include: { host: true, meetingType: true, project: true },
   });
   if (!booking) return new NextResponse("Booking not found", { status: 404 });
   if (booking.status === "CANCELLED") return NextResponse.json({ ok: true, alreadyCancelled: true });
@@ -48,6 +49,28 @@ export async function POST(
   await prisma.booking.update({
     where: { id },
     data: { status: "CANCELLED", googleEventId: null },
+  });
+
+  // Cancellation email — fire-and-forget.
+  const slugForUrl = booking.project?.slug ?? booking.host.slug;
+  const tmpl = bookingCancellationTemplate({
+    hostName: booking.host.name,
+    meetingTypeName: booking.meetingType.name,
+    startsAtIso: booking.startsAt.toISOString(),
+    endsAtIso: booking.endsAt.toISOString(),
+    inviteeName: booking.inviteeName,
+    inviteeEmail: booking.inviteeEmail,
+    cancelUrl: appUrl(`/${slugForUrl}/${booking.meetingType.slug}/confirmed/${booking.id}`),
+    rescheduleUrl: appUrl(`/${slugForUrl}/${booking.meetingType.slug}/confirmed/${booking.id}/reschedule`),
+    meetUrl: null,
+  });
+  void sendEmail({
+    to: booking.inviteeEmail,
+    subject: tmpl.subject,
+    html: tmpl.html,
+    text: tmpl.text,
+    fromName: booking.host.name,
+    replyTo: booking.host.email,
   });
 
   return NextResponse.json({ ok: true });

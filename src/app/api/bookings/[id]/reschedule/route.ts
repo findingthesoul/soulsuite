@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { calendarFor, isGoogleAuthError } from "@/lib/google/client";
 import { computeAvailableSlots, type WorkingHours } from "@/lib/availability/engine";
 import { fetchHostBusy } from "@/lib/availability/freebusy";
+import { sendEmail, bookingRescheduleTemplate, appUrl } from "@/lib/email";
 
 const bodySchema = z.object({
   startsAt: z.string().datetime(),
@@ -110,6 +111,34 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   await prisma.booking.update({
     where: { id },
     data: { startsAt, endsAt, status: "RESCHEDULED" },
+  });
+
+  // Reschedule email — fire-and-forget. We need to look up the project slug for the URL.
+  const project = booking.meetingType.projectId
+    ? await prisma.project.findUnique({
+        where: { id: booking.meetingType.projectId },
+        select: { slug: true },
+      })
+    : null;
+  const slugForUrl = project?.slug ?? host.slug;
+  const tmpl = bookingRescheduleTemplate({
+    hostName: host.name,
+    meetingTypeName: booking.meetingType.name,
+    startsAtIso: startsAt.toISOString(),
+    endsAtIso: endsAt.toISOString(),
+    inviteeName: booking.inviteeName,
+    inviteeEmail: booking.inviteeEmail,
+    cancelUrl: appUrl(`/${slugForUrl}/${booking.meetingType.slug}/confirmed/${booking.id}/cancel`),
+    rescheduleUrl: appUrl(`/${slugForUrl}/${booking.meetingType.slug}/confirmed/${booking.id}/reschedule`),
+    meetUrl: null,
+  });
+  void sendEmail({
+    to: booking.inviteeEmail,
+    subject: tmpl.subject,
+    html: tmpl.html,
+    text: tmpl.text,
+    fromName: host.name,
+    replyTo: host.email,
   });
 
   return NextResponse.json({ ok: true });

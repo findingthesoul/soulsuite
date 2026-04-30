@@ -4,6 +4,7 @@ import type { Prisma } from "@prisma/client";
 import { getCurrentHost } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createPollSchema, newResponseToken, type ProposedSlot } from "@/lib/polls";
+import { sendEmail, pollInviteTemplate, appUrl } from "@/lib/email";
 
 // Personal polls only for v1 (scope=PERSONAL). Project polls land later — schema already
 // supports them, just not surfaced in the UI yet.
@@ -40,6 +41,10 @@ export async function POST(request: NextRequest) {
 
   const dedupedEmails = [...new Set(data.inviteeEmails.map((e) => e.toLowerCase()))];
 
+  // Pre-generate tokens so we can both insert PollResponse rows AND send invite emails using
+  // the same tokens, without an extra query after the transaction.
+  const responses = dedupedEmails.map((email) => ({ email, token: newResponseToken() }));
+
   const created = await prisma.$transaction(async (tx) => {
     const poll = await tx.poll.create({
       data: {
@@ -53,17 +58,35 @@ export async function POST(request: NextRequest) {
         status: PollStatus.OPEN,
       },
     });
-    // One PollResponse per invitee, with an empty vote map and a unique token.
     await tx.pollResponse.createMany({
-      data: dedupedEmails.map((email) => ({
+      data: responses.map((r) => ({
         pollId: poll.id,
-        inviteeEmail: email,
+        inviteeEmail: r.email,
         votes: {} as unknown as Prisma.InputJsonValue,
-        token: newResponseToken(),
+        token: r.token,
       })),
     });
     return poll;
   });
+
+  // Fire-and-forget invite emails — one per invitee, each with their own magic link.
+  for (const r of responses) {
+    const tmpl = pollInviteTemplate({
+      ownerName: host.name,
+      pollName: data.name,
+      durationMinutes: data.durationMinutes,
+      voteUrl: appUrl(`/poll/respond/${r.token}`),
+      recipientEmail: r.email,
+    });
+    void sendEmail({
+      to: r.email,
+      subject: tmpl.subject,
+      html: tmpl.html,
+      text: tmpl.text,
+      fromName: host.name,
+      replyTo: host.email,
+    });
+  }
 
   return NextResponse.json({ ok: true, id: created.id });
 }

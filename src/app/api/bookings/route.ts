@@ -8,6 +8,7 @@ import { computeAvailableSlots, type WorkingHours } from "@/lib/availability/eng
 import { fetchHostBusy } from "@/lib/availability/freebusy";
 import { type IntakeField, validateAnswers, pruneHiddenAnswers } from "@/lib/intake";
 import { pickRoundRobinHost } from "@/lib/round-robin";
+import { sendEmail, bookingConfirmationTemplate, appUrl } from "@/lib/email";
 
 const bodySchema = z.object({
   meetingTypeId: z.string().min(1),
@@ -234,6 +235,34 @@ export async function POST(request: NextRequest) {
       { status: 502 },
     );
   }
+
+  // Confirmation email — fire-and-forget. Failures are logged inside sendEmail; we don't
+  // block the booking on email delivery.
+  const publicSlug = meetingType.scope === "PROJECT" ? undefined : host.slug;
+  // For PROJECT bookings the URL uses the project slug; for PERSONAL it uses the host's.
+  const slugForUrl = publicSlug ?? (await prisma.project.findUnique({
+    where: { id: meetingType.projectId! },
+    select: { slug: true },
+  }))?.slug ?? host.slug;
+  const tmpl = bookingConfirmationTemplate({
+    hostName: host.name,
+    meetingTypeName: meetingType.name,
+    startsAtIso: startsAt.toISOString(),
+    endsAtIso: endsAt.toISOString(),
+    inviteeName: body.inviteeName,
+    inviteeEmail: body.inviteeEmail,
+    cancelUrl: appUrl(`/${slugForUrl}/${meetingType.slug}/confirmed/${bookingId}/cancel`),
+    rescheduleUrl: appUrl(`/${slugForUrl}/${meetingType.slug}/confirmed/${bookingId}/reschedule`),
+    meetUrl: null,
+  });
+  void sendEmail({
+    to: body.inviteeEmail,
+    subject: tmpl.subject,
+    html: tmpl.html,
+    text: tmpl.text,
+    fromName: host.name,
+    replyTo: host.email,
+  });
 
   return NextResponse.json({ id: bookingId });
 }

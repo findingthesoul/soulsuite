@@ -17,6 +17,10 @@ const serverSchema = z.object({
   GOOGLE_CLIENT_SECRET: z.string().min(1),
   WORKSPACE_PRIMARY_EMAIL_DOMAIN: z.string().min(1),
   APP_TOKEN_SECRET: z.string().min(16),
+  // Email — both optional. When unset, email-sending is a no-op (logged in dev). Set both
+  // in production after configuring Resend + DNS for the sender domain.
+  RESEND_API_KEY: z.string().min(1).optional(),
+  EMAIL_FROM: z.string().email().optional(),
 });
 
 export const publicEnv = publicSchema.parse({
@@ -40,6 +44,8 @@ export function serverEnv() {
       GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
       WORKSPACE_PRIMARY_EMAIL_DOMAIN: process.env.WORKSPACE_PRIMARY_EMAIL_DOMAIN,
       APP_TOKEN_SECRET: process.env.APP_TOKEN_SECRET,
+      RESEND_API_KEY: process.env.RESEND_API_KEY,
+      EMAIL_FROM: process.env.EMAIL_FROM,
     });
   }
   return _serverEnv;

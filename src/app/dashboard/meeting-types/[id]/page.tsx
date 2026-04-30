@@ -34,6 +34,7 @@ export default async function EditMeetingTypePage({
         </header>
         <MeetingTypeForm
           hostSlug={ctx.host.slug}
+          hostHasZoom={!!ctx.host.zoomRefreshToken}
           hostCalendars={calendars.map((c) => ({
             id: c.id,
             summary: c.summary ?? c.googleCalendarId,
@@ -52,6 +53,7 @@ export default async function EditMeetingTypePage({
             conflictCalendarIds: mt.conflictCalendarIds,
             intakeFields,
             isActive: mt.isActive,
+            conferencingProvider: mt.conferencingProvider,
           }}
         />
       </div>

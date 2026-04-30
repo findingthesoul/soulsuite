@@ -22,14 +22,14 @@ datasource db {
 // ────────────────────────────────────────────────────────────────────────────
 
 model Workspace {
-  id                  String   @id @default(cuid())
-  name                String
-  slug                String   @unique
-  primaryEmailDomain  String
+  id                 String   @id @default(cuid())
+  name               String
+  slug               String   @unique
+  primaryEmailDomain String
   // Branding — surfaced in the app header and (later) public booking pages.
-  logoUrl             String?
-  brandColor          String?  // hex like "#1c1917"
-  createdAt           DateTime @default(now())
+  logoUrl            String?
+  brandColor         String? // hex like "#1c1917"
+  createdAt          DateTime @default(now())
 
   members  WorkspaceMember[]
   projects Project[]
@@ -61,29 +61,33 @@ model WorkspaceMember {
 // ────────────────────────────────────────────────────────────────────────────
 
 model Host {
-  id                  String   @id @default(cuid())
+  id                 String    @id @default(cuid())
   // Mirrors auth.users.id in Supabase Auth so we can join cleanly.
-  authUserId          String   @unique
-  email               String   @unique
-  name                String
-  slug                String   @unique
+  authUserId         String    @unique
+  email              String    @unique
+  name               String
+  slug               String    @unique
   // Cached from auth.identities.identity_data.provider_refresh_token. Refreshed on every sign-in.
   // Nullable because Supabase doesn't always surface it on the very first callback.
-  googleRefreshToken  String?
-  timezone            String   @default("Europe/Amsterdam")
+  googleRefreshToken String?
+  // Zoom OAuth (User-managed). Captured in /api/oauth/zoom/callback. Null = not connected.
+  zoomRefreshToken   String?
+  zoomAccountEmail   String?
+  zoomConnectedAt    DateTime?
+  timezone           String    @default("Europe/Amsterdam")
   // JSON shape: { mon: [{start: "09:00", end: "17:00"}], tue: [...], ... }
-  workingHours        Json?
-  createdAt           DateTime @default(now())
+  workingHours       Json?
+  createdAt          DateTime  @default(now())
 
-  calendars         Calendar[]
-  workspaceMembers  WorkspaceMember[]
-  projectMembers    ProjectMember[]
-  personalMeetingTypes MeetingType[]    @relation("PersonalMeetingTypeHost")
-  personalIntakeForms  IntakeForm[]    @relation("PersonalIntakeFormHost")
-  personalPolls        Poll[]          @relation("PersonalPollHost")
-  ownedPolls           Poll[]          @relation("PollOwner")
+  calendars            Calendar[]
+  workspaceMembers     WorkspaceMember[]
+  projectMembers       ProjectMember[]
+  personalMeetingTypes MeetingType[]     @relation("PersonalMeetingTypeHost")
+  personalIntakeForms  IntakeForm[]      @relation("PersonalIntakeFormHost")
+  personalPolls        Poll[]            @relation("PersonalPollHost")
+  ownedPolls           Poll[]            @relation("PollOwner")
   bookings             Booking[]
-  invitesSent          Invite[]        @relation("InviteSender")
+  invitesSent          Invite[]          @relation("InviteSender")
 }
 
 enum CalendarRole {
@@ -157,6 +161,13 @@ model ProjectMember {
 // Meeting types + intake forms
 // ────────────────────────────────────────────────────────────────────────────
 
+enum ConferencingProvider {
+  GOOGLE_MEET
+  ZOOM
+  TEAMS
+  NONE
+}
+
 enum Scope {
   PERSONAL
   PROJECT
@@ -168,19 +179,19 @@ enum RoutingMode {
 }
 
 model MeetingType {
-  id                    String      @id @default(cuid())
+  id                    String               @id @default(cuid())
   scope                 Scope
-  hostId                String?     // set when scope = PERSONAL
-  projectId             String?     // set when scope = PROJECT
+  hostId                String? // set when scope = PERSONAL
+  projectId             String? // set when scope = PROJECT
   slug                  String
   name                  String
   description           String?
   durationMinutes       Int
-  bufferBeforeMinutes   Int         @default(0)
-  bufferAfterMinutes    Int         @default(0)
-  minNoticeMinutes      Int         @default(60)
-  maxAdvanceDays        Int         @default(60)
-  routingMode           RoutingMode @default(SINGLE)
+  bufferBeforeMinutes   Int                  @default(0)
+  bufferAfterMinutes    Int                  @default(0)
+  minNoticeMinutes      Int                  @default(60)
+  maxAdvanceDays        Int                  @default(60)
+  routingMode           RoutingMode          @default(SINGLE)
   // For project scope round-robin: hostIds drawn from ProjectMember.hostId.
   // Validation lives in src/lib/meeting-types.ts.
   assignedHostIds       String[]
@@ -189,13 +200,16 @@ model MeetingType {
   conflictCalendarIds   String[]
   intakeFormId          String?
   // Privacy: by default intake answers are not added to the calendar event description (brief §Privacy).
-  includeAnswersInEvent Boolean     @default(false)
-  isActive              Boolean     @default(true)
-  createdAt             DateTime    @default(now())
+  includeAnswersInEvent Boolean              @default(false)
+  // Which conferencing system to attach to the booking. GOOGLE_MEET is the legacy default;
+  // ZOOM/TEAMS require the host to have connected the corresponding provider in /settings/connections.
+  conferencingProvider  ConferencingProvider @default(GOOGLE_MEET)
+  isActive              Boolean              @default(true)
+  createdAt             DateTime             @default(now())
 
-  host       Host?       @relation("PersonalMeetingTypeHost", fields: [hostId], references: [id], onDelete: Cascade)
-  project    Project?    @relation("ProjectMeetingType", fields: [projectId], references: [id], onDelete: Cascade)
-  intakeForm IntakeForm? @relation(fields: [intakeFormId], references: [id], onDelete: SetNull)
+  host       Host?            @relation("PersonalMeetingTypeHost", fields: [hostId], references: [id], onDelete: Cascade)
+  project    Project?         @relation("ProjectMeetingType", fields: [projectId], references: [id], onDelete: Cascade)
+  intakeForm IntakeForm?      @relation(fields: [intakeFormId], references: [id], onDelete: SetNull)
   bookings   Booking[]
   rrState    RoundRobinState?
 
@@ -236,25 +250,33 @@ enum BookingStatus {
 }
 
 model Booking {
-  id              String        @id @default(cuid())
-  meetingTypeId   String
-  hostId          String        // resolved at booking time (round-robin → final host)
-  projectId       String?       // copied from MeetingType for reporting
-  inviteeEmail    String
-  inviteeName     String
-  inviteeAnswers  Json?
-  startsAt        DateTime
-  endsAt          DateTime
-  googleEventId   String?
+  id                   String               @id @default(cuid())
+  meetingTypeId        String
+  hostId               String // resolved at booking time (round-robin → final host)
+  projectId            String? // copied from MeetingType for reporting
+  inviteeEmail         String
+  inviteeName          String
+  inviteeAnswers       Json?
+  startsAt             DateTime
+  endsAt               DateTime
+  googleEventId        String?
+  // Conferencing — populated when the booking creates a meeting in Zoom/Teams/Meet. Stored
+  // so the cancel route can also tear down the provider-side meeting if needed, and so
+  // emails/UI can render the join link without re-fetching from Google.
+  conferencingProvider ConferencingProvider @default(GOOGLE_MEET)
+  meetUrl              String?
+  // Provider-specific meeting id (Zoom meeting id, Teams onlineMeeting id). Null for GOOGLE_MEET
+  // since the link lives on the Google event itself and is recreated by Google.
+  providerMeetingId    String?
   // Idempotency key for Google event creation (brief §Idempotency).
-  requestId       String        @unique
-  status          BookingStatus @default(CONFIRMED)
-  createdAt       DateTime      @default(now())
+  requestId            String               @unique
+  status               BookingStatus        @default(CONFIRMED)
+  createdAt            DateTime             @default(now())
 
-  meetingType MeetingType @relation(fields: [meetingTypeId], references: [id])
-  host        Host        @relation(fields: [hostId], references: [id])
-  project     Project?    @relation(fields: [projectId], references: [id])
-  finalizedFromPoll Poll? @relation("PollFinalizedBooking")
+  meetingType       MeetingType @relation(fields: [meetingTypeId], references: [id])
+  host              Host        @relation(fields: [hostId], references: [id])
+  project           Project?    @relation(fields: [projectId], references: [id])
+  finalizedFromPoll Poll?       @relation("PollFinalizedBooking")
 
   @@index([hostId, startsAt])
   @@index([projectId])
@@ -272,26 +294,26 @@ enum PollStatus {
 }
 
 model Poll {
-  id                  String     @id @default(cuid())
-  scope               Scope
-  hostId              String?
-  projectId           String?
-  ownerHostId         String
-  name                String
-  durationMinutes     Int
+  id                 String     @id @default(cuid())
+  scope              Scope
+  hostId             String?
+  projectId          String?
+  ownerHostId        String
+  name               String
+  durationMinutes    Int
   // JSON shape: [{ id, startsAt, endsAt }]
-  proposedSlots       Json
-  inviteeEmails       String[]
-  status              PollStatus @default(OPEN)
-  finalizedSlot       Json?
-  finalizedBookingId  String?    @unique
-  createdAt           DateTime   @default(now())
+  proposedSlots      Json
+  inviteeEmails      String[]
+  status             PollStatus @default(OPEN)
+  finalizedSlot      Json?
+  finalizedBookingId String?    @unique
+  createdAt          DateTime   @default(now())
 
-  host              Host?         @relation("PersonalPollHost", fields: [hostId], references: [id], onDelete: Cascade)
-  project           Project?      @relation("ProjectPoll", fields: [projectId], references: [id], onDelete: Cascade)
-  owner             Host          @relation("PollOwner", fields: [ownerHostId], references: [id])
-  responses         PollResponse[]
-  finalizedBooking  Booking?      @relation("PollFinalizedBooking", fields: [finalizedBookingId], references: [id])
+  host             Host?          @relation("PersonalPollHost", fields: [hostId], references: [id], onDelete: Cascade)
+  project          Project?       @relation("ProjectPoll", fields: [projectId], references: [id], onDelete: Cascade)
+  owner            Host           @relation("PollOwner", fields: [ownerHostId], references: [id])
+  responses        PollResponse[]
+  finalizedBooking Booking?       @relation("PollFinalizedBooking", fields: [finalizedBookingId], references: [id])
 
   @@index([hostId])
   @@index([projectId])
@@ -318,9 +340,9 @@ model PollResponse {
 // ────────────────────────────────────────────────────────────────────────────
 
 model RoundRobinState {
-  meetingTypeId       String   @id
-  lastAssignedHostId  String?
-  updatedAt           DateTime @updatedAt
+  meetingTypeId      String   @id
+  lastAssignedHostId String?
+  updatedAt          DateTime @updatedAt
 
   meetingType MeetingType @relation(fields: [meetingTypeId], references: [id], onDelete: Cascade)
 }
@@ -348,9 +370,9 @@ model Invite {
   invitedByHostId String
   createdAt       DateTime   @default(now())
 
-  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  project     Project?   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  invitedBy   Host       @relation("InviteSender", fields: [invitedByHostId], references: [id])
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project   Project?   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  invitedBy Host       @relation("InviteSender", fields: [invitedByHostId], references: [id])
 
   @@index([email])
   @@index([workspaceId])

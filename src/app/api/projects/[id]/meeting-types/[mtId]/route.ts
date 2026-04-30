@@ -21,6 +21,7 @@ const patchSchema = z.object({
   conflictCalendarIds: z.array(z.string().min(1)).default([]),
   intakeFields: intakeFieldsSchema.default([]),
   isActive: z.boolean(),
+  conferencingProvider: z.enum(["GOOGLE_MEET", "ZOOM", "TEAMS", "NONE"]),
 });
 
 async function authorize(host: { id: string }, projectId: string, mtId: string) {
@@ -83,6 +84,23 @@ export async function PATCH(
     );
   }
 
+  if (data.conferencingProvider === "TEAMS") {
+    return new NextResponse("Microsoft Teams is not supported yet.", { status: 400 });
+  }
+  if (data.conferencingProvider === "ZOOM") {
+    const hosts = await prisma.host.findMany({
+      where: { id: { in: data.assignedHostIds } },
+      select: { id: true, name: true, zoomRefreshToken: true },
+    });
+    const missing = hosts.filter((h) => !h.zoomRefreshToken);
+    if (missing.length > 0) {
+      return new NextResponse(
+        `These hosts haven't connected Zoom: ${missing.map((h) => h.name).join(", ")}.`,
+        { status: 400 },
+      );
+    }
+  }
+
   try {
     await prisma.$transaction(async (tx) => {
       await tx.meetingType.update({
@@ -100,6 +118,7 @@ export async function PATCH(
           assignedHostIds: data.assignedHostIds,
           conflictCalendarIds: data.conflictCalendarIds,
           isActive: data.isActive,
+          conferencingProvider: data.conferencingProvider,
         },
       });
       const newFormId = await syncIntakeForm({

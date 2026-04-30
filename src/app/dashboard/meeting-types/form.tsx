@@ -33,7 +33,10 @@ interface Initial {
   conflictCalendarIds: string[];
   intakeFields: IntakeField[];
   isActive: boolean;
+  conferencingProvider: ConferencingProvider;
 }
+
+export type ConferencingProvider = "GOOGLE_MEET" | "ZOOM" | "TEAMS" | "NONE";
 
 export interface HostCalendar {
   id: string;
@@ -65,6 +68,7 @@ interface DraftValues {
   conflictCalendarIds: string[];
   intakeFields: IntakeField[];
   isActive: boolean;
+  conferencingProvider: ConferencingProvider;
 }
 
 const DRAFT_DEFAULT: DraftValues = {
@@ -79,15 +83,18 @@ const DRAFT_DEFAULT: DraftValues = {
   conflictCalendarIds: [],
   intakeFields: [],
   isActive: true,
+  conferencingProvider: "GOOGLE_MEET",
 };
 
 export function MeetingTypeForm({
   hostSlug,
   hostCalendars,
+  hostHasZoom,
   initial,
 }: {
   hostSlug: string;
   hostCalendars: HostCalendar[];
+  hostHasZoom: boolean;
   initial?: Initial;
 }) {
   const router = useRouter();
@@ -109,6 +116,7 @@ export function MeetingTypeForm({
           conflictCalendarIds: initial.conflictCalendarIds,
           intakeFields: initial.intakeFields,
           isActive: initial.isActive,
+          conferencingProvider: initial.conferencingProvider,
         }
       : DRAFT_DEFAULT,
   );
@@ -154,6 +162,9 @@ export function MeetingTypeForm({
     if (![15, 30, 45, 60, 90, 120].includes(draft.durationMinutes)) {
       return setError("Duration must be 15, 30, 45, 60, 90, or 120 minutes.");
     }
+    if (draft.conferencingProvider === "ZOOM" && !hostHasZoom) {
+      return setError("Connect Zoom in Settings → Connections before picking it.");
+    }
 
     startTransition(async () => {
       const url = isEdit ? `/api/meeting-types/${initial!.id}` : `/api/meeting-types`;
@@ -173,6 +184,7 @@ export function MeetingTypeForm({
           conflictCalendarIds: draft.conflictCalendarIds,
           intakeFields: draft.intakeFields,
           isActive: draft.isActive,
+          conferencingProvider: draft.conferencingProvider,
         }),
       });
       if (!res.ok) {
@@ -250,6 +262,20 @@ export function MeetingTypeForm({
             <SchedulingReadOnly committed={committed} />
           ) : (
             <SchedulingEditor draft={draft} update={update} />
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Conferencing</CardTitle>
+          <CardDescription>Where the meeting happens. Zoom requires you to connect it in Settings.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {!editing ? (
+            <ConferencingReadOnly committed={committed} />
+          ) : (
+            <ConferencingEditor draft={draft} update={update} hostHasZoom={hostHasZoom} />
           )}
         </CardContent>
       </Card>
@@ -635,6 +661,51 @@ function ConflictCalendarsEditor({
           })}
         </ul>
       )}
+    </div>
+  );
+}
+
+const PROVIDER_LABELS: Record<ConferencingProvider, string> = {
+  GOOGLE_MEET: "Google Meet",
+  ZOOM: "Zoom",
+  TEAMS: "Microsoft Teams",
+  NONE: "None (no link added)",
+};
+
+function ConferencingReadOnly({ committed }: { committed: DraftValues }) {
+  return (
+    <dl className="space-y-3 text-sm">
+      <Row label="Provider" value={PROVIDER_LABELS[committed.conferencingProvider]} />
+    </dl>
+  );
+}
+
+function ConferencingEditor({
+  draft,
+  update,
+  hostHasZoom,
+}: {
+  draft: DraftValues;
+  update: <K extends keyof DraftValues>(key: K, value: DraftValues[K]) => void;
+  hostHasZoom: boolean;
+}) {
+  return (
+    <div className="space-y-2">
+      <Label htmlFor="conferencingProvider">Provider</Label>
+      <Select
+        id="conferencingProvider"
+        value={draft.conferencingProvider}
+        onChange={(e) => update("conferencingProvider", e.target.value as ConferencingProvider)}
+      >
+        <option value="GOOGLE_MEET">Google Meet</option>
+        <option value="ZOOM" disabled={!hostHasZoom}>
+          Zoom{hostHasZoom ? "" : " — connect in Settings → Connections first"}
+        </option>
+        <option value="TEAMS" disabled>
+          Microsoft Teams — coming later
+        </option>
+        <option value="NONE">None (no conferencing link)</option>
+      </Select>
     </div>
   );
 }

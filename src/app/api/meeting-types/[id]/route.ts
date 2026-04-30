@@ -30,6 +30,7 @@ const patchSchema = z.object({
   conflictCalendarIds: z.array(z.string().min(1)).default([]),
   intakeFields: intakeFieldsSchema.default([]),
   isActive: z.boolean(),
+  conferencingProvider: z.enum(["GOOGLE_MEET", "ZOOM", "TEAMS", "NONE"]),
 });
 
 async function findOwnedMeetingType(id: string, hostId: string) {
@@ -51,6 +52,13 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const parsed = patchSchema.safeParse(json);
   if (!parsed.success) {
     return new NextResponse(parsed.error.issues[0]?.message ?? "invalid body", { status: 400 });
+  }
+
+  if (parsed.data.conferencingProvider === "ZOOM" && !host.zoomRefreshToken) {
+    return new NextResponse("Connect Zoom in Settings → Connections before using it.", { status: 400 });
+  }
+  if (parsed.data.conferencingProvider === "TEAMS") {
+    return new NextResponse("Microsoft Teams is not supported yet.", { status: 400 });
   }
 
   // Validate that any conflict-calendar IDs belong to this host.
@@ -79,6 +87,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
           maxAdvanceDays: parsed.data.maxAdvanceDays,
           conflictCalendarIds: parsed.data.conflictCalendarIds,
           isActive: parsed.data.isActive,
+          conferencingProvider: parsed.data.conferencingProvider,
         },
       });
       const newFormId = await syncIntakeForm({

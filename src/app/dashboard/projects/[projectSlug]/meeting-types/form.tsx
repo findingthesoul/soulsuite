@@ -19,11 +19,14 @@ import {
 import { type IntakeField, FIELD_TYPE_LABELS } from "@/lib/intake";
 import { IntakeFieldsEditor } from "@/components/intake-fields-editor";
 
+type ConferencingProvider = "GOOGLE_MEET" | "ZOOM" | "TEAMS" | "NONE";
+
 interface ProjectMember {
   hostId: string;
   name: string;
   email: string;
   isExternal: boolean;
+  hasZoom: boolean;
   calendars: { id: string; summary: string; role: "PRIMARY" | "CONFLICT_CHECK" | "WRITE_TARGET" }[];
 }
 
@@ -42,6 +45,7 @@ interface Initial {
   assignedHostIds: string[];
   intakeFields: IntakeField[];
   isActive: boolean;
+  conferencingProvider: ConferencingProvider;
 }
 
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
@@ -70,6 +74,7 @@ interface DraftValues {
   assignedHostIds: string[];
   intakeFields: IntakeField[];
   isActive: boolean;
+  conferencingProvider: ConferencingProvider;
 }
 
 export function ProjectMeetingTypeForm({
@@ -101,6 +106,7 @@ export function ProjectMeetingTypeForm({
     assignedHostIds: members[0]?.hostId ? [members[0].hostId] : [],
     intakeFields: [],
     isActive: true,
+    conferencingProvider: "GOOGLE_MEET",
   };
 
   const [committed, setCommitted] = useState<DraftValues>(() =>
@@ -119,6 +125,7 @@ export function ProjectMeetingTypeForm({
           assignedHostIds: initial.assignedHostIds,
           intakeFields: initial.intakeFields,
           isActive: initial.isActive,
+          conferencingProvider: initial.conferencingProvider,
         }
       : draftDefault,
   );
@@ -218,6 +225,16 @@ export function ProjectMeetingTypeForm({
       const allValid = draft.assignedHostIds.every((id) => members.some((m) => m.hostId === id));
       if (!allValid) return setError("All assigned hosts must be project members.");
     }
+    if (draft.conferencingProvider === "ZOOM") {
+      const missing = draft.assignedHostIds
+        .map((id) => members.find((m) => m.hostId === id))
+        .filter((m): m is ProjectMember => Boolean(m && !m.hasZoom));
+      if (missing.length > 0) {
+        return setError(
+          `These assigned hosts haven't connected Zoom: ${missing.map((m) => m.name).join(", ")}. They need to connect in Settings → Connections first.`,
+        );
+      }
+    }
 
     startTransition(async () => {
       const url = isEdit
@@ -238,6 +255,7 @@ export function ProjectMeetingTypeForm({
         assignedHostIds: draft.assignedHostIds,
         intakeFields: draft.intakeFields,
         isActive: draft.isActive,
+        conferencingProvider: draft.conferencingProvider,
       };
       const res = await fetch(url, {
         method,
@@ -320,6 +338,22 @@ export function ProjectMeetingTypeForm({
         </CardHeader>
         <CardContent>
           {!editing ? <SchedulingReadOnly committed={committed} /> : <SchedulingEditor draft={draft} update={update} />}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Conferencing</CardTitle>
+          <CardDescription>
+            Where the meeting happens. Zoom requires every assigned host to have connected it.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {!editing ? (
+            <ProjectConferencingReadOnly committed={committed} />
+          ) : (
+            <ProjectConferencingEditor draft={draft} update={update} members={members} />
+          )}
         </CardContent>
       </Card>
 
@@ -778,6 +812,56 @@ function Row({ label, value, mono }: { label: string; value: string; mono?: bool
     <div className="grid grid-cols-[140px_1fr] gap-3">
       <dt className="text-xs uppercase tracking-wide text-subtle-foreground pt-0.5">{label}</dt>
       <dd className={mono ? "font-mono text-sm text-foreground" : "text-foreground"}>{value}</dd>
+    </div>
+  );
+}
+
+const PROJECT_PROVIDER_LABELS: Record<ConferencingProvider, string> = {
+  GOOGLE_MEET: "Google Meet",
+  ZOOM: "Zoom",
+  TEAMS: "Microsoft Teams",
+  NONE: "None (no link added)",
+};
+
+function ProjectConferencingReadOnly({ committed }: { committed: DraftValues }) {
+  return <p className="text-sm text-foreground">{PROJECT_PROVIDER_LABELS[committed.conferencingProvider]}</p>;
+}
+
+function ProjectConferencingEditor({
+  draft,
+  update,
+  members,
+}: {
+  draft: DraftValues;
+  update: <K extends keyof DraftValues>(key: K, value: DraftValues[K]) => void;
+  members: ProjectMember[];
+}) {
+  const assigned = draft.assignedHostIds.map((id) => members.find((m) => m.hostId === id)).filter(Boolean) as ProjectMember[];
+  const missingZoom = draft.conferencingProvider === "ZOOM" ? assigned.filter((m) => !m.hasZoom) : [];
+  const anyAssignedHasZoom = assigned.some((m) => m.hasZoom);
+
+  return (
+    <div className="space-y-2">
+      <Label htmlFor="projectConferencingProvider">Provider</Label>
+      <Select
+        id="projectConferencingProvider"
+        value={draft.conferencingProvider}
+        onChange={(e) => update("conferencingProvider", e.target.value as ConferencingProvider)}
+      >
+        <option value="GOOGLE_MEET">Google Meet</option>
+        <option value="ZOOM" disabled={!anyAssignedHasZoom}>
+          Zoom{anyAssignedHasZoom ? "" : " — at least one assigned host must connect Zoom first"}
+        </option>
+        <option value="TEAMS" disabled>
+          Microsoft Teams — coming later
+        </option>
+        <option value="NONE">None (no conferencing link)</option>
+      </Select>
+      {missingZoom.length > 0 && (
+        <p className="text-xs text-destructive">
+          {missingZoom.map((m) => m.name).join(", ")} {missingZoom.length === 1 ? "hasn't" : "haven't"} connected Zoom yet.
+        </p>
+      )}
     </div>
   );
 }

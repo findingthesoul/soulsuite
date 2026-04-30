@@ -51,6 +51,7 @@ function serializeMembers(
     name: m.host.name,
     email: m.host.email,
     isExternal: m.isExternal,
+    hasZoom: !!m.host.zoomRefreshToken,
     calendars: m.host.calendars.map((c) => ({
       id: c.id,
       summary: c.summary ?? c.googleCalendarId,

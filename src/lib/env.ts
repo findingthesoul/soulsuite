@@ -21,6 +21,10 @@ const serverSchema = z.object({
   // in production after configuring Resend + DNS for the sender domain.
   RESEND_API_KEY: z.string().min(1).optional(),
   EMAIL_FROM: z.string().email().optional(),
+  // Zoom OAuth (User-managed app at marketplace.zoom.us). Both optional — when unset the
+  // /settings/connections page hides the Zoom card and meeting types can't pick ZOOM.
+  ZOOM_CLIENT_ID: z.string().min(1).optional(),
+  ZOOM_CLIENT_SECRET: z.string().min(1).optional(),
 });
 
 export const publicEnv = publicSchema.parse({
@@ -46,6 +50,8 @@ export function serverEnv() {
       APP_TOKEN_SECRET: process.env.APP_TOKEN_SECRET,
       RESEND_API_KEY: process.env.RESEND_API_KEY,
       EMAIL_FROM: process.env.EMAIL_FROM,
+      ZOOM_CLIENT_ID: process.env.ZOOM_CLIENT_ID,
+      ZOOM_CLIENT_SECRET: process.env.ZOOM_CLIENT_SECRET,
     });
   }
   return _serverEnv;

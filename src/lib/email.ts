@@ -103,7 +103,7 @@ export function bookingConfirmationTemplate(b: BookingTemplateInput): { html: st
     <table style="border-collapse:collapse;margin:16px 0;font-size:14px">
       <tr><td style="padding:4px 0;color:#57534e">When</td><td style="padding:4px 0 4px 24px">${escapeHtml(when)}</td></tr>
       <tr><td style="padding:4px 0;color:#57534e">What</td><td style="padding:4px 0 4px 24px">${escapeHtml(b.meetingTypeName)}</td></tr>
-      ${b.meetUrl ? `<tr><td style="padding:4px 0;color:#57534e">Meet</td><td style="padding:4px 0 4px 24px"><a href="${escapeAttr(b.meetUrl)}">${escapeHtml(b.meetUrl)}</a></td></tr>` : ""}
+      ${b.meetUrl ? `<tr><td style="padding:4px 0;color:#57534e">Join</td><td style="padding:4px 0 4px 24px"><a href="${escapeAttr(b.meetUrl)}">${escapeHtml(b.meetUrl)}</a></td></tr>` : ""}
     </table>
     <p>Need to change something?</p>
     <p>
@@ -111,7 +111,11 @@ export function bookingConfirmationTemplate(b: BookingTemplateInput): { html: st
       <a href="${escapeAttr(b.cancelUrl)}" style="display:inline-block;padding:8px 14px;border:1px solid #e7e5e4;color:#0c0a09;border-radius:6px;text-decoration:none">Cancel</a>
     </p>`,
   );
-  const text = `You're booked: ${b.meetingTypeName} with ${b.hostName}\n\nWhen: ${when}\n\nReschedule: ${b.rescheduleUrl}\nCancel: ${b.cancelUrl}\n`;
+  const text =
+    `You're booked: ${b.meetingTypeName} with ${b.hostName}\n\n` +
+    `When: ${when}\n` +
+    (b.meetUrl ? `Join: ${b.meetUrl}\n` : "") +
+    `\nReschedule: ${b.rescheduleUrl}\nCancel: ${b.cancelUrl}\n`;
   return { html, text, subject };
 }
 
@@ -134,13 +138,17 @@ export function bookingRescheduleTemplate(b: BookingTemplateInput): { html: stri
     "Meeting rescheduled",
     `<p>Hi ${escapeHtml(b.inviteeName)},</p>
     <p>Your meeting with <strong>${escapeHtml(b.hostName)}</strong> has been moved to <strong>${escapeHtml(when)}</strong>.</p>
+    ${b.meetUrl ? `<p>Join link: <a href="${escapeAttr(b.meetUrl)}">${escapeHtml(b.meetUrl)}</a></p>` : ""}
     <p>Need to change again?</p>
     <p>
       <a href="${escapeAttr(b.rescheduleUrl)}" style="display:inline-block;padding:8px 14px;background:#1c1917;color:#fafafa;border-radius:6px;text-decoration:none;margin-right:8px">Reschedule</a>
       <a href="${escapeAttr(b.cancelUrl)}" style="display:inline-block;padding:8px 14px;border:1px solid #e7e5e4;color:#0c0a09;border-radius:6px;text-decoration:none">Cancel</a>
     </p>`,
   );
-  const text = `Rescheduled to ${when}\n\nReschedule again: ${b.rescheduleUrl}\nCancel: ${b.cancelUrl}\n`;
+  const text =
+    `Rescheduled to ${when}\n` +
+    (b.meetUrl ? `Join: ${b.meetUrl}\n` : "") +
+    `\nReschedule again: ${b.rescheduleUrl}\nCancel: ${b.cancelUrl}\n`;
   return { html, text, subject };
 }
 

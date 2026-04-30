@@ -41,7 +41,7 @@ interface Initial {
   minNoticeMinutes: number;
   maxAdvanceDays: number;
   conflictCalendarIds: string[];
-  routingMode: "SINGLE" | "ROUND_ROBIN";
+  routingMode: "SINGLE" | "ROUND_ROBIN" | "COLLECTIVE";
   assignedHostIds: string[];
   intakeFields: IntakeField[];
   isActive: boolean;
@@ -70,7 +70,7 @@ interface DraftValues {
   minNoticeMinutes: number;
   maxAdvanceDays: number;
   conflictCalendarIds: string[];
-  routingMode: "SINGLE" | "ROUND_ROBIN";
+  routingMode: "SINGLE" | "ROUND_ROBIN" | "COLLECTIVE";
   assignedHostIds: string[];
   intakeFields: IntakeField[];
   isActive: boolean;
@@ -166,7 +166,7 @@ export function ProjectMeetingTypeForm({
   }
 
   // Switching routing modes resets selection so we don't end up with invalid combinations.
-  function setRoutingMode(mode: "SINGLE" | "ROUND_ROBIN") {
+  function setRoutingMode(mode: "SINGLE" | "ROUND_ROBIN" | "COLLECTIVE") {
     setDraft((prev) => ({
       ...prev,
       routingMode: mode,
@@ -178,7 +178,7 @@ export function ProjectMeetingTypeForm({
               ? [members[0].hostId]
               : []
           : prev.assignedHostIds,
-      conflictCalendarIds: mode === "ROUND_ROBIN" ? [] : prev.conflictCalendarIds,
+      conflictCalendarIds: mode === "SINGLE" ? prev.conflictCalendarIds : [],
     }));
   }
 
@@ -219,8 +219,9 @@ export function ProjectMeetingTypeForm({
         return setError("Pick an assigned host from the project members.");
       }
     } else {
+      const label = draft.routingMode === "COLLECTIVE" ? "Collective" : "Round-robin";
       if (draft.assignedHostIds.length < 2) {
-        return setError("Round-robin needs at least two assigned hosts.");
+        return setError(`${label} needs at least two assigned hosts.`);
       }
       const allValid = draft.assignedHostIds.every((id) => members.some((m) => m.hostId === id));
       if (!allValid) return setError("All assigned hosts must be project members.");
@@ -440,7 +441,9 @@ function DetailsReadOnly({
   const routingLabel =
     committed.routingMode === "ROUND_ROBIN"
       ? `Round-robin · ${assignedNames.length} hosts`
-      : "Single host";
+      : committed.routingMode === "COLLECTIVE"
+        ? `Collective · ${assignedNames.length} hosts`
+        : "Single host";
   return (
     <dl className="space-y-3 text-sm">
       <Row label="Name" value={committed.name} />
@@ -472,7 +475,7 @@ function DetailsEditor({
   onSlugChange: (v: string) => void;
   setSingleAssignedHost: (hostId: string) => void;
   toggleAssignedHost: (hostId: string, on: boolean) => void;
-  setRoutingMode: (mode: "SINGLE" | "ROUND_ROBIN") => void;
+  setRoutingMode: (mode: "SINGLE" | "ROUND_ROBIN" | "COLLECTIVE") => void;
   members: ProjectMember[];
   projectSlug: string;
   isEdit: boolean;
@@ -510,10 +513,11 @@ function DetailsEditor({
         <Select
           id="routingMode"
           value={draft.routingMode}
-          onChange={(e) => setRoutingMode(e.target.value as "SINGLE" | "ROUND_ROBIN")}
+          onChange={(e) => setRoutingMode(e.target.value as "SINGLE" | "ROUND_ROBIN" | "COLLECTIVE")}
         >
           <option value="SINGLE">Single host — one specific person</option>
           <option value="ROUND_ROBIN">Round-robin — least-recently-booked host gets the slot</option>
+          <option value="COLLECTIVE">Collective — all assigned hosts attend together</option>
         </Select>
       </div>
 
@@ -535,7 +539,12 @@ function DetailsEditor({
         </div>
       ) : (
         <div className="space-y-1.5">
-          <Label>Assigned hosts (pick at least 2)</Label>
+          <Label>
+            Assigned hosts (pick at least 2)
+            {draft.routingMode === "COLLECTIVE" && (
+              <span className="ml-1 text-xs text-muted-foreground">— all attend every meeting</span>
+            )}
+          </Label>
           <ul className="rounded-md border border-border divide-y divide-border">
             {members.map((m) => {
               const checked = draft.assignedHostIds.includes(m.hostId);
@@ -562,7 +571,9 @@ function DetailsEditor({
             })}
           </ul>
           <p className="text-xs text-muted-foreground">
-            A slot is offered when any selected host is free; we assign the least-recently-booked one.
+            {draft.routingMode === "COLLECTIVE"
+              ? "A slot is offered only when every selected host is free; the booking adds all of them as attendees."
+              : "A slot is offered when any selected host is free; we assign the least-recently-booked one."}
           </p>
         </div>
       )}

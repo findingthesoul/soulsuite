@@ -6,6 +6,7 @@ import { BookingFlow } from "./flow";
 import { RESERVED_SLUGS } from "@/lib/slugs.constants";
 import type { IntakeField } from "@/lib/intake";
 import { computeRoundRobinSlots } from "@/lib/round-robin";
+import { computeCollectiveSlots } from "@/lib/availability/collective";
 
 // Public booking page — no auth. URL pattern is shared between hosts and projects, so we
 // resolve the first segment as a Host first, then fall back to Project (brief §"URL patterns").
@@ -34,8 +35,14 @@ export default async function PublicBookingPage({
   let slots: { startsAt: string; endsAt: string }[] = [];
   let needsHostReauth = false;
   try {
-    if (meetingType.routingMode === "ROUND_ROBIN" && resolved.roundRobinHosts) {
-      const computed = await computeRoundRobinSlots(meetingType, resolved.roundRobinHosts, range);
+    if (meetingType.routingMode === "ROUND_ROBIN" && resolved.multiHosts) {
+      const computed = await computeRoundRobinSlots(meetingType, resolved.multiHosts, range);
+      slots = computed.map((s) => ({
+        startsAt: s.startsAt.toISOString(),
+        endsAt: s.endsAt.toISOString(),
+      }));
+    } else if (meetingType.routingMode === "COLLECTIVE" && resolved.multiHosts) {
+      const computed = await computeCollectiveSlots(meetingType, resolved.multiHosts, range);
       slots = computed.map((s) => ({
         startsAt: s.startsAt.toISOString(),
         endsAt: s.endsAt.toISOString(),
@@ -103,7 +110,7 @@ async function resolveMeetingTypeAndHost(slug: string, meetingTypeSlug: string) 
       projectName: null as string | null,
       publicSlug: host.slug,
       intakeFields,
-      roundRobinHosts: null,
+      multiHosts: null as (typeof host & { calendars: typeof host.calendars })[] | null,
     };
   }
 
@@ -137,6 +144,9 @@ async function resolveMeetingTypeAndHost(slug: string, meetingTypeSlug: string) 
     projectName: project.name,
     publicSlug: project.slug,
     intakeFields,
-    roundRobinHosts: meetingType.routingMode === "ROUND_ROBIN" ? assignedHosts : null,
+    multiHosts:
+      meetingType.routingMode === "ROUND_ROBIN" || meetingType.routingMode === "COLLECTIVE"
+        ? assignedHosts
+        : null,
   };
 }

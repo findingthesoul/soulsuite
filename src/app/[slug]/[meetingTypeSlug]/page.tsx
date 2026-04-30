@@ -51,6 +51,27 @@ export default async function PublicBookingPage({
       const computed = await getAvailableSlotsForMeetingType(meetingType, host, range);
       slots = computed.map((s) => ({ startsAt: s.startsAt.toISOString(), endsAt: s.endsAt.toISOString() }));
     }
+
+    // Group meetings: a slot is hidden once `count(CONFIRMED bookings) === maxInvitees`.
+    if (meetingType.maxInvitees > 1 && slots.length > 0) {
+      const groupBookings = await prisma.booking.findMany({
+        where: {
+          meetingTypeId: meetingType.id,
+          status: "CONFIRMED",
+          startsAt: { gte: range.from, lte: range.to },
+        },
+        select: { startsAt: true },
+      });
+      const counts = new Map<number, number>();
+      for (const b of groupBookings) {
+        const ms = b.startsAt.getTime();
+        counts.set(ms, (counts.get(ms) ?? 0) + 1);
+      }
+      slots = slots.filter((s) => {
+        const ms = new Date(s.startsAt).getTime();
+        return (counts.get(ms) ?? 0) < meetingType.maxInvitees;
+      });
+    }
   } catch (err) {
     if (isGoogleAuthError(err)) needsHostReauth = true;
     else throw err;

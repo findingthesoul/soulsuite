@@ -34,6 +34,7 @@ interface Initial {
   intakeFields: IntakeField[];
   isActive: boolean;
   conferencingProvider: ConferencingProvider;
+  maxInvitees: number;
 }
 
 export type ConferencingProvider = "GOOGLE_MEET" | "ZOOM" | "TEAMS" | "NONE";
@@ -69,6 +70,7 @@ interface DraftValues {
   intakeFields: IntakeField[];
   isActive: boolean;
   conferencingProvider: ConferencingProvider;
+  maxInvitees: number;
 }
 
 const DRAFT_DEFAULT: DraftValues = {
@@ -84,6 +86,7 @@ const DRAFT_DEFAULT: DraftValues = {
   intakeFields: [],
   isActive: true,
   conferencingProvider: "GOOGLE_MEET",
+  maxInvitees: 1,
 };
 
 export function MeetingTypeForm({
@@ -117,6 +120,7 @@ export function MeetingTypeForm({
           intakeFields: initial.intakeFields,
           isActive: initial.isActive,
           conferencingProvider: initial.conferencingProvider,
+          maxInvitees: initial.maxInvitees,
         }
       : DRAFT_DEFAULT,
   );
@@ -165,6 +169,9 @@ export function MeetingTypeForm({
     if (draft.conferencingProvider === "ZOOM" && !hostHasZoom) {
       return setError("Connect Zoom in Settings → Connections before picking it.");
     }
+    if (!Number.isInteger(draft.maxInvitees) || draft.maxInvitees < 1 || draft.maxInvitees > 50) {
+      return setError("Max invitees must be a whole number between 1 and 50.");
+    }
 
     startTransition(async () => {
       const url = isEdit ? `/api/meeting-types/${initial!.id}` : `/api/meeting-types`;
@@ -185,6 +192,7 @@ export function MeetingTypeForm({
           intakeFields: draft.intakeFields,
           isActive: draft.isActive,
           conferencingProvider: draft.conferencingProvider,
+          maxInvitees: draft.maxInvitees,
         }),
       });
       if (!res.ok) {
@@ -262,6 +270,39 @@ export function MeetingTypeForm({
             <SchedulingReadOnly committed={committed} />
           ) : (
             <SchedulingEditor draft={draft} update={update} />
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Group bookings</CardTitle>
+          <CardDescription>How many invitees can claim the same time slot. 1 keeps it 1:1.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {!editing ? (
+            <p className="text-sm text-foreground">
+              {committed.maxInvitees > 1
+                ? `Up to ${committed.maxInvitees} invitees per slot.`
+                : "1:1 — one invitee per slot."}
+            </p>
+          ) : (
+            <div className="space-y-1.5">
+              <Label htmlFor="maxInvitees">Max invitees per slot</Label>
+              <Input
+                id="maxInvitees"
+                type="number"
+                min={1}
+                max={50}
+                value={draft.maxInvitees}
+                onChange={(e) =>
+                  update("maxInvitees", Math.max(1, Math.min(50, Number(e.target.value) || 1)))
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                When &gt;1 the same slot accepts multiple bookings on a single calendar event.
+              </p>
+            </div>
           )}
         </CardContent>
       </Card>

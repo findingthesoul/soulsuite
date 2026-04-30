@@ -32,6 +32,7 @@ const bodySchema = z.object({
   intakeFields: intakeFieldsSchema.default([]),
   isActive: z.boolean().optional(),
   conferencingProvider: z.enum(["GOOGLE_MEET", "ZOOM", "TEAMS", "NONE"]).default("GOOGLE_MEET"),
+  maxInvitees: z.number().int().min(1).max(50).default(1),
 });
 
 export async function POST(request: NextRequest) {
@@ -80,6 +81,7 @@ export async function POST(request: NextRequest) {
           maxAdvanceDays: data.maxAdvanceDays,
           conflictCalendarIds: data.conflictCalendarIds,
           conferencingProvider: data.conferencingProvider,
+          maxInvitees: data.maxInvitees,
         },
       });
       const intakeFormId = await syncIntakeForm({

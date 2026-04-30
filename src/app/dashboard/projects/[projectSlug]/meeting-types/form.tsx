@@ -46,6 +46,7 @@ interface Initial {
   intakeFields: IntakeField[];
   isActive: boolean;
   conferencingProvider: ConferencingProvider;
+  maxInvitees: number;
 }
 
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
@@ -75,6 +76,7 @@ interface DraftValues {
   intakeFields: IntakeField[];
   isActive: boolean;
   conferencingProvider: ConferencingProvider;
+  maxInvitees: number;
 }
 
 export function ProjectMeetingTypeForm({
@@ -107,6 +109,7 @@ export function ProjectMeetingTypeForm({
     intakeFields: [],
     isActive: true,
     conferencingProvider: "GOOGLE_MEET",
+    maxInvitees: 1,
   };
 
   const [committed, setCommitted] = useState<DraftValues>(() =>
@@ -126,6 +129,7 @@ export function ProjectMeetingTypeForm({
           intakeFields: initial.intakeFields,
           isActive: initial.isActive,
           conferencingProvider: initial.conferencingProvider,
+          maxInvitees: initial.maxInvitees,
         }
       : draftDefault,
   );
@@ -226,6 +230,12 @@ export function ProjectMeetingTypeForm({
       const allValid = draft.assignedHostIds.every((id) => members.some((m) => m.hostId === id));
       if (!allValid) return setError("All assigned hosts must be project members.");
     }
+    if (!Number.isInteger(draft.maxInvitees) || draft.maxInvitees < 1 || draft.maxInvitees > 50) {
+      return setError("Max invitees must be a whole number between 1 and 50.");
+    }
+    if (draft.maxInvitees > 1 && draft.routingMode !== "SINGLE") {
+      return setError("Group meetings (max invitees > 1) only work with single-host routing.");
+    }
     if (draft.conferencingProvider === "ZOOM") {
       const missing = draft.assignedHostIds
         .map((id) => members.find((m) => m.hostId === id))
@@ -257,6 +267,7 @@ export function ProjectMeetingTypeForm({
         intakeFields: draft.intakeFields,
         isActive: draft.isActive,
         conferencingProvider: draft.conferencingProvider,
+        maxInvitees: draft.maxInvitees,
       };
       const res = await fetch(url, {
         method,
@@ -339,6 +350,45 @@ export function ProjectMeetingTypeForm({
         </CardHeader>
         <CardContent>
           {!editing ? <SchedulingReadOnly committed={committed} /> : <SchedulingEditor draft={draft} update={update} />}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Group bookings</CardTitle>
+          <CardDescription>
+            How many invitees can claim the same time slot. 1 keeps it 1:1. Only available with single-host routing.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {!editing ? (
+            <p className="text-sm text-foreground">
+              {committed.maxInvitees > 1
+                ? `Up to ${committed.maxInvitees} invitees per slot.`
+                : "1:1 — one invitee per slot."}
+            </p>
+          ) : draft.routingMode !== "SINGLE" ? (
+            <p className="text-sm text-muted-foreground">
+              Group bookings are only available with single-host routing. Switch to Single to enable.
+            </p>
+          ) : (
+            <div className="space-y-1.5">
+              <Label htmlFor="maxInvitees">Max invitees per slot</Label>
+              <Input
+                id="maxInvitees"
+                type="number"
+                min={1}
+                max={50}
+                value={draft.maxInvitees}
+                onChange={(e) =>
+                  update("maxInvitees", Math.max(1, Math.min(50, Number(e.target.value) || 1)))
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                When &gt;1 the same slot accepts multiple bookings on a single calendar event.
+              </p>
+            </div>
+          )}
         </CardContent>
       </Card>
 

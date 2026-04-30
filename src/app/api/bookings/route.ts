@@ -57,6 +57,24 @@ export async function POST(request: NextRequest) {
     include: { intakeForm: true },
   });
   if (!meetingType || !meetingType.isActive) return new NextResponse("Meeting type not found", { status: 404 });
+
+  // Group meetings: when maxInvitees > 1, multiple Booking rows share one Google event for the
+  // same (meetingTypeId, startsAt). Check capacity up front; the host's own freebusy can ignore
+  // the existing group event since adding more attendees doesn't conflict.
+  const isGroup = meetingType.maxInvitees > 1;
+  const existingGroupBookings = isGroup
+    ? await prisma.booking.findMany({
+        where: { meetingTypeId: meetingType.id, startsAt, status: "CONFIRMED" },
+        orderBy: { createdAt: "asc" },
+      })
+    : [];
+  if (isGroup && existingGroupBookings.length >= meetingType.maxInvitees) {
+    return new NextResponse("That slot is full — please pick another time.", { status: 409 });
+  }
+  if (isGroup && existingGroupBookings.some((b) => b.inviteeEmail === body.inviteeEmail)) {
+    // Idempotent: the same invitee re-submitting returns the existing booking.
+    return NextResponse.json({ id: existingGroupBookings.find((b) => b.inviteeEmail === body.inviteeEmail)!.id });
+  }
   if ((endsAt.getTime() - startsAt.getTime()) / 60000 !== meetingType.durationMinutes) {
     return new NextResponse("Slot duration mismatch.", { status: 400 });
   }
@@ -201,6 +219,85 @@ export async function POST(request: NextRequest) {
       if (existing) return NextResponse.json({ id: existing.id });
     }
     throw err;
+  }
+
+  // Group-meeting "join existing slot" path: 2nd+ invitee on the same (meetingTypeId, startsAt).
+  // Reuse the first booking's Google event + Zoom meeting, just patch the attendee list.
+  if (isGroup && existingGroupBookings.length > 0) {
+    const anchor = existingGroupBookings[0];
+    if (anchor.googleEventId && host.googleRefreshToken) {
+      try {
+        const cal = calendarFor(host.googleRefreshToken);
+        const existingEv = await cal.events.get({
+          calendarId: writeTarget.googleCalendarId,
+          eventId: anchor.googleEventId,
+        });
+        const existingAttendees = existingEv.data.attendees ?? [];
+        const alreadyOn = existingAttendees.some(
+          (a) => (a.email ?? "").toLowerCase() === body.inviteeEmail.toLowerCase(),
+        );
+        const nextAttendees = alreadyOn
+          ? existingAttendees
+          : [
+              ...existingAttendees,
+              { email: body.inviteeEmail, displayName: body.inviteeName },
+            ];
+        await cal.events.patch({
+          calendarId: writeTarget.googleCalendarId,
+          eventId: anchor.googleEventId,
+          sendUpdates: "all",
+          requestBody: { attendees: nextAttendees },
+        });
+      } catch (err) {
+        if (isGoogleAuthError(err)) {
+          await prisma.host.update({ where: { id: host.id }, data: { googleRefreshToken: null } });
+        }
+        await prisma.booking.delete({ where: { id: bookingId } }).catch(() => undefined);
+        return new NextResponse(
+          "We couldn't add you to the existing meeting. Please try again.",
+          { status: 502 },
+        );
+      }
+    }
+    await prisma.booking.update({
+      where: { id: bookingId },
+      data: {
+        googleEventId: anchor.googleEventId,
+        conferencingProvider: anchor.conferencingProvider,
+        meetUrl: anchor.meetUrl,
+        providerMeetingId: anchor.providerMeetingId,
+      },
+    });
+
+    // Confirmation email — same template as below.
+    const publicSlug = meetingType.scope === "PROJECT" ? undefined : host.slug;
+    const slugForUrl =
+      publicSlug ??
+      (await prisma.project.findUnique({
+        where: { id: meetingType.projectId! },
+        select: { slug: true },
+      }))?.slug ??
+      host.slug;
+    const tmpl = bookingConfirmationTemplate({
+      hostName: host.name,
+      meetingTypeName: meetingType.name,
+      startsAtIso: startsAt.toISOString(),
+      endsAtIso: endsAt.toISOString(),
+      inviteeName: body.inviteeName,
+      inviteeEmail: body.inviteeEmail,
+      cancelUrl: appUrl(`/${slugForUrl}/${meetingType.slug}/confirmed/${bookingId}/cancel`),
+      rescheduleUrl: appUrl(`/${slugForUrl}/${meetingType.slug}/confirmed/${bookingId}/reschedule`),
+      meetUrl: anchor.meetUrl,
+    });
+    void sendEmail({
+      to: body.inviteeEmail,
+      subject: tmpl.subject,
+      html: tmpl.html,
+      text: tmpl.text,
+      fromName: host.name,
+      replyTo: host.email,
+    });
+    return NextResponse.json({ id: bookingId });
   }
 
   // For ZOOM: create the meeting first, then attach the join link to the Google event

@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Pencil } from "lucide-react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
@@ -105,6 +105,25 @@ export function WorkingHoursForm({
     setSchedule((prev) => ({ ...prev, [day]: prev[day].length === 0 ? [DEFAULT_RANGE] : [] }));
   }
 
+  // Append a new range. Default start = 1h after the previous range's end (or 13:00 fallback).
+  function addRange(day: Day) {
+    setSchedule((prev) => {
+      const existing = prev[day];
+      const last = existing[existing.length - 1];
+      const newStart = last ? bumpHour(last.end, 1) : "13:00";
+      const newEnd = bumpHour(newStart, 1);
+      return { ...prev, [day]: [...existing, { start: newStart, end: newEnd }] };
+    });
+  }
+
+  function removeRange(day: Day, idx: number) {
+    setSchedule((prev) => {
+      const next = prev[day].filter((_, i) => i !== idx);
+      // If you remove the last range we treat it as "unavailable" rather than leaving an empty slot.
+      return { ...prev, [day]: next };
+    });
+  }
+
   function submit() {
     setError(null);
     startTransition(async () => {
@@ -165,8 +184,8 @@ export function WorkingHoursForm({
                   const ranges = schedule[key];
                   const enabled = ranges.length > 0;
                   return (
-                    <div key={key} className="flex items-center gap-3 p-3">
-                      <label className="flex w-32 items-center gap-2 text-sm font-medium">
+                    <div key={key} className="flex items-start gap-3 p-3">
+                      <label className="flex w-32 shrink-0 items-center gap-2 text-sm font-medium pt-1.5">
                         <input
                           type="checkbox"
                           checked={enabled}
@@ -175,27 +194,49 @@ export function WorkingHoursForm({
                         />
                         {label}
                       </label>
-                      <div className="flex flex-1 items-center gap-2">
+                      <div className="flex flex-1 items-start">
                         {enabled ? (
-                          ranges.map((r, idx) => (
-                            <div key={idx} className="flex items-center gap-1 text-sm">
-                              <Input
-                                type="time"
-                                value={r.start}
-                                onChange={(e) => setRangeField(key, idx, "start", e.target.value)}
-                                className="w-28"
-                              />
-                              <span className="text-muted-foreground">–</span>
-                              <Input
-                                type="time"
-                                value={r.end}
-                                onChange={(e) => setRangeField(key, idx, "end", e.target.value)}
-                                className="w-28"
-                              />
-                            </div>
-                          ))
+                          <div className="flex flex-col gap-1.5 flex-1">
+                            {ranges.map((r, idx) => (
+                              <div key={idx} className="flex items-center gap-1 text-sm">
+                                <Input
+                                  type="time"
+                                  value={r.start}
+                                  onChange={(e) => setRangeField(key, idx, "start", e.target.value)}
+                                  className="w-28"
+                                />
+                                <span className="text-muted-foreground">–</span>
+                                <Input
+                                  type="time"
+                                  value={r.end}
+                                  onChange={(e) => setRangeField(key, idx, "end", e.target.value)}
+                                  className="w-28"
+                                />
+                                {ranges.length > 1 && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    type="button"
+                                    aria-label="Remove time block"
+                                    onClick={() => removeRange(key, idx)}
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                )}
+                              </div>
+                            ))}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              type="button"
+                              onClick={() => addRange(key)}
+                              className="self-start text-xs text-muted-foreground hover:text-foreground"
+                            >
+                              <Plus className="h-3 w-3" /> Add block
+                            </Button>
+                          </div>
                         ) : (
-                          <span className="text-sm text-subtle-foreground">Unavailable</span>
+                          <span className="text-sm text-subtle-foreground pt-1.5">Unavailable</span>
                         )}
                       </div>
                     </div>
@@ -246,6 +287,17 @@ function ReadOnlyView({ timezone, schedule }: { timezone: string; schedule: Sche
       </div>
     </div>
   );
+}
+
+// Add `delta` hours to a "HH:MM" string, clamped to 23:59. Used as a sensible default for new
+// time blocks (lunch break, second shift, etc.).
+function bumpHour(hhmm: string, delta: number): string {
+  const [hStr, mStr] = hhmm.split(":");
+  const total = Number(hStr) * 60 + Number(mStr) + delta * 60;
+  const clamped = Math.max(0, Math.min(23 * 60 + 59, total));
+  const h = Math.floor(clamped / 60);
+  const m = clamped % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
 function Row({ label, value }: { label: string; value: string }) {

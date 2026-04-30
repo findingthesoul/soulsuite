@@ -9,10 +9,18 @@ import { NewSchedulingMenu } from "@/components/new-scheduling-menu";
 
 export default async function MeetingTypesPage() {
   const ctx = await getPageContextOrRedirect();
-  const meetingTypes = await prisma.meetingType.findMany({
-    where: { scope: "PERSONAL", hostId: ctx.host.id },
-    orderBy: { createdAt: "asc" },
-  });
+  const [meetingTypes, polls] = await Promise.all([
+    prisma.meetingType.findMany({
+      where: { scope: "PERSONAL", hostId: ctx.host.id, isActive: true },
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.poll.findMany({
+      where: { ownerHostId: ctx.host.id },
+      orderBy: { createdAt: "desc" },
+    }),
+  ]);
+
+  const hasNothing = meetingTypes.length === 0 && polls.length === 0;
 
   return (
     <AppShell {...shellProps(ctx)}>
@@ -31,50 +39,101 @@ export default async function MeetingTypesPage() {
           <NewSchedulingMenu />
         </header>
 
-        {meetingTypes.length === 0 ? (
+        {hasNothing ? (
           <Card className="border-dashed">
             <div className="p-8 text-center space-y-3">
-              <p className="text-sm text-muted-foreground">No meeting types yet.</p>
+              <p className="text-sm text-muted-foreground">Nothing scheduled yet.</p>
               <Link href="/dashboard/meeting-types/new" className={buttonVariants()}>
                 Create your first
               </Link>
             </div>
           </Card>
         ) : (
-          <Card>
-            <ul className="divide-y divide-border">
-              {meetingTypes.map((mt) => {
-                const url = `${publicEnv.NEXT_PUBLIC_APP_URL}/${ctx.host.slug}/${mt.slug}`;
-                return (
-                  <li key={mt.id} className="flex items-center justify-between gap-4 p-4">
-                    <div className="min-w-0">
-                      <Link
-                        href={`/dashboard/meeting-types/${mt.id}`}
-                        className="text-sm font-medium text-foreground hover:underline"
-                      >
-                        {mt.name}
-                      </Link>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {mt.durationMinutes} min · {url}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <a
-                        href={`/${ctx.host.slug}/${mt.slug}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-xs text-muted-foreground underline hover:text-foreground"
-                      >
-                        Open booking page ↗
-                      </a>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          </Card>
+          <>
+            {meetingTypes.length > 0 && (
+              <section className="space-y-2">
+                <h2 className="text-xs uppercase tracking-wide text-subtle-foreground">
+                  Meeting types ({meetingTypes.length})
+                </h2>
+                <Card>
+                  <ul className="divide-y divide-border">
+                    {meetingTypes.map((mt) => {
+                      const url = `${publicEnv.NEXT_PUBLIC_APP_URL}/${ctx.host.slug}/${mt.slug}`;
+                      return (
+                        <li key={mt.id} className="flex items-center justify-between gap-4 p-4">
+                          <div className="min-w-0">
+                            <Link
+                              href={`/dashboard/meeting-types/${mt.id}`}
+                              className="text-sm font-medium text-foreground hover:underline"
+                            >
+                              {mt.name}
+                            </Link>
+                            <p className="truncate text-xs text-muted-foreground">
+                              {mt.durationMinutes} min · {url}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <a
+                              href={`/${ctx.host.slug}/${mt.slug}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-xs text-muted-foreground underline hover:text-foreground"
+                            >
+                              Open booking page ↗
+                            </a>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </Card>
+              </section>
+            )}
+
+            {polls.length > 0 && (
+              <section className="space-y-2">
+                <h2 className="text-xs uppercase tracking-wide text-subtle-foreground">
+                  Polls ({polls.length})
+                </h2>
+                <Card>
+                  <ul className="divide-y divide-border">
+                    {polls.map((p) => (
+                      <li key={p.id}>
+                        <Link
+                          href={`/dashboard/polls/${p.id}`}
+                          className="flex items-center justify-between gap-4 p-4 hover:bg-surface-muted transition-colors"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-foreground truncate">{p.name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {p.durationMinutes} min · {p.inviteeEmails.length} invitees
+                            </p>
+                          </div>
+                          <PollStatusPill status={p.status} />
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </Card>
+              </section>
+            )}
+          </>
         )}
       </div>
     </AppShell>
+  );
+}
+
+function PollStatusPill({ status }: { status: "OPEN" | "FINALIZED" | "CANCELLED" }) {
+  const styles =
+    status === "FINALIZED"
+      ? "bg-foreground text-background"
+      : status === "CANCELLED"
+        ? "bg-destructive/10 text-destructive"
+        : "bg-surface-muted text-foreground";
+  return (
+    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide font-medium ${styles}`}>
+      {status.toLowerCase()}
+    </span>
   );
 }

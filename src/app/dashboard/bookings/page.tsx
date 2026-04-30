@@ -1,59 +1,93 @@
 import Link from "next/link";
-import { Calendar } from "lucide-react";
+import { Calendar, List, Grid3x3 } from "lucide-react";
 import { getPageContextOrRedirect, shellProps } from "@/lib/page-context";
 import { prisma } from "@/lib/prisma";
 import { AppShell } from "@/components/app-shell";
 import { Card } from "@/components/ui/card";
 import { BookingDateTime } from "./client";
+import { WeekGrid } from "./week-grid";
 
 type RangeFilter = "upcoming" | "past" | "all";
 type ScopeFilter = "all" | "personal" | string; // string = project id
+type ViewMode = "list" | "week";
 
 export default async function BookingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string; scope?: string }>;
+  searchParams: Promise<{ range?: string; scope?: string; view?: string; weekOf?: string }>;
 }) {
   const ctx = await getPageContextOrRedirect();
   const sp = await searchParams;
 
+  const view: ViewMode = sp.view === "week" ? "week" : "list";
   const range: RangeFilter = sp.range === "past" ? "past" : sp.range === "all" ? "all" : "upcoming";
   const scope: ScopeFilter = sp.scope ?? "all";
 
-  // Projects the host is a member of — surfaced as a filter dropdown.
+  // For week view: pin to a specific Monday (weekOf=YYYY-MM-DD), default to current week.
+  const weekOfStart = parseWeekOf(sp.weekOf) ?? mondayOfCurrentWeek();
+  const weekOfEnd = new Date(weekOfStart.getTime() + 7 * 24 * 3600 * 1000);
+
   const memberships = await prisma.projectMember.findMany({
     where: { hostId: ctx.host.id },
     include: { project: true },
     orderBy: { addedAt: "asc" },
   });
 
-  // Filter clauses. The list always scopes to bookings where the current host is the assigned
-  // host — admins seeing a workspace-wide view comes later.
+  const baseScopeWhere = {
+    hostId: ctx.host.id,
+    ...(scope === "personal" && { projectId: null }),
+    ...(scope !== "all" && scope !== "personal" && { projectId: scope }),
+  };
+
   const now = new Date();
   const bookings = await prisma.booking.findMany({
-    where: {
-      hostId: ctx.host.id,
-      ...(range === "upcoming" && { startsAt: { gte: now } }),
-      ...(range === "past" && { startsAt: { lt: now } }),
-      ...(scope === "personal" && { projectId: null }),
-      ...(scope !== "all" && scope !== "personal" && { projectId: scope }),
-    },
+    where:
+      view === "week"
+        ? { ...baseScopeWhere, startsAt: { gte: weekOfStart, lt: weekOfEnd } }
+        : {
+            ...baseScopeWhere,
+            ...(range === "upcoming" && { startsAt: { gte: now } }),
+            ...(range === "past" && { startsAt: { lt: now } }),
+          },
     include: { meetingType: true, project: true },
-    orderBy: { startsAt: range === "past" ? "desc" : "asc" },
-    take: 200,
+    orderBy: { startsAt: range === "past" && view === "list" ? "desc" : "asc" },
+    take: view === "week" ? 500 : 200,
   });
 
   return (
     <AppShell {...shellProps(ctx)}>
       <div className="space-y-6">
-        <header className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Bookings</h1>
-          <p className="text-sm text-muted-foreground">Everything booked with you, oldest first.</p>
+        <header className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <h1 className="text-2xl font-semibold tracking-tight">Bookings</h1>
+            <p className="text-sm text-muted-foreground">Everything booked with you.</p>
+          </div>
+          <ViewToggle view={view} range={range} scope={scope} weekOf={sp.weekOf} />
         </header>
 
-        <Filters range={range} scope={scope} memberships={memberships.map((m) => m.project)} />
+        <Filters
+          view={view}
+          range={range}
+          scope={scope}
+          weekOfStart={weekOfStart}
+          memberships={memberships.map((m) => m.project)}
+        />
 
-        {bookings.length === 0 ? (
+        {view === "week" ? (
+          <WeekGrid
+            bookings={bookings.map((b) => ({
+              id: b.id,
+              startsAt: b.startsAt.toISOString(),
+              endsAt: b.endsAt.toISOString(),
+              inviteeName: b.inviteeName,
+              meetingTypeName: b.meetingType.name,
+              status: b.status,
+              href: `/${b.project ? b.project.slug : ctx.host.slug}/${b.meetingType.slug}/confirmed/${b.id}`,
+            }))}
+            weekOfStart={weekOfStart.toISOString()}
+            timezone={ctx.host.timezone}
+          />
+        ) : bookings.length === 0 ? (
           <Card className="border-dashed">
             <div className="p-10 text-center text-sm text-muted-foreground">
               <Calendar className="mx-auto mb-2 h-5 w-5 text-subtle-foreground" />
@@ -117,13 +151,61 @@ function StatusPill({ status }: { status: "CONFIRMED" | "CANCELLED" | "RESCHEDUL
   );
 }
 
-function Filters({
+function ViewToggle({
+  view,
   range,
   scope,
-  memberships,
+  weekOf,
 }: {
+  view: ViewMode;
   range: RangeFilter;
   scope: ScopeFilter;
+  weekOf?: string;
+}) {
+  function urlFor(target: ViewMode) {
+    const params = new URLSearchParams();
+    if (target === "week") params.set("view", "week");
+    if (scope !== "all") params.set("scope", scope);
+    if (target === "list" && range !== "upcoming") params.set("range", range);
+    if (target === "week" && weekOf) params.set("weekOf", weekOf);
+    const qs = params.toString();
+    return qs ? `/dashboard/bookings?${qs}` : "/dashboard/bookings";
+  }
+  return (
+    <div className="flex items-center gap-1 rounded-md border border-border bg-surface p-1">
+      <Link
+        href={urlFor("list")}
+        className={`flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs font-medium ${
+          view === "list" ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"
+        }`}
+      >
+        <List className="h-3.5 w-3.5" />
+        List
+      </Link>
+      <Link
+        href={urlFor("week")}
+        className={`flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs font-medium ${
+          view === "week" ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"
+        }`}
+      >
+        <Grid3x3 className="h-3.5 w-3.5" />
+        Week
+      </Link>
+    </div>
+  );
+}
+
+function Filters({
+  view,
+  range,
+  scope,
+  weekOfStart,
+  memberships,
+}: {
+  view: ViewMode;
+  range: RangeFilter;
+  scope: ScopeFilter;
+  weekOfStart: Date;
   memberships: { id: string; name: string; slug: string }[];
 }) {
   function pillClass(active: boolean) {
@@ -134,30 +216,57 @@ function Filters({
         : "border border-border bg-surface text-muted-foreground hover:text-foreground",
     ].join(" ");
   }
-
-  function build(next: { range?: string; scope?: string }) {
+  function build(next: { range?: string; scope?: string; weekOf?: string }) {
     const params = new URLSearchParams();
+    if (view === "week") params.set("view", "week");
     const r = next.range ?? range;
     const s = next.scope ?? scope;
-    if (r !== "upcoming") params.set("range", r);
+    const w = next.weekOf;
+    if (view === "list" && r !== "upcoming") params.set("range", r);
     if (s !== "all") params.set("scope", s);
+    if (view === "week" && w) params.set("weekOf", w);
     const qs = params.toString();
     return qs ? `/dashboard/bookings?${qs}` : "/dashboard/bookings";
   }
 
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-3">
-      <div className="flex items-center gap-1.5">
-        <Link href={build({ range: "upcoming" })} className={pillClass(range === "upcoming")}>
-          Upcoming
-        </Link>
-        <Link href={build({ range: "past" })} className={pillClass(range === "past")}>
-          Past
-        </Link>
-        <Link href={build({ range: "all" })} className={pillClass(range === "all")}>
-          All
-        </Link>
-      </div>
+      {view === "list" ? (
+        <div className="flex items-center gap-1.5">
+          <Link href={build({ range: "upcoming" })} className={pillClass(range === "upcoming")}>
+            Upcoming
+          </Link>
+          <Link href={build({ range: "past" })} className={pillClass(range === "past")}>
+            Past
+          </Link>
+          <Link href={build({ range: "all" })} className={pillClass(range === "all")}>
+            All
+          </Link>
+        </div>
+      ) : (
+        <div className="flex items-center gap-1.5">
+          <Link
+            href={build({ weekOf: ymd(addDays(weekOfStart, -7)) })}
+            className={pillClass(false)}
+            aria-label="Previous week"
+          >
+            ←
+          </Link>
+          <Link href={build({ weekOf: undefined })} className={pillClass(false)}>
+            This week
+          </Link>
+          <Link
+            href={build({ weekOf: ymd(addDays(weekOfStart, 7)) })}
+            className={pillClass(false)}
+            aria-label="Next week"
+          >
+            →
+          </Link>
+          <span className="ml-2 text-xs text-muted-foreground">
+            Week of {ymd(weekOfStart)}
+          </span>
+        </div>
+      )}
       <span className="text-subtle-foreground text-xs px-1">·</span>
       <div className="flex flex-wrap items-center gap-1.5">
         <Link href={build({ scope: "all" })} className={pillClass(scope === "all")}>
@@ -174,4 +283,39 @@ function Filters({
       </div>
     </div>
   );
+}
+
+// ────────────────────────────────────────────────────────────
+// Date helpers
+// ────────────────────────────────────────────────────────────
+
+function parseWeekOf(s: string | undefined): Date | null {
+  if (!s) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return null;
+  const [, y, mo, d] = m;
+  const date = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d), 0, 0, 0));
+  if (isNaN(date.getTime())) return null;
+  return date;
+}
+
+function mondayOfCurrentWeek(): Date {
+  const now = new Date();
+  // Use UTC: anchor "Monday" in UTC. Display TZ math happens in WeekGrid client-side.
+  const dow = now.getUTCDay(); // 0=Sun..6=Sat
+  const offsetToMonday = dow === 0 ? -6 : 1 - dow; // Sun→-6, Mon→0, Tue→-1, ...
+  const monday = new Date(now);
+  monday.setUTCDate(now.getUTCDate() + offsetToMonday);
+  monday.setUTCHours(0, 0, 0, 0);
+  return monday;
+}
+
+function addDays(d: Date, n: number): Date {
+  const out = new Date(d);
+  out.setUTCDate(out.getUTCDate() + n);
+  return out;
+}
+
+function ymd(d: Date): string {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 }

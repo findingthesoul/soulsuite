@@ -2,14 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, FolderOpen, CalendarDays, Inbox, Clock, Users, Vote, HelpCircle } from "lucide-react";
+import { LayoutDashboard, FolderOpen, CalendarDays, Inbox, Clock, Users, HelpCircle } from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Home", icon: LayoutDashboard, exact: true },
   { href: "/dashboard/bookings", label: "Bookings", icon: Inbox, exact: false },
   { href: "/dashboard/projects", label: "Projects", icon: FolderOpen, exact: false },
   { href: "/dashboard/meeting-types", label: "Scheduling", icon: CalendarDays, exact: false },
-  { href: "/dashboard/polls", label: "Polls", icon: Vote, exact: false },
 ];
 
 const SETTINGS_NAV_ITEMS = [

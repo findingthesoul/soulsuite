@@ -2,6 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { calendarFor, isGoogleAuthError } from "@/lib/google/client";
 import { sendEmail, bookingCancellationTemplate, appUrl } from "@/lib/email";
+import { getZoomAccessTokenForHost } from "@/lib/zoom/host";
+import { deleteZoomMeeting } from "@/lib/zoom/client";
 
 // Public cancel — anyone with the booking ID can cancel. The booking ID is a CUID (~22
 // random chars), unguessable in practice, which mirrors the same access model as the
@@ -46,6 +48,17 @@ export async function POST(
     }
   }
 
+  // Best-effort tear-down of the Zoom meeting too. Same philosophy as Google: we keep going on
+  // failure so the booking gets marked cancelled either way.
+  if (booking.conferencingProvider === "ZOOM" && booking.providerMeetingId) {
+    try {
+      const accessToken = await getZoomAccessTokenForHost(booking.hostId);
+      if (accessToken) await deleteZoomMeeting(accessToken, booking.providerMeetingId);
+    } catch (err) {
+      console.error("[cancel] zoom delete failed", err);
+    }
+  }
+
   await prisma.booking.update({
     where: { id },
     data: { status: "CANCELLED", googleEventId: null },
@@ -62,7 +75,7 @@ export async function POST(
     inviteeEmail: booking.inviteeEmail,
     cancelUrl: appUrl(`/${slugForUrl}/${booking.meetingType.slug}/confirmed/${booking.id}`),
     rescheduleUrl: appUrl(`/${slugForUrl}/${booking.meetingType.slug}/confirmed/${booking.id}/reschedule`),
-    meetUrl: null,
+    meetUrl: booking.meetUrl,
   });
   void sendEmail({
     to: booking.inviteeEmail,

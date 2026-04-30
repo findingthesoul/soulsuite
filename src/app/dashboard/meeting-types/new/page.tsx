@@ -20,6 +20,7 @@ export default async function NewMeetingTypePage() {
         </header>
         <MeetingTypeForm
           hostSlug={ctx.host.slug}
+          hostHasZoom={!!ctx.host.zoomRefreshToken}
           hostCalendars={calendars.map((c) => ({
             id: c.id,
             summary: c.summary ?? c.googleCalendarId,

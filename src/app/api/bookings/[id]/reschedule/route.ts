@@ -5,6 +5,8 @@ import { calendarFor, isGoogleAuthError } from "@/lib/google/client";
 import { computeAvailableSlots, type WorkingHours } from "@/lib/availability/engine";
 import { fetchHostBusy } from "@/lib/availability/freebusy";
 import { sendEmail, bookingRescheduleTemplate, appUrl } from "@/lib/email";
+import { getZoomAccessTokenForHost } from "@/lib/zoom/host";
+import { updateZoomMeeting } from "@/lib/zoom/client";
 
 const bodySchema = z.object({
   startsAt: z.string().datetime(),
@@ -108,6 +110,23 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return new NextResponse("Couldn't update the calendar event. Please try again.", { status: 502 });
   }
 
+  // Update the Zoom meeting time too if this booking is on Zoom. Failure here is logged but
+  // not fatal — the join URL stays valid even if the start_time on Zoom is stale.
+  if (booking.conferencingProvider === "ZOOM" && booking.providerMeetingId) {
+    try {
+      const accessToken = await getZoomAccessTokenForHost(host.id);
+      if (accessToken) {
+        await updateZoomMeeting(accessToken, booking.providerMeetingId, {
+          startsAtIso: startsAt.toISOString(),
+          durationMinutes: meetingType.durationMinutes,
+          timezone: "UTC",
+        });
+      }
+    } catch (err) {
+      console.error("[reschedule] zoom update failed", err);
+    }
+  }
+
   await prisma.booking.update({
     where: { id },
     data: { startsAt, endsAt, status: "RESCHEDULED" },
@@ -130,7 +149,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     inviteeEmail: booking.inviteeEmail,
     cancelUrl: appUrl(`/${slugForUrl}/${booking.meetingType.slug}/confirmed/${booking.id}/cancel`),
     rescheduleUrl: appUrl(`/${slugForUrl}/${booking.meetingType.slug}/confirmed/${booking.id}/reschedule`),
-    meetUrl: null,
+    meetUrl: booking.meetUrl,
   });
   void sendEmail({
     to: booking.inviteeEmail,

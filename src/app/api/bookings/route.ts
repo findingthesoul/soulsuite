@@ -9,6 +9,8 @@ import { fetchHostBusy } from "@/lib/availability/freebusy";
 import { type IntakeField, validateAnswers, pruneHiddenAnswers } from "@/lib/intake";
 import { pickRoundRobinHost } from "@/lib/round-robin";
 import { sendEmail, bookingConfirmationTemplate, appUrl } from "@/lib/email";
+import { getZoomAccessTokenForHost } from "@/lib/zoom/host";
+import { createZoomMeeting } from "@/lib/zoom/client";
 
 const bodySchema = z.object({
   meetingTypeId: z.string().min(1),
@@ -183,37 +185,75 @@ export async function POST(request: NextRequest) {
     throw err;
   }
 
+  // For ZOOM: create the meeting first, then attach the join link to the Google event
+  // description + location. We do Zoom first so a Zoom failure doesn't leave a dangling
+  // calendar event behind.
+  let zoomMeeting: { meetingId: string; joinUrl: string; passcode: string | null } | null = null;
+  if (meetingType.conferencingProvider === "ZOOM") {
+    try {
+      const accessToken = await getZoomAccessTokenForHost(host.id);
+      if (!accessToken) {
+        await prisma.booking.delete({ where: { id: bookingId } }).catch(() => undefined);
+        return new NextResponse(
+          "The host hasn't connected Zoom — please pick another time or contact them.",
+          { status: 502 },
+        );
+      }
+      zoomMeeting = await createZoomMeeting(accessToken, {
+        topic: `${meetingType.name} — ${body.inviteeName}`,
+        startsAtIso: startsAt.toISOString(),
+        durationMinutes: meetingType.durationMinutes,
+        timezone: "UTC",
+        agenda: meetingType.description ?? undefined,
+      });
+    } catch (err) {
+      console.error("[booking] zoom create failed", err);
+      await prisma.booking.delete({ where: { id: bookingId } }).catch(() => undefined);
+      return new NextResponse("Couldn't create the Zoom meeting — please try again.", { status: 502 });
+    }
+  }
+
+  let bookingMeetUrl: string | null = zoomMeeting?.joinUrl ?? null;
   try {
-    // Non-null assertion: the candidate-filter loop above already excluded hosts without a
-    // refresh token, so host.googleRefreshToken can't be null here.
     const cal = calendarFor(host.googleRefreshToken!);
+    const useGoogleMeet = meetingType.conferencingProvider === "GOOGLE_MEET";
+    const description =
+      `Booked via Soul Suite.\n` +
+      `Invitee: ${body.inviteeName} <${body.inviteeEmail}>\n` +
+      (meetingType.description ? `\n${meetingType.description}\n` : "") +
+      (zoomMeeting
+        ? `\nJoin Zoom: ${zoomMeeting.joinUrl}` +
+          (zoomMeeting.passcode ? `\nPasscode: ${zoomMeeting.passcode}` : "") +
+          "\n"
+        : "");
     const ev = await cal.events.insert({
       calendarId: writeTarget.googleCalendarId,
-      conferenceDataVersion: 1,
+      conferenceDataVersion: useGoogleMeet ? 1 : 0,
       sendUpdates: "all",
       requestBody: {
         summary: `${meetingType.name} — ${body.inviteeName}`,
-        description:
-          `Booked via Soul Suite.\n` +
-          `Invitee: ${body.inviteeName} <${body.inviteeEmail}>\n` +
-          (meetingType.description ? `\n${meetingType.description}\n` : ""),
+        description,
+        location: bookingMeetUrl ?? undefined,
         start: { dateTime: startsAt.toISOString(), timeZone: "UTC" },
         end: { dateTime: endsAt.toISOString(), timeZone: "UTC" },
         attendees: [
           { email: body.inviteeEmail, displayName: body.inviteeName },
           { email: host.email, displayName: host.name, organizer: true },
         ],
-        conferenceData: {
-          createRequest: {
-            requestId: randomUUID(),
-            conferenceSolutionKey: { type: "hangoutsMeet" },
-          },
-        },
+        conferenceData: useGoogleMeet
+          ? { createRequest: { requestId: randomUUID(), conferenceSolutionKey: { type: "hangoutsMeet" } } }
+          : undefined,
       },
     });
+    if (!bookingMeetUrl && useGoogleMeet) bookingMeetUrl = ev.data.hangoutLink ?? null;
     await prisma.booking.update({
       where: { id: bookingId },
-      data: { googleEventId: ev.data.id ?? null },
+      data: {
+        googleEventId: ev.data.id ?? null,
+        conferencingProvider: meetingType.conferencingProvider,
+        meetUrl: bookingMeetUrl,
+        providerMeetingId: zoomMeeting?.meetingId ?? null,
+      },
     });
     // Round-robin fairness: stamp the picked host so the next ROUND_ROBIN booking on this
     // project considers them most-recently-assigned (i.e. ranks them last).
@@ -253,7 +293,7 @@ export async function POST(request: NextRequest) {
     inviteeEmail: body.inviteeEmail,
     cancelUrl: appUrl(`/${slugForUrl}/${meetingType.slug}/confirmed/${bookingId}/cancel`),
     rescheduleUrl: appUrl(`/${slugForUrl}/${meetingType.slug}/confirmed/${bookingId}/reschedule`),
-    meetUrl: null,
+    meetUrl: bookingMeetUrl,
   });
   void sendEmail({
     to: body.inviteeEmail,

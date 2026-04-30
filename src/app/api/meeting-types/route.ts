@@ -30,6 +30,8 @@ const bodySchema = z.object({
     .refine((v) => (MAX_ADVANCE_DAYS as readonly number[]).includes(v)),
   conflictCalendarIds: z.array(z.string().min(1)).default([]),
   intakeFields: intakeFieldsSchema.default([]),
+  isActive: z.boolean().optional(),
+  conferencingProvider: z.enum(["GOOGLE_MEET", "ZOOM", "TEAMS", "NONE"]).default("GOOGLE_MEET"),
 });
 
 export async function POST(request: NextRequest) {
@@ -42,6 +44,13 @@ export async function POST(request: NextRequest) {
     return new NextResponse(parsed.error.issues[0]?.message ?? "invalid body", { status: 400 });
   }
   const data = parsed.data;
+
+  if (data.conferencingProvider === "ZOOM" && !host.zoomRefreshToken) {
+    return new NextResponse("Connect Zoom in Settings → Connections before using it.", { status: 400 });
+  }
+  if (data.conferencingProvider === "TEAMS") {
+    return new NextResponse("Microsoft Teams is not supported yet.", { status: 400 });
+  }
 
   if (data.conflictCalendarIds.length > 0) {
     const owned = await prisma.calendar.findMany({
@@ -70,6 +79,7 @@ export async function POST(request: NextRequest) {
           minNoticeMinutes: data.minNoticeMinutes,
           maxAdvanceDays: data.maxAdvanceDays,
           conflictCalendarIds: data.conflictCalendarIds,
+          conferencingProvider: data.conferencingProvider,
         },
       });
       const intakeFormId = await syncIntakeForm({

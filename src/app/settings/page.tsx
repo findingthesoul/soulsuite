@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ChevronRight, Palette, Users, Building2, CalendarRange, Clock } from "lucide-react";
+import { ChevronRight, Palette, Users, Building2, CalendarRange, Clock, Video } from "lucide-react";
 import { getPageContextOrRedirect, shellProps } from "@/lib/page-context";
 import { getWorkspaceRole, canManageWorkspace } from "@/lib/permissions";
 import { AppShell } from "@/components/app-shell";
@@ -29,6 +29,13 @@ export default async function SettingsIndexPage() {
       title: "Calendars",
       description: "Conflict-source calendars and the write target for new bookings.",
       icon: CalendarRange,
+      section: "personal",
+    },
+    {
+      href: "/settings/connections",
+      title: "Connections",
+      description: "Connect Zoom (and later Teams) so meeting types can use them.",
+      icon: Video,
       section: "personal",
     },
     {

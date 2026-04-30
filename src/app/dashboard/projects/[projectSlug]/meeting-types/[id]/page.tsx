@@ -47,6 +47,7 @@ export default async function EditProjectMeetingTypePage({
             name: m.host.name,
             email: m.host.email,
             isExternal: m.isExternal,
+            hasZoom: !!m.host.zoomRefreshToken,
             calendars: m.host.calendars.map((c) => ({
               id: c.id,
               summary: c.summary ?? c.googleCalendarId,
@@ -68,6 +69,7 @@ export default async function EditProjectMeetingTypePage({
             assignedHostIds: mt.assignedHostIds,
             intakeFields,
             isActive: mt.isActive,
+            conferencingProvider: mt.conferencingProvider,
           }}
         />
       </div>

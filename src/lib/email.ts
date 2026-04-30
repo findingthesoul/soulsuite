@@ -82,17 +82,28 @@ interface BookingTemplateInput {
   // Public URL serving an .ics file for this booking. Linked from the email so invitees on
   // Apple/Outlook/etc. can add the meeting to their calendar in one click.
   icalUrl?: string | null;
+  // Workspace logo URL (https://...) — rendered at the top on a forced white background so
+  // it stays legible in dark-mode email clients.
+  logoUrl?: string | null;
 }
 
-function brandFrame(title: string, body: string): string {
+function brandFrame(title: string, body: string, logoUrl?: string | null): string {
+  // Force white background everywhere so the logo always sits on white regardless of the
+  // recipient's dark-mode email client. Use bgcolor attr (older Outlook) + inline CSS.
+  const logoBlock = logoUrl
+    ? `<div style="text-align:center;padding:0 0 24px"><img src="${escapeAttr(logoUrl)}" alt="" height="32" style="height:32px;display:inline-block;border:0;outline:none"></div>`
+    : "";
   return `<!doctype html>
-<html><body style="margin:0;background:#fafaf9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#0c0a09">
-  <div style="max-width:560px;margin:0 auto;padding:32px 24px">
-    <h1 style="font-size:20px;font-weight:600;margin:0 0 16px">${escapeHtml(title)}</h1>
-    ${body}
-    <hr style="border:none;border-top:1px solid #e7e5e4;margin:32px 0" />
-    <p style="font-size:12px;color:#a8a29e;margin:0">Sent by Soul Suite</p>
-  </div>
+<html><body bgcolor="#ffffff" style="margin:0;background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#0c0a09">
+  <table width="100%" bgcolor="#ffffff" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff"><tr><td align="center">
+    <div style="max-width:560px;margin:0 auto;padding:32px 24px;background:#ffffff;color:#0c0a09">
+      ${logoBlock}
+      <h1 style="font-size:20px;font-weight:600;margin:0 0 16px">${escapeHtml(title)}</h1>
+      ${body}
+      <hr style="border:none;border-top:1px solid #e7e5e4;margin:32px 0" />
+      <p style="font-size:12px;color:#a8a29e;margin:0">Sent by Soul Suite</p>
+    </div>
+  </td></tr></table>
 </body></html>`;
 }
 
@@ -101,7 +112,7 @@ export function bookingConfirmationTemplate(b: BookingTemplateInput): { html: st
   const subject = `Confirmed: ${b.meetingTypeName} with ${b.hostName} — ${when}`;
   const html = brandFrame(
     "You're booked",
-    `<p>Hi ${escapeHtml(b.inviteeName)},</p>
+    /* body */ `<p>Hi ${escapeHtml(b.inviteeName)},</p>
     <p>Your meeting with <strong>${escapeHtml(b.hostName)}</strong> is confirmed.</p>
     <table style="border-collapse:collapse;margin:16px 0;font-size:14px">
       <tr><td style="padding:4px 0;color:#57534e">When</td><td style="padding:4px 0 4px 24px">${escapeHtml(when)}</td></tr>
@@ -114,6 +125,7 @@ export function bookingConfirmationTemplate(b: BookingTemplateInput): { html: st
       <a href="${escapeAttr(b.rescheduleUrl)}" style="display:inline-block;padding:8px 14px;background:#1c1917;color:#fafafa;border-radius:6px;text-decoration:none;margin-right:8px">Reschedule</a>
       <a href="${escapeAttr(b.cancelUrl)}" style="display:inline-block;padding:8px 14px;border:1px solid #e7e5e4;color:#0c0a09;border-radius:6px;text-decoration:none">Cancel</a>
     </p>`,
+    b.logoUrl,
   );
   const text =
     `You're booked: ${b.meetingTypeName} with ${b.hostName}\n\n` +
@@ -131,6 +143,7 @@ export function bookingCancellationTemplate(b: BookingTemplateInput): { html: st
     "Booking cancelled",
     `<p>Hi ${escapeHtml(b.inviteeName)},</p>
     <p>Your meeting with <strong>${escapeHtml(b.hostName)}</strong> on <strong>${escapeHtml(when)}</strong> has been cancelled.</p>`,
+    b.logoUrl,
   );
   const text = `Cancelled: ${b.meetingTypeName} with ${b.hostName} — ${when}\n`;
   return { html, text, subject };
@@ -150,6 +163,7 @@ export function bookingRescheduleTemplate(b: BookingTemplateInput): { html: stri
       <a href="${escapeAttr(b.rescheduleUrl)}" style="display:inline-block;padding:8px 14px;background:#1c1917;color:#fafafa;border-radius:6px;text-decoration:none;margin-right:8px">Reschedule</a>
       <a href="${escapeAttr(b.cancelUrl)}" style="display:inline-block;padding:8px 14px;border:1px solid #e7e5e4;color:#0c0a09;border-radius:6px;text-decoration:none">Cancel</a>
     </p>`,
+    b.logoUrl,
   );
   const text =
     `Rescheduled to ${when}\n` +
@@ -165,6 +179,7 @@ export function pollInviteTemplate(args: {
   durationMinutes: number;
   voteUrl: string;
   recipientEmail: string;
+  logoUrl?: string | null;
 }): { html: string; text: string; subject: string } {
   const subject = `${args.ownerName} wants to find a time: ${args.pollName}`;
   const html = brandFrame(
@@ -174,6 +189,7 @@ export function pollInviteTemplate(args: {
       <a href="${escapeAttr(args.voteUrl)}" style="display:inline-block;padding:10px 18px;background:#1c1917;color:#fafafa;border-radius:6px;text-decoration:none">Vote on times</a>
     </p>
     <p style="font-size:12px;color:#a8a29e;margin-top:16px">This link is unique to ${escapeHtml(args.recipientEmail)} — keep it private.</p>`,
+    args.logoUrl,
   );
   const text = `${args.ownerName} wants to find a time for "${args.pollName}" (${args.durationMinutes} min).\n\nVote here: ${args.voteUrl}\n`;
   return { html, text, subject };

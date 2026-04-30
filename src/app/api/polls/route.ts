@@ -5,6 +5,7 @@ import { getCurrentHost } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createPollSchema, newResponseToken, type ProposedSlot } from "@/lib/polls";
 import { sendEmail, pollInviteTemplate, appUrl } from "@/lib/email";
+import { getEmailLogoUrl } from "@/lib/branding";
 
 // Personal polls only for v1 (scope=PERSONAL). Project polls land later — schema already
 // supports them, just not surfaced in the UI yet.
@@ -70,6 +71,7 @@ export async function POST(request: NextRequest) {
   });
 
   // Fire-and-forget invite emails — one per invitee, each with their own magic link.
+  const logoUrl = await getEmailLogoUrl();
   for (const r of responses) {
     const tmpl = pollInviteTemplate({
       ownerName: host.name,
@@ -77,6 +79,7 @@ export async function POST(request: NextRequest) {
       durationMinutes: data.durationMinutes,
       voteUrl: appUrl(`/poll/respond/${r.token}`),
       recipientEmail: r.email,
+      logoUrl,
     });
     void sendEmail({
       to: r.email,

@@ -71,6 +71,7 @@ export default async function PublicBookingPage({
         name: meetingType.name,
         description: meetingType.description,
         durationMinutes: meetingType.durationMinutes,
+        conferencingProvider: meetingType.conferencingProvider,
       }}
       projectName={projectName}
       intakeFields={intakeFields}

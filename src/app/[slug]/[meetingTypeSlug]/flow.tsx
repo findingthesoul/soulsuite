@@ -22,6 +22,7 @@ interface MeetingType {
   name: string;
   description: string | null;
   durationMinutes: number;
+  conferencingProvider: "GOOGLE_MEET" | "ZOOM" | "TEAMS" | "NONE";
 }
 interface SerializedSlot {
   startsAt: string;
@@ -160,10 +161,12 @@ function EventPanel({
           <Clock className="h-4 w-4 shrink-0" />
           <span>{meetingType.durationMinutes} minutes</span>
         </li>
-        <li className="flex items-center gap-2">
-          <Video className="h-4 w-4 shrink-0" />
-          <span>Google Meet — link in invite</span>
-        </li>
+        {meetingType.conferencingProvider !== "NONE" && (
+          <li className="flex items-center gap-2">
+            <Video className="h-4 w-4 shrink-0" />
+            <span>{providerLabel(meetingType.conferencingProvider)} — link in invite</span>
+          </li>
+        )}
         <li className="flex items-center gap-2">
           <Globe className="h-4 w-4 shrink-0" />
           <span>{tz}</span>
@@ -613,4 +616,13 @@ function tzOptions(): string[] {
       ? intl.supportedValuesOf("timeZone")
       : ["Europe/Amsterdam", "Europe/London", "America/New_York", "America/Los_Angeles", "UTC"];
   return [...list].sort();
+}
+
+function providerLabel(p: "GOOGLE_MEET" | "ZOOM" | "TEAMS" | "NONE"): string {
+  switch (p) {
+    case "ZOOM": return "Zoom";
+    case "TEAMS": return "Microsoft Teams";
+    case "NONE": return "No conferencing";
+    default: return "Google Meet";
+  }
 }

@@ -294,6 +294,7 @@ export async function POST(request: NextRequest) {
     cancelUrl: appUrl(`/${slugForUrl}/${meetingType.slug}/confirmed/${bookingId}/cancel`),
     rescheduleUrl: appUrl(`/${slugForUrl}/${meetingType.slug}/confirmed/${bookingId}/reschedule`),
     meetUrl: bookingMeetUrl,
+    icalUrl: appUrl(`/${slugForUrl}/${meetingType.slug}/confirmed/${bookingId}/calendar.ics`),
   });
   void sendEmail({
     to: body.inviteeEmail,

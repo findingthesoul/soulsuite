@@ -150,6 +150,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     cancelUrl: appUrl(`/${slugForUrl}/${booking.meetingType.slug}/confirmed/${booking.id}/cancel`),
     rescheduleUrl: appUrl(`/${slugForUrl}/${booking.meetingType.slug}/confirmed/${booking.id}/reschedule`),
     meetUrl: booking.meetUrl,
+    icalUrl: appUrl(`/${slugForUrl}/${booking.meetingType.slug}/confirmed/${booking.id}/calendar.ics`),
   });
   void sendEmail({
     to: booking.inviteeEmail,

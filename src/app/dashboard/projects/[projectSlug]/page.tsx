@@ -32,7 +32,7 @@ export default async function ProjectDashboardPage({
       orderBy: { addedAt: "asc" },
     }),
     prisma.meetingType.findMany({
-      where: { scope: "PROJECT", projectId: project.id },
+      where: { scope: "PROJECT", projectId: project.id, isOneOff: false },
       orderBy: { createdAt: "asc" },
     }),
   ]);

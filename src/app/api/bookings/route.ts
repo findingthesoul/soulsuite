@@ -56,8 +56,25 @@ export async function POST(request: NextRequest) {
     include: { intakeForm: true },
   });
   if (!meetingType || !meetingType.isActive) return new NextResponse("Meeting type not found", { status: 404 });
-  if ((endsAt.getTime() - startsAt.getTime()) / 60000 !== meetingType.durationMinutes) {
+  if (!meetingType.isOneOff && (endsAt.getTime() - startsAt.getTime()) / 60000 !== meetingType.durationMinutes) {
     return new NextResponse("Slot duration mismatch.", { status: 400 });
+  }
+
+  // One-off path: the requested startsAt must match an unbooked OneOffSlot. We claim the slot
+  // (set bookedBookingId) below after creating the Booking row. Skip the availability engine.
+  let oneOffSlot: { id: string; startsAt: Date; endsAt: Date } | null = null;
+  if (meetingType.isOneOff) {
+    const slot = await prisma.oneOffSlot.findUnique({
+      where: { meetingTypeId_startsAt: { meetingTypeId: meetingType.id, startsAt } },
+    });
+    if (!slot) return new NextResponse("That slot doesn't exist on this meeting type.", { status: 404 });
+    if (slot.bookedBookingId) {
+      return new NextResponse("That slot is already taken — please pick another.", { status: 409 });
+    }
+    if (slot.endsAt.getTime() !== endsAt.getTime()) {
+      return new NextResponse("Slot end time mismatch.", { status: 400 });
+    }
+    oneOffSlot = { id: slot.id, startsAt: slot.startsAt, endsAt: slot.endsAt };
   }
 
   // Resolve the host. PERSONAL → meetingType.hostId. PROJECT/SINGLE → assignedHostIds[0].
@@ -89,6 +106,12 @@ export async function POST(request: NextRequest) {
   for (const cand of candidateHosts) {
     if (!cand.googleRefreshToken) continue;
     if (!cand.calendars.some((c) => c.role === "WRITE_TARGET")) continue;
+    // One-off slots bypass the availability engine — the host hand-picked these times so
+    // working hours / buffers / freebusy don't apply.
+    if (oneOffSlot) {
+      freeHosts.push(cand);
+      continue;
+    }
     let busy;
     try {
       busy = await fetchHostBusy(cand, range, meetingType);
@@ -183,6 +206,21 @@ export async function POST(request: NextRequest) {
       if (existing) return NextResponse.json({ id: existing.id });
     }
     throw err;
+  }
+
+  // One-off: claim the slot via a conditional updateMany — only succeeds when bookedBookingId
+  // is still null. If 0 rows updated, another invitee won the race; roll back our booking row.
+  if (oneOffSlot) {
+    const claim = await prisma.oneOffSlot.updateMany({
+      where: { id: oneOffSlot.id, bookedBookingId: null },
+      data: { bookedBookingId: bookingId },
+    });
+    if (claim.count === 0) {
+      await prisma.booking.delete({ where: { id: bookingId } }).catch(() => undefined);
+      return new NextResponse("That slot was just claimed by someone else — please pick another.", {
+        status: 409,
+      });
+    }
   }
 
   // For ZOOM: create the meeting first, then attach the join link to the Google event

@@ -35,6 +35,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
 
   const { meetingType } = booking;
+  if (meetingType.isOneOff) {
+    return new NextResponse(
+      "One-off meetings can't be rescheduled — please cancel and book a different slot.",
+      { status: 400 },
+    );
+  }
   if ((endsAt.getTime() - startsAt.getTime()) / 60000 !== meetingType.durationMinutes) {
     return new NextResponse("Slot duration mismatch.", { status: 400 });
   }

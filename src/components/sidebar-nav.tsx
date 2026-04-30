@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LayoutDashboard, FolderOpen, CalendarDays, Inbox, Clock, Users, HelpCircle } from "lucide-react";
+import { version as APP_VERSION } from "../../package.json";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Home", icon: LayoutDashboard, exact: true },
@@ -85,7 +86,7 @@ export function SidebarNav({ compact = false, overlay = false }: Props) {
           <HelpCircle className="h-3.5 w-3.5 shrink-0" />
           <span className={labelClass()}>Support</span>
         </a>
-        <p className={`text-xs text-subtle-foreground pl-0.5 ${labelClass()}`}>v0.1.0</p>
+        <p className={`text-xs text-subtle-foreground pl-0.5 ${labelClass()}`}>v{APP_VERSION}</p>
       </div>
     </div>
   );

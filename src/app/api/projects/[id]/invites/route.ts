@@ -5,6 +5,7 @@ import { getCurrentHost } from "@/lib/auth";
 import { canManageProject, getProjectMembership } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { generateInviteToken, inviteExpiresAt, inviteUrl } from "@/lib/invites";
+import { sendEmail, memberInviteTemplate } from "@/lib/email";
 
 const bodySchema = z.object({
   email: z.string().email().max(200).transform((s) => s.toLowerCase()),
@@ -48,6 +49,7 @@ export async function POST(
   });
 
   const token = generateInviteToken();
+  const expiresAt = inviteExpiresAt();
   await prisma.invite.create({
     data: {
       kind: InviteKind.PROJECT,
@@ -55,10 +57,33 @@ export async function POST(
       email,
       role,
       token,
-      expiresAt: inviteExpiresAt(),
+      expiresAt,
       invitedByHostId: host.id,
     },
   });
+
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { name: true, workspace: { select: { name: true } } },
+  });
+  if (project) {
+    const tmpl = memberInviteTemplate({
+      inviterName: host.name,
+      workspaceName: project.workspace.name,
+      scopeLabel: `the ${project.name} project`,
+      acceptUrl: inviteUrl(token),
+      recipientEmail: email,
+      expiresAt,
+    });
+    void sendEmail({
+      to: email,
+      subject: tmpl.subject,
+      html: tmpl.html,
+      text: tmpl.text,
+      fromName: host.name,
+      replyTo: host.email,
+    });
+  }
 
   return NextResponse.json({ ok: true, url: inviteUrl(token) });
 }

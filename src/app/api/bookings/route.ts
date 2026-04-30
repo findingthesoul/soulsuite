@@ -9,6 +9,7 @@ import { fetchHostBusy } from "@/lib/availability/freebusy";
 import { type IntakeField, validateAnswers, pruneHiddenAnswers } from "@/lib/intake";
 import { pickRoundRobinHost } from "@/lib/round-robin";
 import { sendEmail, bookingConfirmationTemplate, appUrl } from "@/lib/email";
+import { getEmailLogoUrl } from "@/lib/branding";
 import { getZoomAccessTokenForHost } from "@/lib/zoom/host";
 import { createZoomMeeting } from "@/lib/zoom/client";
 
@@ -284,6 +285,7 @@ export async function POST(request: NextRequest) {
     where: { id: meetingType.projectId! },
     select: { slug: true },
   }))?.slug ?? host.slug;
+  const logoUrl = await getEmailLogoUrl();
   const tmpl = bookingConfirmationTemplate({
     hostName: host.name,
     meetingTypeName: meetingType.name,
@@ -294,6 +296,7 @@ export async function POST(request: NextRequest) {
     cancelUrl: appUrl(`/${slugForUrl}/${meetingType.slug}/confirmed/${bookingId}/cancel`),
     rescheduleUrl: appUrl(`/${slugForUrl}/${meetingType.slug}/confirmed/${bookingId}/reschedule`),
     meetUrl: bookingMeetUrl,
+    logoUrl,
   });
   void sendEmail({
     to: body.inviteeEmail,

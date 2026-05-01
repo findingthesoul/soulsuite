@@ -47,3 +47,6 @@ yarn-error.log*
 # editor
 .vscode/
 .idea/
+
+# Local agent state (Claude Code worktrees, scheduled tasks)
+/.claude/

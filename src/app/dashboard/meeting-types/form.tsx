@@ -3,22 +3,27 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { useDirtyState } from "@/lib/use-dirty-state";
+import { PageHeader, SaveBar } from "@/components/save-bar";
 import {
   BUFFER_MINUTES,
   MIN_NOTICE_MINUTES,
   MAX_ADVANCE_DAYS,
   formatMinutes,
-  formatBuffer,
-  formatMaxAdvanceDays,
 } from "@/lib/scheduling-rules";
-import { type IntakeField, FIELD_TYPE_LABELS } from "@/lib/intake";
+import { type IntakeField } from "@/lib/intake";
 import { IntakeFieldsEditor } from "@/components/intake-fields-editor";
+import {
+  WorkingHoursEditor,
+  coerceSchedule,
+  defaultSchedule,
+  type Schedule,
+} from "@/components/working-hours-editor";
 
 interface Initial {
   id: string;
@@ -35,6 +40,7 @@ interface Initial {
   isActive: boolean;
   conferencingProvider: ConferencingProvider;
   maxInvitees: number;
+  workingHoursOverride: Schedule | null;
 }
 
 export type ConferencingProvider = "GOOGLE_MEET" | "ZOOM" | "TEAMS" | "NONE";
@@ -71,6 +77,7 @@ interface DraftValues {
   isActive: boolean;
   conferencingProvider: ConferencingProvider;
   maxInvitees: number;
+  workingHoursOverride: Schedule | null;
 }
 
 const DRAFT_DEFAULT: DraftValues = {
@@ -87,7 +94,27 @@ const DRAFT_DEFAULT: DraftValues = {
   isActive: true,
   conferencingProvider: "GOOGLE_MEET",
   maxInvitees: 1,
+  workingHoursOverride: null,
 };
+
+function initialToDraft(initial: Initial): DraftValues {
+  return {
+    name: initial.name,
+    slug: initial.slug,
+    description: initial.description ?? "",
+    durationMinutes: initial.durationMinutes,
+    bufferBeforeMinutes: initial.bufferBeforeMinutes,
+    bufferAfterMinutes: initial.bufferAfterMinutes,
+    minNoticeMinutes: initial.minNoticeMinutes,
+    maxAdvanceDays: initial.maxAdvanceDays,
+    conflictCalendarIds: initial.conflictCalendarIds,
+    intakeFields: initial.intakeFields,
+    isActive: initial.isActive,
+    conferencingProvider: initial.conferencingProvider,
+    maxInvitees: initial.maxInvitees,
+    workingHoursOverride: initial.workingHoursOverride,
+  };
+}
 
 export function MeetingTypeForm({
   hostSlug,
@@ -103,30 +130,274 @@ export function MeetingTypeForm({
   const router = useRouter();
   const isEdit = Boolean(initial);
 
-  const [editing, setEditing] = useState(!isEdit);
+  // Edit-existing path: direct-edit pattern with top-right SaveBar.
+  if (isEdit && initial) {
+    return (
+      <EditMeetingTypeForm
+        hostSlug={hostSlug}
+        hostCalendars={hostCalendars}
+        hostHasZoom={hostHasZoom}
+        initial={initial}
+      />
+    );
+  }
 
-  const [committed, setCommitted] = useState<DraftValues>(() =>
-    initial
-      ? {
-          name: initial.name,
-          slug: initial.slug,
-          description: initial.description ?? "",
-          durationMinutes: initial.durationMinutes,
-          bufferBeforeMinutes: initial.bufferBeforeMinutes,
-          bufferAfterMinutes: initial.bufferAfterMinutes,
-          minNoticeMinutes: initial.minNoticeMinutes,
-          maxAdvanceDays: initial.maxAdvanceDays,
-          conflictCalendarIds: initial.conflictCalendarIds,
-          intakeFields: initial.intakeFields,
-          isActive: initial.isActive,
-          conferencingProvider: initial.conferencingProvider,
-          maxInvitees: initial.maxInvitees,
-        }
-      : DRAFT_DEFAULT,
+  // Create path keeps its own bottom CTA — see brief / feedback memo.
+  return (
+    <CreateMeetingTypeForm
+      hostSlug={hostSlug}
+      hostCalendars={hostCalendars}
+      hostHasZoom={hostHasZoom}
+      onCreated={(id) => {
+        // unused for now; create POST returns id but redirect is enough.
+        void id;
+      }}
+      router={router}
+    />
   );
+}
 
-  const [draft, setDraft] = useState<DraftValues>(committed);
-  const [slugTouched, setSlugTouched] = useState(Boolean(initial));
+// ────────────────────────────────────────────────────────────
+// Edit (direct-edit pattern)
+// ────────────────────────────────────────────────────────────
+
+function EditMeetingTypeForm({
+  hostSlug,
+  hostCalendars,
+  hostHasZoom,
+  initial,
+}: {
+  hostSlug: string;
+  hostCalendars: HostCalendar[];
+  hostHasZoom: boolean;
+  initial: Initial;
+}) {
+  const router = useRouter();
+  const { draft, setDraft, dirty, reset, commit } = useDirtyState<DraftValues>(initialToDraft(initial));
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  function update<K extends keyof DraftValues>(key: K, value: DraftValues[K]) {
+    setDraft({ ...draft, [key]: value });
+  }
+
+  function handleNameChange(value: string) {
+    // After the first save the slug is "touched" — auto-slugging from the name in edit mode
+    // would silently change the public URL. Users still type into the slug field directly.
+    update("name", value);
+  }
+
+  function discard() {
+    setError(null);
+    reset();
+  }
+
+  function save() {
+    setError(null);
+    if (draft.name.trim().length < 2) return setError("Name is required.");
+    if (!SLUG_RE.test(draft.slug)) {
+      return setError("Slug must be 2–40 chars, lowercase letters/digits/hyphens.");
+    }
+    if (![15, 30, 45, 60, 90, 120].includes(draft.durationMinutes)) {
+      return setError("Duration must be 15, 30, 45, 60, 90, or 120 minutes.");
+    }
+    if (draft.conferencingProvider === "ZOOM" && !hostHasZoom) {
+      return setError("Connect Zoom in Settings → Connections before picking it.");
+    }
+    if (!Number.isInteger(draft.maxInvitees) || draft.maxInvitees < 1 || draft.maxInvitees > 50) {
+      return setError("Max invitees must be a whole number between 1 and 50.");
+    }
+    const overridePayload = serialiseOverride(draft.workingHoursOverride);
+
+    startTransition(async () => {
+      const res = await fetch(`/api/meeting-types/${initial.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: draft.name.trim(),
+          slug: draft.slug,
+          description: draft.description.trim() || null,
+          durationMinutes: draft.durationMinutes,
+          bufferBeforeMinutes: draft.bufferBeforeMinutes,
+          bufferAfterMinutes: draft.bufferAfterMinutes,
+          minNoticeMinutes: draft.minNoticeMinutes,
+          maxAdvanceDays: draft.maxAdvanceDays,
+          conflictCalendarIds: draft.conflictCalendarIds,
+          intakeFields: draft.intakeFields,
+          isActive: draft.isActive,
+          conferencingProvider: draft.conferencingProvider,
+          maxInvitees: draft.maxInvitees,
+          workingHoursOverride: overridePayload,
+        }),
+      });
+      if (!res.ok) {
+        setError((await res.text()) || "Failed to save");
+        return;
+      }
+      commit({
+        ...draft,
+        name: draft.name.trim(),
+        description: draft.description.trim(),
+      });
+      router.refresh();
+    });
+  }
+
+  async function destroy() {
+    if (!confirm("Delete this meeting type? Existing bookings stay; the public link will 404.")) return;
+    startTransition(async () => {
+      const res = await fetch(`/api/meeting-types/${initial.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        setError((await res.text()) || "Failed to delete");
+        return;
+      }
+      router.push("/dashboard/meeting-types");
+      router.refresh();
+    });
+  }
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="Edit meeting type"
+        description={`Booking link: /${hostSlug}/${draft.slug || initial.slug}`}
+        actions={<SaveBar dirty={dirty} pending={pending} onSave={save} onDiscard={discard} />}
+      />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Details</CardTitle>
+          <CardDescription>Name, slug, and duration are the essentials.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <DetailsEditor
+            draft={draft}
+            update={update}
+            hostSlug={hostSlug}
+            isEdit
+            onNameChange={handleNameChange}
+            onSlugChange={(v) => update("slug", v.toLowerCase())}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Scheduling rules</CardTitle>
+          <CardDescription>Buffers, how soon people can book, and how far ahead.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <SchedulingEditor draft={draft} update={update} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Availability</CardTitle>
+          <CardDescription>
+            Defaults to your overall <Link href="/settings/availability" className="underline">working hours</Link>.
+            Override here when this meeting type only happens at specific times.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <AvailabilityEditor draft={draft} update={update} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Group bookings</CardTitle>
+          <CardDescription>How many invitees can claim the same time slot. 1 keeps it 1:1.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-1.5">
+            <Label htmlFor="maxInvitees">Max invitees per slot</Label>
+            <Input
+              id="maxInvitees"
+              type="number"
+              min={1}
+              max={50}
+              value={draft.maxInvitees}
+              onChange={(e) =>
+                update("maxInvitees", Math.max(1, Math.min(50, Number(e.target.value) || 1)))
+              }
+            />
+            <p className="text-xs text-muted-foreground">
+              When &gt;1 the same slot accepts multiple bookings on a single calendar event.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Conferencing</CardTitle>
+          <CardDescription>Where the meeting happens. Zoom requires you to connect it in Settings.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ConferencingEditor draft={draft} update={update} hostHasZoom={hostHasZoom} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Intake questions</CardTitle>
+          <CardDescription>
+            Optional questions shown after the slot is picked. Answers are stored on the booking.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <IntakeFieldsEditor
+            fields={draft.intakeFields}
+            onChange={(next) => update("intakeFields", next)}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Conflict calendars</CardTitle>
+          <CardDescription>
+            Which of your calendars block this meeting type. Default uses every conflict-source you set in
+            <Link href="/settings/calendars" className="underline ml-1">Settings → Calendars</Link>.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ConflictCalendarsEditor draft={draft} update={update} hostCalendars={hostCalendars} />
+        </CardContent>
+      </Card>
+
+      {error && <p className="text-sm text-destructive">{error}</p>}
+
+      <div className="flex items-center justify-start">
+        <Button variant="destructive" onClick={destroy} disabled={pending}>
+          Delete
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
+// Create (legacy bottom-CTA pattern — kept by design)
+// ────────────────────────────────────────────────────────────
+
+type Router = ReturnType<typeof useRouter>;
+
+function CreateMeetingTypeForm({
+  hostSlug,
+  hostCalendars,
+  hostHasZoom,
+  router,
+}: {
+  hostSlug: string;
+  hostCalendars: HostCalendar[];
+  hostHasZoom: boolean;
+  onCreated: (id: string) => void;
+  router: Router;
+}) {
+  const [draft, setDraft] = useState<DraftValues>(DRAFT_DEFAULT);
+  const [slugTouched, setSlugTouched] = useState(false);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -139,22 +410,8 @@ export function MeetingTypeForm({
     if (!slugTouched) update("slug", autoSlug(value));
   }
 
-  function startEdit() {
-    setDraft(committed);
-    setSlugTouched(true);
-    setError(null);
-    setEditing(true);
-  }
-
   function cancel() {
-    if (!isEdit) {
-      router.push("/dashboard/meeting-types");
-      return;
-    }
-    setDraft(committed);
-    setSlugTouched(true);
-    setError(null);
-    setEditing(false);
+    router.push("/dashboard/meeting-types");
   }
 
   function submit() {
@@ -172,12 +429,11 @@ export function MeetingTypeForm({
     if (!Number.isInteger(draft.maxInvitees) || draft.maxInvitees < 1 || draft.maxInvitees > 50) {
       return setError("Max invitees must be a whole number between 1 and 50.");
     }
+    const overridePayload = serialiseOverride(draft.workingHoursOverride);
 
     startTransition(async () => {
-      const url = isEdit ? `/api/meeting-types/${initial!.id}` : `/api/meeting-types`;
-      const method = isEdit ? "PATCH" : "POST";
-      const res = await fetch(url, {
-        method,
+      const res = await fetch(`/api/meeting-types`, {
+        method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           name: draft.name.trim(),
@@ -193,30 +449,11 @@ export function MeetingTypeForm({
           isActive: draft.isActive,
           conferencingProvider: draft.conferencingProvider,
           maxInvitees: draft.maxInvitees,
+          workingHoursOverride: overridePayload,
         }),
       });
       if (!res.ok) {
         setError((await res.text()) || "Failed to save");
-        return;
-      }
-      if (isEdit) {
-        setCommitted({ ...draft, name: draft.name.trim(), description: draft.description.trim() });
-        setEditing(false);
-        router.refresh();
-      } else {
-        router.push("/dashboard/meeting-types");
-        router.refresh();
-      }
-    });
-  }
-
-  async function destroy() {
-    if (!isEdit) return;
-    if (!confirm("Delete this meeting type? Existing bookings stay; the public link will 404.")) return;
-    startTransition(async () => {
-      const res = await fetch(`/api/meeting-types/${initial!.id}`, { method: "DELETE" });
-      if (!res.ok) {
-        setError((await res.text()) || "Failed to delete");
         return;
       }
       router.push("/dashboard/meeting-types");
@@ -228,35 +465,21 @@ export function MeetingTypeForm({
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <div className="flex items-start justify-between gap-3">
-            <div className="space-y-1">
-              <CardTitle>Details</CardTitle>
-              <CardDescription>Name, slug, and duration are the essentials.</CardDescription>
-            </div>
-            {isEdit && !editing && (
-              <Button variant="secondary" size="sm" onClick={startEdit}>
-                <Pencil className="h-3.5 w-3.5" />
-                Edit
-              </Button>
-            )}
-          </div>
+          <CardTitle>Details</CardTitle>
+          <CardDescription>Name, slug, and duration are the essentials.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {!editing ? (
-            <DetailsReadOnly committed={committed} hostSlug={hostSlug} />
-          ) : (
-            <DetailsEditor
-              draft={draft}
-              update={update}
-              hostSlug={hostSlug}
-              isEdit={isEdit}
-              onNameChange={handleNameChange}
-              onSlugChange={(v) => {
-                update("slug", v.toLowerCase());
-                setSlugTouched(true);
-              }}
-            />
-          )}
+          <DetailsEditor
+            draft={draft}
+            update={update}
+            hostSlug={hostSlug}
+            isEdit={false}
+            onNameChange={handleNameChange}
+            onSlugChange={(v) => {
+              update("slug", v.toLowerCase());
+              setSlugTouched(true);
+            }}
+          />
         </CardContent>
       </Card>
 
@@ -266,11 +489,20 @@ export function MeetingTypeForm({
           <CardDescription>Buffers, how soon people can book, and how far ahead.</CardDescription>
         </CardHeader>
         <CardContent>
-          {!editing ? (
-            <SchedulingReadOnly committed={committed} />
-          ) : (
-            <SchedulingEditor draft={draft} update={update} />
-          )}
+          <SchedulingEditor draft={draft} update={update} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Availability</CardTitle>
+          <CardDescription>
+            Defaults to your overall <Link href="/settings/availability" className="underline">working hours</Link>.
+            Override here when this meeting type only happens at specific times.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <AvailabilityEditor draft={draft} update={update} />
         </CardContent>
       </Card>
 
@@ -280,30 +512,19 @@ export function MeetingTypeForm({
           <CardDescription>How many invitees can claim the same time slot. 1 keeps it 1:1.</CardDescription>
         </CardHeader>
         <CardContent>
-          {!editing ? (
-            <p className="text-sm text-foreground">
-              {committed.maxInvitees > 1
-                ? `Up to ${committed.maxInvitees} invitees per slot.`
-                : "1:1 — one invitee per slot."}
-            </p>
-          ) : (
-            <div className="space-y-1.5">
-              <Label htmlFor="maxInvitees">Max invitees per slot</Label>
-              <Input
-                id="maxInvitees"
-                type="number"
-                min={1}
-                max={50}
-                value={draft.maxInvitees}
-                onChange={(e) =>
-                  update("maxInvitees", Math.max(1, Math.min(50, Number(e.target.value) || 1)))
-                }
-              />
-              <p className="text-xs text-muted-foreground">
-                When &gt;1 the same slot accepts multiple bookings on a single calendar event.
-              </p>
-            </div>
-          )}
+          <div className="space-y-1.5">
+            <Label htmlFor="maxInvitees">Max invitees per slot</Label>
+            <Input
+              id="maxInvitees"
+              type="number"
+              min={1}
+              max={50}
+              value={draft.maxInvitees}
+              onChange={(e) =>
+                update("maxInvitees", Math.max(1, Math.min(50, Number(e.target.value) || 1)))
+              }
+            />
+          </div>
         </CardContent>
       </Card>
 
@@ -313,11 +534,7 @@ export function MeetingTypeForm({
           <CardDescription>Where the meeting happens. Zoom requires you to connect it in Settings.</CardDescription>
         </CardHeader>
         <CardContent>
-          {!editing ? (
-            <ConferencingReadOnly committed={committed} />
-          ) : (
-            <ConferencingEditor draft={draft} update={update} hostHasZoom={hostHasZoom} />
-          )}
+          <ConferencingEditor draft={draft} update={update} hostHasZoom={hostHasZoom} />
         </CardContent>
       </Card>
 
@@ -329,14 +546,10 @@ export function MeetingTypeForm({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {!editing ? (
-            <IntakeReadOnly fields={committed.intakeFields} />
-          ) : (
-            <IntakeFieldsEditor
-              fields={draft.intakeFields}
-              onChange={(next) => update("intakeFields", next)}
-            />
-          )}
+          <IntakeFieldsEditor
+            fields={draft.intakeFields}
+            onChange={(next) => update("intakeFields", next)}
+          />
         </CardContent>
       </Card>
 
@@ -349,64 +562,27 @@ export function MeetingTypeForm({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {!editing ? (
-            <ConflictCalendarsReadOnly committed={committed} hostCalendars={hostCalendars} />
-          ) : (
-            <ConflictCalendarsEditor draft={draft} update={update} hostCalendars={hostCalendars} />
-          )}
+          <ConflictCalendarsEditor draft={draft} update={update} hostCalendars={hostCalendars} />
         </CardContent>
       </Card>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 
-      {editing && (
-        <div className="flex items-center justify-between gap-2">
-          {isEdit ? (
-            <Button variant="destructive" onClick={destroy} disabled={pending}>
-              Delete
-            </Button>
-          ) : (
-            <span />
-          )}
-          <div className="flex gap-2">
-            <Button variant="secondary" onClick={cancel} disabled={pending}>
-              Cancel
-            </Button>
-            <Button onClick={submit} disabled={pending}>
-              {pending ? "Saving…" : isEdit ? "Save" : "Create"}
-            </Button>
-          </div>
-        </div>
-      )}
+      <div className="flex items-center justify-end gap-2">
+        <Button variant="secondary" onClick={cancel} disabled={pending}>
+          Cancel
+        </Button>
+        <Button onClick={submit} disabled={pending}>
+          {pending ? "Saving…" : "Create"}
+        </Button>
+      </div>
     </div>
   );
 }
 
 // ────────────────────────────────────────────────────────────
-// Subviews
+// Shared editors
 // ────────────────────────────────────────────────────────────
-
-function DetailsReadOnly({ committed, hostSlug }: { committed: DraftValues; hostSlug: string }) {
-  return (
-    <dl className="space-y-3 text-sm">
-      <Row label="Name" value={committed.name} />
-      <Row label="Booking link" value={`/${hostSlug}/${committed.slug}`} mono />
-      <Row label="Duration" value={`${committed.durationMinutes} minutes`} />
-      <Row label="Description" value={committed.description || "—"} />
-      <Row label="Status" value={committed.isActive ? "Active" : "Inactive"} />
-    </dl>
-  );
-}
-
-function SchedulingReadOnly({ committed }: { committed: DraftValues }) {
-  return (
-    <dl className="space-y-3 text-sm">
-      <Row label="Buffer" value={formatBuffer(committed.bufferBeforeMinutes, committed.bufferAfterMinutes)} />
-      <Row label="Min notice" value={formatMinutes(committed.minNoticeMinutes)} />
-      <Row label="Max advance" value={formatMaxAdvanceDays(committed.maxAdvanceDays)} />
-    </dl>
-  );
-}
 
 function DetailsEditor({
   draft,
@@ -555,7 +731,7 @@ function SchedulingEditor({
           >
             {MAX_ADVANCE_DAYS.map((d) => (
               <option key={d} value={String(d)}>
-                {formatMaxAdvanceDays(d)}
+                {d} days
               </option>
             ))}
           </Select>
@@ -565,75 +741,48 @@ function SchedulingEditor({
   );
 }
 
-function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="grid grid-cols-[140px_1fr] gap-3">
-      <dt className="text-xs uppercase tracking-wide text-subtle-foreground pt-0.5">{label}</dt>
-      <dd className={mono ? "font-mono text-sm text-foreground" : "text-foreground"}>{value}</dd>
-    </div>
-  );
-}
-
-function IntakeReadOnly({ fields }: { fields: IntakeField[] }) {
-  if (fields.length === 0) {
-    return <p className="text-sm text-muted-foreground">No intake questions — bookings only collect name + email.</p>;
-  }
-  return (
-    <ul className="space-y-2 text-sm">
-      {fields.map((f) => (
-        <li key={f.key} className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-foreground">
-              {f.label || <span className="italic text-muted-foreground">Untitled</span>}
-              {f.required && <span className="text-destructive ml-0.5">*</span>}
-            </p>
-            {f.conditionalOn && (
-              <p className="text-xs text-muted-foreground">
-                Shown when <span className="font-mono">{f.conditionalOn.fieldKey}</span> = &ldquo;{f.conditionalOn.equals}&rdquo;
-              </p>
-            )}
-          </div>
-          <span className="text-xs uppercase tracking-wide text-subtle-foreground shrink-0">
-            {FIELD_TYPE_LABELS[f.type]}
-          </span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function ConflictCalendarsReadOnly({
-  committed,
-  hostCalendars,
+function AvailabilityEditor({
+  draft,
+  update,
 }: {
-  committed: DraftValues;
-  hostCalendars: HostCalendar[];
+  draft: DraftValues;
+  update: <K extends keyof DraftValues>(key: K, value: DraftValues[K]) => void;
 }) {
-  if (committed.conflictCalendarIds.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        Using host default — every calendar marked as a conflict source.
-      </p>
-    );
-  }
-  const ids = new Set(committed.conflictCalendarIds);
-  const picked = hostCalendars.filter((c) => ids.has(c.id));
-  if (picked.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        No matching calendars (selections may have been removed). Edit to choose again.
-      </p>
-    );
+  const overrideOn = draft.workingHoursOverride !== null;
+  function toggleOverride(on: boolean) {
+    update("workingHoursOverride", on ? defaultSchedule() : null);
   }
   return (
-    <ul className="space-y-1.5 text-sm">
-      {picked.map((c) => (
-        <li key={c.id} className="flex items-center gap-2">
-          <span className="inline-block h-1.5 w-1.5 rounded-full bg-foreground" />
-          <span className="text-foreground">{c.summary}</span>
-        </li>
-      ))}
-    </ul>
+    <div className="space-y-3">
+      <div className="space-y-2 text-sm">
+        <label className="flex items-center gap-2">
+          <input
+            type="radio"
+            name="availabilityMode"
+            checked={!overrideOn}
+            onChange={() => toggleOverride(false)}
+            className="h-4 w-4 border-border accent-foreground"
+          />
+          Use my default working hours
+        </label>
+        <label className="flex items-center gap-2">
+          <input
+            type="radio"
+            name="availabilityMode"
+            checked={overrideOn}
+            onChange={() => toggleOverride(true)}
+            className="h-4 w-4 border-border accent-foreground"
+          />
+          Custom for this meeting type
+        </label>
+      </div>
+      {overrideOn && draft.workingHoursOverride && (
+        <WorkingHoursEditor
+          value={draft.workingHoursOverride}
+          onChange={(next) => update("workingHoursOverride", next)}
+        />
+      )}
+    </div>
   );
 }
 
@@ -650,8 +799,6 @@ function ConflictCalendarsEditor({
 
   function toggleOverride(on: boolean) {
     if (on) {
-      // Pre-select the host's current default set so the override matches today's behaviour
-      // before the user starts unticking calendars.
       const defaults = hostCalendars
         .filter((c) => c.role === "CONFLICT_CHECK" || c.role === "WRITE_TARGET")
         .map((c) => c.id);
@@ -706,21 +853,6 @@ function ConflictCalendarsEditor({
   );
 }
 
-const PROVIDER_LABELS: Record<ConferencingProvider, string> = {
-  GOOGLE_MEET: "Google Meet",
-  ZOOM: "Zoom",
-  TEAMS: "Microsoft Teams",
-  NONE: "None (no link added)",
-};
-
-function ConferencingReadOnly({ committed }: { committed: DraftValues }) {
-  return (
-    <dl className="space-y-3 text-sm">
-      <Row label="Provider" value={PROVIDER_LABELS[committed.conferencingProvider]} />
-    </dl>
-  );
-}
-
 function ConferencingEditor({
   draft,
   update,
@@ -749,4 +881,15 @@ function ConferencingEditor({
       </Select>
     </div>
   );
+}
+
+// Coerce schedule on save: when the user toggles override on but never edits, send the default
+// schedule. When toggled off, send null. When all days are empty, treat as "no override" too —
+// otherwise the override would block all bookings outright, which we never want as a side effect
+// of clicking the radio.
+function serialiseOverride(s: Schedule | null): Schedule | null {
+  if (!s) return null;
+  const allEmpty = (Object.keys(s) as (keyof Schedule)[]).every((k) => s[k].length === 0);
+  if (allEmpty) return null;
+  return coerceSchedule(s);
 }

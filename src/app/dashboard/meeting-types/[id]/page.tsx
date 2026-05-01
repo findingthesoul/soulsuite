@@ -26,12 +26,6 @@ export default async function EditMeetingTypePage({
   return (
     <AppShell {...shellProps(ctx)}>
       <div className="mx-auto w-full max-w-2xl space-y-6">
-        <header className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Edit meeting type</h1>
-          <p className="text-sm text-muted-foreground">
-            Booking link: <code className="text-xs">/{ctx.host.slug}/{mt.slug}</code>
-          </p>
-        </header>
         <MeetingTypeForm
           hostSlug={ctx.host.slug}
           hostHasZoom={!!ctx.host.zoomRefreshToken}
@@ -55,6 +49,7 @@ export default async function EditMeetingTypePage({
             isActive: mt.isActive,
             conferencingProvider: mt.conferencingProvider,
             maxInvitees: mt.maxInvitees,
+            workingHoursOverride: mt.workingHoursOverride as never,
           }}
         />
       </div>

@@ -101,7 +101,11 @@ function brandFrame(title: string, body: string, logoUrl?: string | null): strin
       <h1 style="font-size:20px;font-weight:600;margin:0 0 16px">${escapeHtml(title)}</h1>
       ${body}
       <hr style="border:none;border-top:1px solid #e7e5e4;margin:32px 0" />
-      <p style="font-size:12px;color:#a8a29e;margin:0">Sent by Soul Suite</p>
+      <p style="font-size:12px;color:#a8a29e;margin:0">
+        Sent by Soul Suite ·
+        <a href="${escapeAttr(`${publicEnv.NEXT_PUBLIC_APP_URL}/privacy`)}" style="color:#a8a29e">Privacy</a> ·
+        <a href="${escapeAttr(`${publicEnv.NEXT_PUBLIC_APP_URL}/terms`)}" style="color:#a8a29e">Terms</a>
+      </p>
     </div>
   </td></tr></table>
 </body></html>`;

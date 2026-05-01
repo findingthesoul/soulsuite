@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getCurrentHost } from "@/lib/auth";
 import { getWorkspaceRole, canManageWorkspace } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
+import { revalidateWorkspaceForHost } from "@/lib/page-context";
 
 const bodySchema = z.object({
   logoUrl: z.string().url().startsWith("https://").nullable(),
@@ -27,6 +28,7 @@ export async function POST(request: NextRequest) {
     where: { id: membership.workspaceId },
     data: { logoUrl: parsed.data.logoUrl, brandColor: parsed.data.brandColor },
   });
+  revalidateWorkspaceForHost(host.id);
 
   return NextResponse.json({ ok: true });
 }

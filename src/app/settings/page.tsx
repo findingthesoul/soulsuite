@@ -55,8 +55,8 @@ export default async function SettingsIndexPage() {
     },
     {
       href: "/settings/members",
-      title: "Members",
-      description: "Workspace members and pending invites.",
+      title: "Internal team",
+      description: "@soul.com accounts who can sign in to Soul Suite.",
       icon: Users,
       gated: !canManageWorkspace(membership?.role),
       section: "workspace",

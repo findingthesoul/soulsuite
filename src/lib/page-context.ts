@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { unstable_cache, revalidateTag } from "next/cache";
 import type { Host } from "@prisma/client";
 import { getCurrentHost } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -13,26 +14,43 @@ export interface PageContext {
   } | null;
 }
 
-// Server helper used by every authenticated page. Loads the host and (if any) workspace
-// membership in one round-trip so AppShell gets the branding it needs without each page
-// re-deriving it.
+// Workspace branding rarely changes (logo + name + brand colour edits land via
+// /settings/workspace and /settings/branding). Cache the lookup for 5 minutes per host;
+// the settings-write endpoints call `revalidateWorkspaceForHost(hostId)` to bust on edit.
+//
+// The Host row itself isn't cached because profile edits (name, photo, timezone) need to be
+// reflected immediately in the AppShell — the host findUnique is a single-row indexed lookup
+// and is cheap; the workspace include was the expensive part.
+function workspaceTag(hostId: string) {
+  return `workspace-for-host:${hostId}`;
+}
+
+const fetchWorkspaceForHost = unstable_cache(
+  async (hostId: string) => {
+    const membership = await prisma.workspaceMember.findFirst({
+      where: { hostId },
+      select: {
+        workspace: { select: { id: true, name: true, logoUrl: true, brandColor: true } },
+      },
+    });
+    return membership?.workspace ?? null;
+  },
+  ["workspace-for-host"],
+  { revalidate: 300, tags: ["workspace-for-host"] },
+);
+
+export function revalidateWorkspaceForHost(hostId: string): void {
+  revalidateTag(workspaceTag(hostId));
+  revalidateTag("workspace-for-host");
+}
+
+// Server helper used by every authenticated page. The host lookup is cheap (indexed on
+// authUserId); the workspace lookup is cached.
 export async function getPageContextOrRedirect(): Promise<PageContext> {
   const host = await getCurrentHost();
   if (!host) redirect("/auth/signin");
-
-  const membership = await prisma.workspaceMember.findFirst({
-    where: { hostId: host.id },
-    include: {
-      workspace: {
-        select: { id: true, name: true, logoUrl: true, brandColor: true },
-      },
-    },
-  });
-
-  return {
-    host,
-    workspace: membership?.workspace ?? null,
-  };
+  const workspace = await fetchWorkspaceForHost(host.id);
+  return { host, workspace };
 }
 
 // Convenience for AppShell props.

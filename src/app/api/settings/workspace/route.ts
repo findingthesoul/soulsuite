@@ -4,6 +4,7 @@ import { getCurrentHost } from "@/lib/auth";
 import { getWorkspaceRole, canManageWorkspace } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { assertSlugAvailable, normaliseSlug, SlugError } from "@/lib/slugs";
+import { revalidateWorkspaceForHost } from "@/lib/page-context";
 
 const bodySchema = z.object({
   name: z.string().trim().min(2).max(80),
@@ -44,5 +45,6 @@ export async function PATCH(request: NextRequest) {
       primaryEmailDomain: parsed.data.primaryEmailDomain,
     },
   });
+  revalidateWorkspaceForHost(host.id);
   return NextResponse.json({ ok: true });
 }

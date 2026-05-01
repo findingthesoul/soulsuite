@@ -127,11 +127,14 @@ function needsOnboardingOrReady(host: Host, workspace: Workspace): BootstrapOutc
   return { kind: "needs-onboarding", host, workspace };
 }
 
-// Lightweight check used by route guards once the host already exists.
+// Lightweight check used by route guards once the host already exists. One DB round-trip:
+// if there's any WRITE_TARGET calendar, the host has ≥ 1 calendar by construction. Working
+// hours is on the host object so no extra query.
 export async function hostHasCompletedOnboarding(host: Host): Promise<boolean> {
-  const [calCount, hasWriteTarget] = await Promise.all([
-    prisma.calendar.count({ where: { hostId: host.id } }),
-    prisma.calendar.findFirst({ where: { hostId: host.id, role: "WRITE_TARGET" } }),
-  ]);
-  return calCount > 0 && hasWriteTarget !== null && host.workingHours !== null;
+  if (host.workingHours === null) return false;
+  const writeTarget = await prisma.calendar.findFirst({
+    where: { hostId: host.id, role: "WRITE_TARGET" },
+    select: { id: true },
+  });
+  return writeTarget !== null;
 }

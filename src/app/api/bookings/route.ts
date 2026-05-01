@@ -5,7 +5,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { calendarFor, isGoogleAuthError } from "@/lib/google/client";
 import { computeAvailableSlots, type WorkingHours } from "@/lib/availability/engine";
-import { fetchHostBusy } from "@/lib/availability/freebusy";
+import { fetchHostBusy, bustFreebusyCacheForHost } from "@/lib/availability/freebusy";
 import { type IntakeField, validateAnswers, pruneHiddenAnswers } from "@/lib/intake";
 import { pickRoundRobinHost } from "@/lib/round-robin";
 import { sendEmail, bookingConfirmationTemplate, appUrl } from "@/lib/email";
@@ -124,43 +124,55 @@ export async function POST(request: NextRequest) {
     include: { calendars: true },
   });
 
-  const freeHosts: typeof candidateHosts = [];
-  for (const cand of candidateHosts) {
-    if (!cand.googleRefreshToken) continue;
-    if (!cand.calendars.some((c) => c.role === "WRITE_TARGET")) continue;
-    // One-off slots bypass the availability engine — the host hand-picked these times so
-    // working hours / buffers / freebusy don't apply.
-    if (oneOffSlot) {
-      freeHosts.push(cand);
-      continue;
-    }
-    let busy;
-    try {
-      busy = await fetchHostBusy(cand, range, meetingType);
-    } catch (err) {
-      if (isGoogleAuthError(err)) {
-        await prisma.host.update({ where: { id: cand.id }, data: { googleRefreshToken: null } });
-        continue; // skip — try the next candidate
+  // Run freebusy in parallel — for ROUND_ROBIN / COLLECTIVE this used to be sequential, one
+  // Google round-trip per host before the page could move on. Each host's check is independent.
+  type Cand = (typeof candidateHosts)[number];
+  type Verdict = { host: Cand; free: boolean } | { host: Cand; authBroken: true };
+  const verdicts = await Promise.all<Verdict | null>(
+    candidateHosts.map(async (cand) => {
+      if (!cand.googleRefreshToken) return null;
+      if (!cand.calendars.some((c) => c.role === "WRITE_TARGET")) return null;
+      // One-off slots bypass the availability engine — the host hand-picked these times so
+      // working hours / buffers / freebusy don't apply.
+      if (oneOffSlot) return { host: cand, free: true };
+      try {
+        const busy = await fetchHostBusy(cand, range, meetingType);
+        const slots = computeAvailableSlots({
+          host: { timezone: cand.timezone, workingHours: (cand.workingHours as WorkingHours | null) ?? {} },
+          meetingType: {
+            durationMinutes: meetingType.durationMinutes,
+            bufferBeforeMinutes: meetingType.bufferBeforeMinutes,
+            bufferAfterMinutes: meetingType.bufferAfterMinutes,
+            minNoticeMinutes: meetingType.minNoticeMinutes,
+            maxAdvanceDays: meetingType.maxAdvanceDays,
+          },
+          range,
+          busy,
+        });
+        const free = slots.some(
+          (s) => s.startsAt.getTime() === startsAt.getTime() && s.endsAt.getTime() === endsAt.getTime(),
+        );
+        return { host: cand, free };
+      } catch (err) {
+        if (isGoogleAuthError(err)) return { host: cand, authBroken: true };
+        throw err;
       }
-      throw err;
-    }
-    const slots = computeAvailableSlots({
-      host: { timezone: cand.timezone, workingHours: (cand.workingHours as WorkingHours | null) ?? {} },
-      meetingType: {
-        durationMinutes: meetingType.durationMinutes,
-        bufferBeforeMinutes: meetingType.bufferBeforeMinutes,
-        bufferAfterMinutes: meetingType.bufferAfterMinutes,
-        minNoticeMinutes: meetingType.minNoticeMinutes,
-        maxAdvanceDays: meetingType.maxAdvanceDays,
-      },
-      range,
-      busy,
+    }),
+  );
+
+  // Drain auth-broken hosts to the DB once, post-hoc — keeps the parallel scan clean.
+  const brokenHostIds = verdicts
+    .filter((v): v is { host: Cand; authBroken: true } => Boolean(v && "authBroken" in v))
+    .map((v) => v.host.id);
+  if (brokenHostIds.length > 0) {
+    await prisma.host.updateMany({
+      where: { id: { in: brokenHostIds } },
+      data: { googleRefreshToken: null },
     });
-    const isFree = slots.some(
-      (s) => s.startsAt.getTime() === startsAt.getTime() && s.endsAt.getTime() === endsAt.getTime(),
-    );
-    if (isFree) freeHosts.push(cand);
   }
+  const freeHosts: typeof candidateHosts = verdicts
+    .filter((v): v is { host: Cand; free: boolean } => Boolean(v && "free" in v && v.free))
+    .map((v) => v.host);
 
   // COLLECTIVE requires every assigned host to be free. ROUND_ROBIN/SINGLE only need at least one.
   if (meetingType.routingMode === "COLLECTIVE") {
@@ -338,6 +350,7 @@ export async function POST(request: NextRequest) {
       fromName: host.name,
       replyTo: host.email,
     });
+    bustFreebusyCacheForHost(host.id);
     return NextResponse.json({ id: bookingId });
   }
 
@@ -463,6 +476,12 @@ export async function POST(request: NextRequest) {
     fromName: host.name,
     replyTo: host.email,
   });
+
+  // The host's freebusy is now stale — bust the in-memory cache so the next public-page
+  // render fetches fresh slots. (Collective books on multiple calendars but only `host` owns
+  // the new event; co-hosts are attendees and their freebusy will reflect the invite once
+  // Google syncs, which is fast enough that the 60s TTL is acceptable.)
+  bustFreebusyCacheForHost(host.id);
 
   return NextResponse.json({ id: bookingId });
 }

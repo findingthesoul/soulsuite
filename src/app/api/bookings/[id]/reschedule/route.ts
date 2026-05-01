@@ -8,6 +8,7 @@ import { sendEmail, bookingRescheduleTemplate, appUrl } from "@/lib/email";
 import { getEmailLogoUrl } from "@/lib/branding";
 import { getZoomAccessTokenForHost } from "@/lib/zoom/host";
 import { updateZoomMeeting } from "@/lib/zoom/client";
+import { bustFreebusyCacheForHost } from "@/lib/availability/freebusy";
 
 const bodySchema = z.object({
   startsAt: z.string().datetime(),
@@ -169,5 +170,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     replyTo: host.email,
   });
 
+  bustFreebusyCacheForHost(host.id);
   return NextResponse.json({ ok: true });
 }

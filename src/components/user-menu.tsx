@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Settings, Sun, Moon, Monitor, LogOut, PanelLeftOpen, PanelLeftClose, MousePointerClick } from "lucide-react";
+import { Settings, Sun, Moon, Monitor, LogOut, PanelLeftOpen, PanelLeftClose, MousePointerClick, User as UserIcon } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -36,6 +36,12 @@ export function UserMenu({ name, email }: { name: string; email: string }) {
           <p className="text-xs text-muted-foreground truncate">{email}</p>
         </div>
         <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link href="/settings/profile">
+            <UserIcon className="h-4 w-4" />
+            Profile
+          </Link>
+        </DropdownMenuItem>
         <DropdownMenuItem asChild>
           <Link href="/settings">
             <Settings className="h-4 w-4" />

@@ -207,6 +207,11 @@ model MeetingType {
   // Optional per-meeting-type override of which Calendar.id rows count as conflict sources.
   // Empty = use the host's default conflict-source set (CONFLICT_CHECK + WRITE_TARGET roles).
   conflictCalendarIds   String[]
+  // Optional per-meeting-type override of the host's default working hours. Same JSON shape as
+  // Host.workingHours (Record<DayKey, { start, end }[]>). Null/empty/{} = fall back to the host's
+  // weekly schedule. For PROJECT meeting types, the override applies to every assigned host —
+  // the same wall-clock windows in each host's local timezone.
+  workingHoursOverride  Json?
   intakeFormId          String?
   // Privacy: by default intake answers are not added to the calendar event description (brief §Privacy).
   includeAnswersInEvent Boolean              @default(false)

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import { PrefetchLink } from "@/components/prefetch-link";
 
 interface BookingItem {
   id: string;
@@ -157,7 +157,7 @@ export function WeekGrid({
                 if (top + height < 0 || top > HOURS.length * HOUR_HEIGHT) return null;
                 const cancelled = p.booking.status === "CANCELLED";
                 return (
-                  <Link
+                  <PrefetchLink
                     key={p.booking.id}
                     href={p.booking.href}
                     className={`absolute left-1 right-1 rounded-md px-2 py-1 text-xs overflow-hidden transition-colors ${
@@ -169,7 +169,7 @@ export function WeekGrid({
                   >
                     <p className="font-medium truncate">{p.booking.inviteeName}</p>
                     <p className="opacity-80 truncate">{p.booking.meetingTypeName}</p>
-                  </Link>
+                  </PrefetchLink>
                 );
               })}
           </div>

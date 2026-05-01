@@ -10,6 +10,7 @@ import { AppShell } from "@/components/app-shell";
 import { Card } from "@/components/ui/card";
 import { SkeletonRow } from "@/components/skeletons";
 import { BookingDateTime } from "./bookings/client";
+import { PrefetchLink } from "@/components/prefetch-link";
 
 export default async function DashboardPage() {
   const ctx = await getPageContextOrRedirect();
@@ -209,7 +210,7 @@ function BookingRow({
 }) {
   return (
     <li>
-      <Link
+      <PrefetchLink
         href={href}
         className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-surface-muted transition-colors"
       >
@@ -224,7 +225,7 @@ function BookingRow({
           </p>
         </div>
         <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
-      </Link>
+      </PrefetchLink>
     </li>
   );
 }

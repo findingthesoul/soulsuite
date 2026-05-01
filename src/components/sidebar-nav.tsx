@@ -62,8 +62,8 @@ export function SidebarNav({ compact = false, overlay = false }: Props) {
   return (
     <div className="flex h-full flex-col">
       <nav className="flex-1 px-3 py-4 space-y-0.5">
-        {NAV_ITEMS.map(({ href, label, icon: Icon, exact }) => (
-          <Link key={href} href={href} className={navItemClass(href, exact)} title={label}>
+        {NAV_ITEMS.map(({ href, label, icon: Icon, exact, tour }) => (
+          <Link key={href} href={href} className={navItemClass(href, exact)} title={label} data-tour={tour}>
             <Icon className="h-4 w-4 shrink-0" />
             <span className={labelClass()}>{label}</span>
           </Link>

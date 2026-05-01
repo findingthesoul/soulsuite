@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Settings, Sun, Moon, Monitor, LogOut, PanelLeftOpen, PanelLeftClose, MousePointerClick } from "lucide-react";
+import { Settings, Sun, Moon, Monitor, LogOut, PanelLeftOpen, PanelLeftClose, MousePointerClick, Compass } from "lucide-react";
+import { openTour } from "@/components/tour/tour";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -25,6 +26,7 @@ export function UserMenu({ name, email }: { name: string; email: string }) {
     <DropdownMenu>
       <DropdownMenuTrigger
         aria-label="Open user menu"
+        data-tour="user-menu"
         className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       >
         <Avatar name={name} size="md" />
@@ -41,6 +43,10 @@ export function UserMenu({ name, email }: { name: string; email: string }) {
             <Settings className="h-4 w-4" />
             Settings
           </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => openTour()}>
+          <Compass className="h-4 w-4" />
+          Take a tour
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuLabel>Sidebar</DropdownMenuLabel>

@@ -87,7 +87,7 @@ export function NewSchedulingMenu() {
   const router = useRouter();
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger className={buttonVariants()}>
+      <DropdownMenuTrigger className={buttonVariants()} data-tour="new-button">
         <Plus className="h-4 w-4" />
         New
       </DropdownMenuTrigger>

@@ -14,8 +14,11 @@ const NAV_ITEMS: {
 }[] = [
   { href: "/dashboard", label: "Home", icon: LayoutDashboard, exact: true, tour: "sidebar-home" },
   { href: "/dashboard/bookings", label: "Bookings", icon: Inbox, exact: false, tour: "sidebar-bookings" },
+  // Order matches the help page's three-layer model: Personal → Teams → (Workspace below).
+  // The "sidebar-scheduling" tour key is kept (unchanged) for compatibility with the tour
+  // selectors so existing onboarding steps still highlight this row.
+  { href: "/dashboard/meeting-types", label: "Personal", icon: CalendarDays, exact: false, tour: "sidebar-scheduling" },
   { href: "/dashboard/projects", label: "Teams", icon: FolderOpen, exact: false, tour: "sidebar-teams" },
-  { href: "/dashboard/meeting-types", label: "Scheduling", icon: CalendarDays, exact: false, tour: "sidebar-scheduling" },
 ];
 
 const SETTINGS_NAV_ITEMS = [

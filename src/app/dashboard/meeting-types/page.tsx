@@ -33,7 +33,7 @@ export default async function MeetingTypesPage() {
       <div className="space-y-6">
         <header className="flex items-start justify-between gap-4">
           <div className="space-y-1">
-            <h1 className="text-2xl font-semibold tracking-tight">Scheduling</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">Personal scheduling</h1>
             <p className="text-sm text-muted-foreground">
               Your personal bookable links live at{" "}
               <code className="rounded bg-surface-muted px-1 py-0.5 text-xs">

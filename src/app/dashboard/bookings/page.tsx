@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { BookingDateTime } from "./client";
 import { WeekGrid } from "./week-grid";
 import { MonthGrid } from "./month-grid";
+import { PersistSearchParams } from "@/components/persist-search-params";
 
 type RangeFilter = "upcoming" | "past" | "all";
 type ScopeFilter = "all" | "personal" | string; // string = project id
@@ -85,6 +86,7 @@ export default async function BookingsPage({
 
   return (
     <AppShell {...shellProps(ctx)}>
+      <PersistSearchParams keys={["view", "range", "scope"]} storageKey="soul-suite-bookings-view" />
       <div className="space-y-6">
         <header className="flex items-start justify-between gap-4">
           <div className="space-y-1">

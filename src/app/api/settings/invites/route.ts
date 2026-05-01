@@ -87,7 +87,9 @@ export async function POST(request: NextRequest) {
     subject: tmpl.subject,
     html: tmpl.html,
     text: tmpl.text,
-    fromName: host.name,
+    // Invite emails read as plain `Soul Suite <notify@…>` rather than "Sjoerd via Soul Suite"
+    // — the inviter's name is already in the subject + body, so prefixing the From loops
+    // ("Sjoerd invited you to Sjoerd's project").
     replyTo: host.email,
   });
 

@@ -80,7 +80,9 @@ export async function POST(
       subject: tmpl.subject,
       html: tmpl.html,
       text: tmpl.text,
-      fromName: host.name,
+      // No fromName: invite emails read as plain `Soul Suite <notify@…>`. The inviter's
+      // name is already in the subject + body; prefixing the From loops awkwardly
+      // ("Sjoerd invited you to Sjoerd's project").
       replyTo: host.email,
     });
   }

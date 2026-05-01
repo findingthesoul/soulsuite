@@ -1,13 +1,14 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Trash2, Copy, Check } from "lucide-react";
+import { Trash2, Copy, Check, UserPlus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 
 interface Member {
   id: string;
@@ -22,6 +23,7 @@ interface Candidate {
   id: string;
   name: string;
   email: string;
+  kind: "internal" | "external";
 }
 
 interface PendingInvite {
@@ -141,106 +143,74 @@ export function ProjectMembersClient({
     });
   }
 
+  const [addOpen, setAddOpen] = useState(false);
+
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Add an internal teammate</CardTitle>
-          <CardDescription>
-            People already on the @soul.com internal team who aren&apos;t yet on this project — added instantly, no email.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {candidates.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Everyone on the internal team is already here. Add new internal teammates from{" "}
-              <a href="/settings/members" className="underline hover:text-foreground">
-                Settings → Internal team
-              </a>
-              .
-            </p>
-          ) : (
-            <>
-              <div className="grid gap-3 sm:grid-cols-[1fr_180px]">
-                <div className="space-y-1.5">
-                  <Label htmlFor="pickHost">Person</Label>
-                  <Select id="pickHost" value={pickHostId} onChange={(e) => setPickHostId(e.target.value)}>
-                    {candidates.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name} — {c.email}
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="pickRole">Role</Label>
-                  <Select
-                    id="pickRole"
-                    value={pickRole}
-                    onChange={(e) => setPickRole(e.target.value as "LEAD" | "MEMBER")}
-                  >
-                    <option value="MEMBER">Member</option>
-                    <option value="LEAD">Lead</option>
-                  </Select>
-                </div>
-              </div>
-              {addError && <p className="text-sm text-destructive">{addError}</p>}
-              <div className="flex justify-end">
-                <Button onClick={add} disabled={pending}>
-                  {pending ? "Adding…" : "Add to team"}
-                </Button>
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">
+          {members.length === 1 ? "1 person on this team." : `${members.length} people on this team.`}
+        </p>
+        <Button onClick={() => setAddOpen(true)}>
+          <UserPlus className="h-4 w-4" />
+          Add teammate
+        </Button>
+      </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Invite an external collaborator</CardTitle>
-          <CardDescription>
-            Anyone outside @soul.com — they get an email with a sign-in link, scoped to this team only.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-[1fr_180px]">
-            <div className="space-y-1.5">
-              <Label htmlFor="inviteEmail">Email address</Label>
-              <Input
-                id="inviteEmail"
-                type="email"
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
-                placeholder="colleague@partner.example"
-                onKeyDown={(e) => e.key === "Enter" && sendInvite()}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="inviteRole">Role</Label>
-              <Select
-                id="inviteRole"
-                value={inviteRole}
-                onChange={(e) => setInviteRole(e.target.value as "LEAD" | "MEMBER")}
-              >
-                <option value="MEMBER">Member</option>
-                <option value="LEAD">Lead</option>
-              </Select>
-            </div>
-          </div>
-          {inviteError && <p className="text-sm text-destructive">{inviteError}</p>}
-          {justCopied && (
-            <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
-              <Check className="h-3.5 w-3.5 shrink-0 text-green-600" />
-              Invite link copied to clipboard.
-            </p>
-          )}
-          <div className="flex justify-end">
-            <Button onClick={sendInvite} disabled={pending || !inviteEmail.trim()}>
-              {pending ? "Creating…" : "Create invite link"}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      <AddTeammateDialog
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        candidates={candidates}
+        pending={pending}
+        addError={addError}
+        inviteError={inviteError}
+        justCopied={justCopied}
+        onAdd={(hostId, role) => {
+          setPickHostId(hostId);
+          setPickRole(role);
+          setAddError(null);
+          // Use the supplied values directly — `add()` reads from state which won't have updated yet.
+          startTransition(async () => {
+            const res = await fetch(`/api/projects/${projectId}/members`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ hostId, role }),
+            });
+            if (!res.ok) {
+              setAddError((await res.text()) || "Failed to add");
+              return;
+            }
+            setAddOpen(false);
+            router.refresh();
+          });
+        }}
+        onInvite={(email, role) => {
+          const trimmed = email.trim().toLowerCase();
+          if (!trimmed) return;
+          setInviteError(null);
+          startTransition(async () => {
+            const res = await fetch(`/api/projects/${projectId}/invites`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ email: trimmed, role }),
+            });
+            if (!res.ok) {
+              setInviteError((await res.text()) || "Failed to create invite");
+              return;
+            }
+            const data = (await res.json()) as { url: string };
+            try {
+              await navigator.clipboard.writeText(data.url);
+              setJustCopied(true);
+              setTimeout(() => setJustCopied(false), 3000);
+            } catch {
+              // Clipboard unavailable — link still on the pending list.
+            }
+            setAddOpen(false);
+            router.refresh();
+          });
+        }}
+      />
 
       {pendingInvites.length > 0 && (
         <Card>
@@ -358,5 +328,204 @@ function CopyLinkButton({ projectId, inviteId }: { projectId: string; inviteId: 
     <Button variant="ghost" size="icon" aria-label="Copy invite link" onClick={copy} disabled={state === "loading"}>
       {state === "copied" ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
     </Button>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
+// Add-teammate dialog
+// ────────────────────────────────────────────────────────────
+
+function AddTeammateDialog({
+  open,
+  onOpenChange,
+  candidates,
+  pending,
+  addError,
+  inviteError,
+  justCopied,
+  onAdd,
+  onInvite,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  candidates: Candidate[];
+  pending: boolean;
+  addError: string | null;
+  inviteError: string | null;
+  justCopied: boolean;
+  onAdd: (hostId: string, role: "LEAD" | "MEMBER") => void;
+  onInvite: (email: string, role: "LEAD" | "MEMBER") => void;
+}) {
+  const [tab, setTab] = useState<"existing" | "new">("existing");
+  const [search, setSearch] = useState("");
+  const [pickRole, setPickRole] = useState<"LEAD" | "MEMBER">("MEMBER");
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState<"LEAD" | "MEMBER">("MEMBER");
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return candidates;
+    return candidates.filter(
+      (c) => c.name.toLowerCase().includes(q) || c.email.toLowerCase().includes(q),
+    );
+  }, [candidates, search]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogHeader
+        title="Add teammate"
+        description="Pick someone Soul Suite already knows, or invite a new email."
+        onClose={() => onOpenChange(false)}
+      />
+
+      <div className="px-5 pt-4 flex gap-1 border-b border-border -mb-px">
+        <TabButton active={tab === "existing"} onClick={() => setTab("existing")}>
+          From existing ({candidates.length})
+        </TabButton>
+        <TabButton active={tab === "new"} onClick={() => setTab("new")}>
+          Invite new
+        </TabButton>
+      </div>
+
+      <DialogBody className="max-h-[60vh] overflow-y-auto">
+        {tab === "existing" ? (
+          candidates.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No suggestions yet. Switch to <button type="button" className="underline" onClick={() => setTab("new")}>Invite new</button> to add someone by email,
+              or grow the internal team in{" "}
+              <a href="/settings/members" className="underline hover:text-foreground">
+                Settings → Internal team
+              </a>
+              .
+            </p>
+          ) : (
+            <>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  autoFocus
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search by name or email…"
+                  className="pl-9"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="addRole">Role</Label>
+                <Select id="addRole" value={pickRole} onChange={(e) => setPickRole(e.target.value as "LEAD" | "MEMBER")}>
+                  <option value="MEMBER">Member</option>
+                  <option value="LEAD">Lead</option>
+                </Select>
+              </div>
+
+              <ul className="rounded-md border border-border divide-y divide-border max-h-[40vh] overflow-y-auto">
+                {filtered.length === 0 ? (
+                  <li className="p-4 text-sm text-muted-foreground text-center">No matches.</li>
+                ) : (
+                  filtered.map((c) => (
+                    <li key={c.id}>
+                      <button
+                        type="button"
+                        onClick={() => onAdd(c.id, pickRole)}
+                        disabled={pending}
+                        className="w-full flex items-center justify-between gap-3 p-3 text-left text-sm hover:bg-surface-muted transition-colors disabled:opacity-50"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-medium text-foreground truncate">{c.name}</p>
+                          <p className="text-xs text-muted-foreground truncate">{c.email}</p>
+                        </div>
+                        <span
+                          className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide ${
+                            c.kind === "internal"
+                              ? "bg-foreground/10 text-foreground"
+                              : "bg-surface-muted text-muted-foreground"
+                          }`}
+                        >
+                          {c.kind}
+                        </span>
+                      </button>
+                    </li>
+                  ))
+                )}
+              </ul>
+              {addError && <p className="text-sm text-destructive">{addError}</p>}
+            </>
+          )
+        ) : (
+          <>
+            <div className="space-y-1.5">
+              <Label htmlFor="newInviteEmail">Email</Label>
+              <Input
+                id="newInviteEmail"
+                type="email"
+                autoFocus
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                placeholder="colleague@partner.example"
+                onKeyDown={(e) => e.key === "Enter" && onInvite(inviteEmail, inviteRole)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="newInviteRole">Role</Label>
+              <Select
+                id="newInviteRole"
+                value={inviteRole}
+                onChange={(e) => setInviteRole(e.target.value as "LEAD" | "MEMBER")}
+              >
+                <option value="MEMBER">Member</option>
+                <option value="LEAD">Lead</option>
+              </Select>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              They&apos;ll get an email with a sign-in link, scoped to this team only. Any email
+              works — no @soul.com required.
+            </p>
+            {inviteError && <p className="text-sm text-destructive">{inviteError}</p>}
+            {justCopied && (
+              <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                <Check className="h-3.5 w-3.5 shrink-0 text-green-600" />
+                Invite link also copied to your clipboard.
+              </p>
+            )}
+          </>
+        )}
+      </DialogBody>
+
+      <DialogFooter>
+        <Button variant="secondary" onClick={() => onOpenChange(false)}>
+          Cancel
+        </Button>
+        {tab === "new" && (
+          <Button onClick={() => onInvite(inviteEmail, inviteRole)} disabled={pending || !inviteEmail.trim()}>
+            {pending ? "Creating…" : "Send invite"}
+          </Button>
+        )}
+      </DialogFooter>
+    </Dialog>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+        active
+          ? "border-foreground text-foreground"
+          : "border-transparent text-muted-foreground hover:text-foreground"
+      }`}
+    >
+      {children}
+    </button>
   );
 }

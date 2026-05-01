@@ -8,6 +8,7 @@ import { publicEnv } from "@/lib/env";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
+import { CopyLinkButton, OpenBookingLink } from "@/components/copy-link-button";
 import { ProjectDetailsForm } from "./form";
 
 export default async function ProjectDashboardPage({
@@ -137,29 +138,27 @@ export default async function ProjectDashboardPage({
                 {meetingTypes.map((mt) => {
                   const url = `${publicEnv.NEXT_PUBLIC_APP_URL}/${project.slug}/${mt.slug}`;
                   return (
-                    <li key={mt.id} className="flex items-center justify-between gap-4 p-4">
-                      <div className="min-w-0">
-                        <Link
-                          href={`/dashboard/projects/${project.slug}/meeting-types/${mt.id}`}
-                          className="text-sm font-medium text-foreground hover:underline"
-                        >
-                          {mt.name}
-                          {!mt.isActive && (
-                            <span className="ml-2 text-xs uppercase tracking-wide text-subtle-foreground">inactive</span>
-                          )}
-                        </Link>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {mt.durationMinutes} min · {url}
-                        </p>
-                      </div>
-                      <a
-                        href={`/${project.slug}/${mt.slug}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-xs text-muted-foreground underline hover:text-foreground shrink-0"
+                    <li key={mt.id}>
+                      <Link
+                        href={`/dashboard/projects/${project.slug}/meeting-types/${mt.id}`}
+                        className="flex items-center justify-between gap-4 p-4 hover:bg-surface-muted transition-colors"
                       >
-                        Open ↗
-                      </a>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-foreground">
+                            {mt.name}
+                            {!mt.isActive && (
+                              <span className="ml-2 text-xs uppercase tracking-wide text-subtle-foreground">inactive</span>
+                            )}
+                          </p>
+                          <p className="truncate text-xs text-muted-foreground">
+                            {mt.durationMinutes} min · {url}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <CopyLinkButton url={`/${project.slug}/${mt.slug}`} />
+                          <OpenBookingLink href={`/${project.slug}/${mt.slug}`} label="Open ↗" />
+                        </div>
+                      </Link>
                     </li>
                   );
                 })}

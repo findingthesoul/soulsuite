@@ -12,11 +12,7 @@ export default async function WorkspaceSettingsPage() {
   const ws = membership.workspace;
   return (
     <AppShell {...shellProps(ctx)}>
-      <div className="mx-auto w-full max-w-2xl space-y-6">
-        <header className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Workspace</h1>
-          <p className="text-sm text-muted-foreground">Identity and the email domain that defines who can join.</p>
-        </header>
+      <div className="mx-auto w-full max-w-2xl">
         <WorkspaceSettingsForm
           initial={{
             name: ws.name,

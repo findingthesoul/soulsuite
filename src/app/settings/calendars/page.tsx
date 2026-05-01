@@ -6,8 +6,6 @@ import { AppShell } from "@/components/app-shell";
 import { buttonVariants } from "@/components/ui/button";
 import { CalendarPickerForm } from "@/app/onboarding/calendars/form";
 
-// Mirrors the onboarding calendar picker but in "edit" variant — read-only by default,
-// Edit unlocks, Save/Cancel commits/reverts. Same /api/onboarding/calendars endpoint.
 export default async function CalendarsSettingsPage() {
   const ctx = await getPageContextOrRedirect();
 
@@ -39,13 +37,7 @@ export default async function CalendarsSettingsPage() {
 
   return (
     <AppShell {...shellProps(ctx)}>
-      <div className="mx-auto w-full max-w-2xl space-y-6">
-        <header className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Calendars</h1>
-          <p className="text-sm text-muted-foreground">
-            Pick which Google calendars block availability and where new bookings get created.
-          </p>
-        </header>
+      <div className="mx-auto w-full max-w-2xl">
         <CalendarPickerForm
           variant="edit"
           calendars={calendars}

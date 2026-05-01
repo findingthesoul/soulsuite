@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentHost } from "@/lib/auth";
+import { clearZoomTokenCache } from "@/lib/zoom/host";
 
 // Drops the host's Zoom credentials. Existing meeting types still on `conferencingProvider=ZOOM`
 // will fail to create new bookings until the host reconnects (or switches the provider).
@@ -12,5 +13,6 @@ export async function POST() {
     where: { id: host.id },
     data: { zoomRefreshToken: null, zoomAccountEmail: null, zoomConnectedAt: null },
   });
+  clearZoomTokenCache(host.id);
   return NextResponse.json({ ok: true });
 }

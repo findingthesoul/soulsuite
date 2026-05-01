@@ -68,7 +68,7 @@ export default async function ProjectDashboardPage({
         <section className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-xs uppercase tracking-wide text-subtle-foreground">
-              Members ({members.length})
+              Team ({members.length})
             </h2>
             {isLead && (
               <Link

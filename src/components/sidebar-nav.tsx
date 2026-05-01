@@ -23,7 +23,7 @@ const NAV_ITEMS: {
 
 const SETTINGS_NAV_ITEMS = [
   { href: "/settings/availability", label: "Availability", icon: Clock, exact: false },
-  { href: "/settings/members", label: "Members", icon: Users, exact: false },
+  { href: "/settings/members", label: "Internal", icon: Users, exact: false },
 ];
 
 interface Props {

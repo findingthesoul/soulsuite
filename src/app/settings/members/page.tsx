@@ -33,16 +33,17 @@ export default async function MembersSettingsPage() {
     <AppShell {...shellProps(ctx)}>
       <div className="mx-auto w-full max-w-3xl space-y-6">
         <header className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Members</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Internal team</h1>
           <p className="text-sm text-muted-foreground">
-            Workspace members are people with @{membership.workspace.primaryEmailDomain} accounts who&apos;ve accepted an invite.
+            People with an @{membership.workspace.primaryEmailDomain} account who can sign in to Soul Suite.
+            External collaborators don&apos;t live here — add them per Team instead.
           </p>
         </header>
 
         <Card>
           <CardHeader>
-            <CardTitle>Current members ({members.length})</CardTitle>
-            <CardDescription>The people who can sign in to this workspace.</CardDescription>
+            <CardTitle>Current internal team ({members.length})</CardTitle>
+            <CardDescription>The people who can sign in to Soul Suite.</CardDescription>
           </CardHeader>
           <CardContent>
             <ul className="divide-y divide-border -mx-1">

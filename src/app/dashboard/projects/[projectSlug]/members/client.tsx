@@ -143,51 +143,63 @@ export function ProjectMembersClient({
 
   return (
     <div className="space-y-6">
-      {candidates.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Add a workspace member</CardTitle>
-            <CardDescription>People already in the workspace who aren&apos;t yet on this project.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-[1fr_180px]">
-              <div className="space-y-1.5">
-                <Label htmlFor="pickHost">Person</Label>
-                <Select id="pickHost" value={pickHostId} onChange={(e) => setPickHostId(e.target.value)}>
-                  {candidates.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} — {c.email}
-                    </option>
-                  ))}
-                </Select>
+      <Card>
+        <CardHeader>
+          <CardTitle>Add an internal teammate</CardTitle>
+          <CardDescription>
+            People already on the @soul.com internal team who aren&apos;t yet on this project — added instantly, no email.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {candidates.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Everyone on the internal team is already here. Add new internal teammates from{" "}
+              <a href="/settings/members" className="underline hover:text-foreground">
+                Settings → Internal team
+              </a>
+              .
+            </p>
+          ) : (
+            <>
+              <div className="grid gap-3 sm:grid-cols-[1fr_180px]">
+                <div className="space-y-1.5">
+                  <Label htmlFor="pickHost">Person</Label>
+                  <Select id="pickHost" value={pickHostId} onChange={(e) => setPickHostId(e.target.value)}>
+                    {candidates.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} — {c.email}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="pickRole">Role</Label>
+                  <Select
+                    id="pickRole"
+                    value={pickRole}
+                    onChange={(e) => setPickRole(e.target.value as "LEAD" | "MEMBER")}
+                  >
+                    <option value="MEMBER">Member</option>
+                    <option value="LEAD">Lead</option>
+                  </Select>
+                </div>
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="pickRole">Role</Label>
-                <Select
-                  id="pickRole"
-                  value={pickRole}
-                  onChange={(e) => setPickRole(e.target.value as "LEAD" | "MEMBER")}
-                >
-                  <option value="MEMBER">Member</option>
-                  <option value="LEAD">Lead</option>
-                </Select>
+              {addError && <p className="text-sm text-destructive">{addError}</p>}
+              <div className="flex justify-end">
+                <Button onClick={add} disabled={pending}>
+                  {pending ? "Adding…" : "Add to team"}
+                </Button>
               </div>
-            </div>
-            {addError && <p className="text-sm text-destructive">{addError}</p>}
-            <div className="flex justify-end">
-              <Button onClick={add} disabled={pending}>
-                {pending ? "Adding…" : "Add to project"}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+            </>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
           <CardTitle>Invite an external collaborator</CardTitle>
           <CardDescription>
-            Send a link to anyone — no @soul.com domain required. They sign in with the invited address.
+            Anyone outside @soul.com — they get an email with a sign-in link, scoped to this team only.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

@@ -19,8 +19,10 @@ export default async function ProjectMembersPage({
   const membership = await getProjectMembership(ctx.host, project.id);
   if (!membership || !canManageProject(membership.role)) notFound();
 
-  // Pull project members, workspace members (for picker), and pending invites.
-  const [projectMembers, workspaceMembers, pendingInvites] = await Promise.all([
+  // Four queries: this project's members, all workspace members (for the internal picker),
+  // pending invites, and external collaborators from any other project (so we can suggest
+  // re-using folks the team already worked with).
+  const [projectMembers, workspaceMembers, pendingInvites, pastExternals] = await Promise.all([
     prisma.projectMember.findMany({
       where: { projectId: project.id },
       include: { host: true },
@@ -35,12 +37,40 @@ export default async function ProjectMembersPage({
       where: { projectId: project.id, kind: "PROJECT", acceptedAt: null },
       orderBy: { createdAt: "desc" },
     }),
+    prisma.projectMember.findMany({
+      where: { isExternal: true, project: { workspaceId: project.workspaceId } },
+      include: { host: true },
+      orderBy: { addedAt: "desc" },
+    }),
   ]);
 
+  // Combine workspace members + past external collaborators into one searchable list of
+  // "people you can add directly without sending an email". Internal first, then externals,
+  // each tagged so the UI can show a badge.
   const inProjectHostIds = new Set(projectMembers.map((m) => m.hostId));
-  const candidates = workspaceMembers
+  const internalCandidates = workspaceMembers
     .filter((m) => !inProjectHostIds.has(m.hostId))
-    .map((m) => ({ id: m.host.id, name: m.host.name, email: m.host.email }));
+    .map((m) => ({
+      id: m.host.id,
+      name: m.host.name,
+      email: m.host.email,
+      kind: "internal" as const,
+    }));
+  const seenExternalIds = new Set<string>();
+  const externalCandidates = pastExternals
+    .filter((m) => {
+      if (inProjectHostIds.has(m.hostId)) return false;
+      if (seenExternalIds.has(m.hostId)) return false;
+      seenExternalIds.add(m.hostId);
+      return true;
+    })
+    .map((m) => ({
+      id: m.host.id,
+      name: m.host.name,
+      email: m.host.email,
+      kind: "external" as const,
+    }));
+  const candidates = [...internalCandidates, ...externalCandidates];
 
   return (
     <AppShell {...shellProps(ctx)}>
@@ -51,9 +81,9 @@ export default async function ProjectMembersPage({
               {project.name}
             </Link>
           </p>
-          <h1 className="text-2xl font-semibold tracking-tight">Members</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Team members</h1>
           <p className="text-sm text-muted-foreground">
-            Add workspace members directly, or invite external collaborators by email.
+            Add internal teammates and past external collaborators directly, or invite new people by email.
           </p>
         </header>
         <ProjectMembersClient

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import { PrefetchLink } from "@/components/prefetch-link";
 
 interface BookingItem {
   id: string;
@@ -109,7 +109,7 @@ export function MonthGrid({
             </div>
             <div className="px-1.5 pb-1.5 space-y-0.5 mt-1">
               {cell.bookings.slice(0, 3).map((b) => (
-                <Link
+                <PrefetchLink
                   key={b.id}
                   href={b.href}
                   className={`block truncate rounded px-1.5 py-0.5 text-[11px] transition-colors ${
@@ -122,7 +122,7 @@ export function MonthGrid({
                 >
                   <span className="opacity-80">{formatTime(b.startsAt, tz)}</span>{" "}
                   <span>{b.inviteeName}</span>
-                </Link>
+                </PrefetchLink>
               ))}
               {cell.bookings.length > 3 && (
                 <p className="px-1.5 text-[11px] text-muted-foreground">+{cell.bookings.length - 3} more</p>

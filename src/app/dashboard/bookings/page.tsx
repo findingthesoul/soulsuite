@@ -8,6 +8,7 @@ import { BookingDateTime } from "./client";
 import { WeekGrid } from "./week-grid";
 import { MonthGrid } from "./month-grid";
 import { PersistSearchParams } from "@/components/persist-search-params";
+import { PrefetchLink } from "@/components/prefetch-link";
 
 type RangeFilter = "upcoming" | "past" | "all";
 type ScopeFilter = "all" | "personal" | string; // string = project id
@@ -143,7 +144,7 @@ export default async function BookingsPage({
                 const href = `/${publicSlug}/${b.meetingType.slug}/confirmed/${b.id}`;
                 return (
                   <li key={b.id}>
-                    <Link
+                    <PrefetchLink
                       href={href}
                       className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-surface-muted transition-colors"
                     >
@@ -161,7 +162,7 @@ export default async function BookingsPage({
                         </p>
                       </div>
                       <StatusPill status={b.status} />
-                    </Link>
+                    </PrefetchLink>
                   </li>
                 );
               })}

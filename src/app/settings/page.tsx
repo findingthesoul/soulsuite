@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ChevronRight, Palette, Users, Building2, CalendarRange, Clock, Video } from "lucide-react";
+import { ChevronRight, Palette, Users, Building2, CalendarRange, Clock, Video, User as UserIcon } from "lucide-react";
 import { getPageContextOrRedirect, shellProps } from "@/lib/page-context";
 import { getWorkspaceRole, canManageWorkspace } from "@/lib/permissions";
 import { AppShell } from "@/components/app-shell";
@@ -17,6 +17,13 @@ export default async function SettingsIndexPage() {
     gated?: boolean;
     section: "personal" | "workspace";
   }[] = [
+    {
+      href: "/settings/profile",
+      title: "Profile",
+      description: "Name, phone, location, bio, photo.",
+      icon: UserIcon,
+      section: "personal",
+    },
     {
       href: "/settings/availability",
       title: "Availability",

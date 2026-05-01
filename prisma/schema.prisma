@@ -77,6 +77,11 @@ model Host {
   timezone           String    @default("Europe/Amsterdam")
   // JSON shape: { mon: [{start: "09:00", end: "17:00"}], tue: [...], ... }
   workingHours       Json?
+  // Profile fields (host-editable on /settings/profile). All optional.
+  phone              String?
+  location           String?
+  bio                String?
+  photoUrl           String?
   createdAt          DateTime  @default(now())
 
   calendars            Calendar[]

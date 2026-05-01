@@ -1,68 +1,27 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Calendar, ArrowRight } from "lucide-react";
+import type { Host } from "@prisma/client";
 import { hostHasCompletedOnboarding } from "@/lib/workspace";
 import { prisma } from "@/lib/prisma";
 import { getPageContextOrRedirect, shellProps } from "@/lib/page-context";
 import { AppShell } from "@/components/app-shell";
 import { Card } from "@/components/ui/card";
+import { SkeletonRow } from "@/components/skeletons";
 import { BookingDateTime } from "./bookings/client";
 
 export default async function DashboardPage() {
   const ctx = await getPageContextOrRedirect();
   if (!(await hostHasCompletedOnboarding(ctx.host))) redirect("/onboarding/calendars");
 
-  const now = new Date();
-  const todayEnd = new Date(now);
-  todayEnd.setUTCHours(23, 59, 59, 999);
-
-  const [todayBookings, upcomingBookings, openPolls] = await Promise.all([
-    // Today: starting today, not yet ended.
-    prisma.booking.findMany({
-      where: {
-        hostId: ctx.host.id,
-        status: { not: "CANCELLED" },
-        startsAt: { gte: now, lte: todayEnd },
-      },
-      select: {
-        id: true,
-        startsAt: true,
-        endsAt: true,
-        inviteeName: true,
-        meetingType: { select: { slug: true, name: true } },
-        project: { select: { slug: true, name: true } },
-      },
-      orderBy: { startsAt: "asc" },
-      take: 10,
-    }),
-    // Next up: from tomorrow onwards, top 5.
-    prisma.booking.findMany({
-      where: {
-        hostId: ctx.host.id,
-        status: { not: "CANCELLED" },
-        startsAt: { gt: todayEnd },
-      },
-      select: {
-        id: true,
-        startsAt: true,
-        endsAt: true,
-        inviteeName: true,
-        meetingType: { select: { slug: true, name: true } },
-        project: { select: { slug: true, name: true } },
-      },
-      orderBy: { startsAt: "asc" },
-      take: 5,
-    }),
-    // Polls awaiting your finalize decision.
-    prisma.poll.findMany({
-      where: { ownerHostId: ctx.host.id, status: "OPEN" },
-      orderBy: { createdAt: "desc" },
-      take: 5,
-    }),
-  ]);
-
   const firstName = ctx.host.name.split(" ")[0];
+  const now = new Date();
 
+  // Each section streams independently via Suspense — header renders instantly, then
+  // Today / Next up / Open polls fill in as their queries land. With this + the loading.tsx
+  // skeleton from the parent boundary, navigating onto /dashboard feels native-app-fast
+  // even on a slow first byte.
   return (
     <AppShell {...shellProps(ctx)}>
       <div className="space-y-8">
@@ -71,86 +30,151 @@ export default async function DashboardPage() {
           <p className="text-sm text-muted-foreground">{niceDateLong(now)}</p>
         </header>
 
-        {/* Today */}
-        <section className="space-y-3">
-          <SectionHeader title="Today" count={todayBookings.length} href="/dashboard/bookings" />
-          {todayBookings.length === 0 ? (
-            <Card>
-              <div className="p-6 text-sm text-muted-foreground">Nothing on the calendar today.</div>
-            </Card>
-          ) : (
-            <Card>
-              <ul className="divide-y divide-border">
-                {todayBookings.map((b) => (
-                  <BookingRow
-                    key={b.id}
-                    href={hrefFor(b, ctx.host.slug)}
-                    name={b.inviteeName}
-                    meetingType={b.meetingType.name}
-                    projectName={b.project?.name}
-                    startsAt={b.startsAt.toISOString()}
-                    endsAt={b.endsAt.toISOString()}
-                  />
-                ))}
-              </ul>
-            </Card>
-          )}
-        </section>
+        <Suspense fallback={<SectionSkeleton title="Today" />}>
+          <TodaySection host={ctx.host} />
+        </Suspense>
 
-        {/* Next up */}
-        <section className="space-y-3">
-          <SectionHeader title="Next up" count={upcomingBookings.length} href="/dashboard/bookings" />
-          {upcomingBookings.length === 0 ? (
-            <Card>
-              <div className="p-6 text-sm text-muted-foreground">No upcoming bookings.</div>
-            </Card>
-          ) : (
-            <Card>
-              <ul className="divide-y divide-border">
-                {upcomingBookings.map((b) => (
-                  <BookingRow
-                    key={b.id}
-                    href={hrefFor(b, ctx.host.slug)}
-                    name={b.inviteeName}
-                    meetingType={b.meetingType.name}
-                    projectName={b.project?.name}
-                    startsAt={b.startsAt.toISOString()}
-                    endsAt={b.endsAt.toISOString()}
-                  />
-                ))}
-              </ul>
-            </Card>
-          )}
-        </section>
+        <Suspense fallback={<SectionSkeleton title="Next up" />}>
+          <UpcomingSection host={ctx.host} />
+        </Suspense>
 
-        {/* Needs attention */}
-        {openPolls.length > 0 && (
-          <section className="space-y-3">
-            <SectionHeader title="Open polls" count={openPolls.length} href="/dashboard/meeting-types" />
-            <Card>
-              <ul className="divide-y divide-border">
-                {openPolls.map((p) => (
-                  <li key={p.id}>
-                    <Link
-                      href={`/dashboard/polls/${p.id}`}
-                      className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-surface-muted transition-colors"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-foreground truncate">{p.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {p.durationMinutes} min · {p.inviteeEmails.length} invitees
-                        </p>
-                      </div>
-                      <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </Card>
-          </section>
-        )}
+        <Suspense fallback={null}>
+          <OpenPollsSection host={ctx.host} />
+        </Suspense>
       </div>
     </AppShell>
+  );
+}
+
+async function TodaySection({ host }: { host: Host }) {
+  const now = new Date();
+  const todayEnd = new Date(now);
+  todayEnd.setUTCHours(23, 59, 59, 999);
+  const bookings = await prisma.booking.findMany({
+    where: { hostId: host.id, status: { not: "CANCELLED" }, startsAt: { gte: now, lte: todayEnd } },
+    select: bookingRowSelect,
+    orderBy: { startsAt: "asc" },
+    take: 10,
+  });
+  return (
+    <section className="space-y-3">
+      <SectionHeader title="Today" count={bookings.length} href="/dashboard/bookings" />
+      {bookings.length === 0 ? (
+        <Card>
+          <div className="p-6 text-sm text-muted-foreground">Nothing on the calendar today.</div>
+        </Card>
+      ) : (
+        <Card>
+          <ul className="divide-y divide-border">
+            {bookings.map((b) => (
+              <BookingRow
+                key={b.id}
+                href={hrefFor(b, host.slug)}
+                name={b.inviteeName}
+                meetingType={b.meetingType.name}
+                projectName={b.project?.name}
+                startsAt={b.startsAt.toISOString()}
+                endsAt={b.endsAt.toISOString()}
+              />
+            ))}
+          </ul>
+        </Card>
+      )}
+    </section>
+  );
+}
+
+async function UpcomingSection({ host }: { host: Host }) {
+  const todayEnd = new Date();
+  todayEnd.setUTCHours(23, 59, 59, 999);
+  const bookings = await prisma.booking.findMany({
+    where: { hostId: host.id, status: { not: "CANCELLED" }, startsAt: { gt: todayEnd } },
+    select: bookingRowSelect,
+    orderBy: { startsAt: "asc" },
+    take: 5,
+  });
+  return (
+    <section className="space-y-3">
+      <SectionHeader title="Next up" count={bookings.length} href="/dashboard/bookings" />
+      {bookings.length === 0 ? (
+        <Card>
+          <div className="p-6 text-sm text-muted-foreground">No upcoming bookings.</div>
+        </Card>
+      ) : (
+        <Card>
+          <ul className="divide-y divide-border">
+            {bookings.map((b) => (
+              <BookingRow
+                key={b.id}
+                href={hrefFor(b, host.slug)}
+                name={b.inviteeName}
+                meetingType={b.meetingType.name}
+                projectName={b.project?.name}
+                startsAt={b.startsAt.toISOString()}
+                endsAt={b.endsAt.toISOString()}
+              />
+            ))}
+          </ul>
+        </Card>
+      )}
+    </section>
+  );
+}
+
+async function OpenPollsSection({ host }: { host: Host }) {
+  const polls = await prisma.poll.findMany({
+    where: { ownerHostId: host.id, status: "OPEN" },
+    orderBy: { createdAt: "desc" },
+    take: 5,
+  });
+  if (polls.length === 0) return null;
+  return (
+    <section className="space-y-3">
+      <SectionHeader title="Open polls" count={polls.length} href="/dashboard/meeting-types" />
+      <Card>
+        <ul className="divide-y divide-border">
+          {polls.map((p) => (
+            <li key={p.id}>
+              <Link
+                href={`/dashboard/polls/${p.id}`}
+                className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-surface-muted transition-colors"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground truncate">{p.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {p.durationMinutes} min · {p.inviteeEmails.length} invitees
+                  </p>
+                </div>
+                <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </Card>
+    </section>
+  );
+}
+
+const bookingRowSelect = {
+  id: true,
+  startsAt: true,
+  endsAt: true,
+  inviteeName: true,
+  meetingType: { select: { slug: true, name: true } },
+  project: { select: { slug: true, name: true } },
+} as const;
+
+function SectionSkeleton({ title }: { title: string }) {
+  return (
+    <section className="space-y-3">
+      <h2 className="text-xs uppercase tracking-wide text-subtle-foreground">{title}</h2>
+      <Card>
+        <div className="divide-y divide-border">
+          <SkeletonRow />
+          <SkeletonRow />
+        </div>
+      </Card>
+    </section>
   );
 }
 

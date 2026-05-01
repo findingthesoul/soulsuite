@@ -9,10 +9,15 @@ import { NewSchedulingMenu } from "@/components/new-scheduling-menu";
 
 export default async function MeetingTypesPage() {
   const ctx = await getPageContextOrRedirect();
-  const [meetingTypes, polls] = await Promise.all([
+  const [meetingTypes, oneOffMeetings, polls] = await Promise.all([
     prisma.meetingType.findMany({
-      where: { scope: "PERSONAL", hostId: ctx.host.id, isActive: true },
+      where: { scope: "PERSONAL", hostId: ctx.host.id, isActive: true, isOneOff: false },
       orderBy: { createdAt: "asc" },
+    }),
+    prisma.meetingType.findMany({
+      where: { scope: "PERSONAL", hostId: ctx.host.id, isActive: true, isOneOff: true },
+      include: { oneOffSlots: { select: { id: true, bookedBookingId: true } } },
+      orderBy: { createdAt: "desc" },
     }),
     prisma.poll.findMany({
       where: { ownerHostId: ctx.host.id },
@@ -20,7 +25,7 @@ export default async function MeetingTypesPage() {
     }),
   ]);
 
-  const hasNothing = meetingTypes.length === 0 && polls.length === 0;
+  const hasNothing = meetingTypes.length === 0 && polls.length === 0 && oneOffMeetings.length === 0;
 
   return (
     <AppShell {...shellProps(ctx)}>
@@ -36,7 +41,15 @@ export default async function MeetingTypesPage() {
               .
             </p>
           </div>
-          <NewSchedulingMenu />
+          <div className="flex items-center gap-2">
+            <Link
+              href="/dashboard/meeting-types/one-off/new"
+              className={buttonVariants({ variant: "secondary", size: "sm" })}
+            >
+              New one-off
+            </Link>
+            <NewSchedulingMenu />
+          </div>
         </header>
 
         {hasNothing ? (
@@ -82,6 +95,41 @@ export default async function MeetingTypesPage() {
                               Open booking page ↗
                             </a>
                           </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </Card>
+              </section>
+            )}
+
+            {oneOffMeetings.length > 0 && (
+              <section className="space-y-2">
+                <h2 className="text-xs uppercase tracking-wide text-subtle-foreground">
+                  One-off meetings ({oneOffMeetings.length})
+                </h2>
+                <Card>
+                  <ul className="divide-y divide-border">
+                    {oneOffMeetings.map((mt) => {
+                      const url = `${publicEnv.NEXT_PUBLIC_APP_URL}/${ctx.host.slug}/${mt.slug}`;
+                      const total = mt.oneOffSlots.length;
+                      const claimed = mt.oneOffSlots.filter((s) => s.bookedBookingId).length;
+                      return (
+                        <li key={mt.id} className="flex items-center justify-between gap-4 p-4">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-foreground">{mt.name}</p>
+                            <p className="truncate text-xs text-muted-foreground">
+                              {claimed}/{total} slots booked · {url}
+                            </p>
+                          </div>
+                          <a
+                            href={`/${ctx.host.slug}/${mt.slug}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs text-muted-foreground underline hover:text-foreground"
+                          >
+                            Open booking page ↗
+                          </a>
                         </li>
                       );
                     })}

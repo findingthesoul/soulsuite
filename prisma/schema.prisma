@@ -209,13 +209,18 @@ model MeetingType {
   // ZOOM/TEAMS require the host to have connected the corresponding provider in /settings/connections.
   conferencingProvider  ConferencingProvider @default(GOOGLE_MEET)
   isActive              Boolean              @default(true)
+  // One-off meetings: when true, the host hand-picks specific date/time slots (stored as
+  // OneOffSlot rows) instead of using working hours + availability engine. Hidden from regular
+  // meeting-type lists; surfaced under a dedicated dashboard section.
+  isOneOff              Boolean              @default(false)
   createdAt             DateTime             @default(now())
 
   host       Host?            @relation("PersonalMeetingTypeHost", fields: [hostId], references: [id], onDelete: Cascade)
   project    Project?         @relation("ProjectMeetingType", fields: [projectId], references: [id], onDelete: Cascade)
   intakeForm IntakeForm?      @relation(fields: [intakeFormId], references: [id], onDelete: SetNull)
-  bookings   Booking[]
-  rrState    RoundRobinState?
+  bookings    Booking[]
+  rrState     RoundRobinState?
+  oneOffSlots OneOffSlot[]
 
   // Slug is unique within its scope (per host or per project), not globally.
   @@unique([hostId, slug])
@@ -342,6 +347,26 @@ model PollResponse {
 // ────────────────────────────────────────────────────────────────────────────
 // Round-robin state — fairness via least-recently-assigned (brief default)
 // ────────────────────────────────────────────────────────────────────────────
+
+// ────────────────────────────────────────────────────────────────────────────
+// One-off slots — hand-picked time slots for isOneOff meeting types
+// ────────────────────────────────────────────────────────────────────────────
+
+model OneOffSlot {
+  id               String   @id @default(cuid())
+  meetingTypeId    String
+  startsAt         DateTime
+  endsAt           DateTime
+  // Set to the Booking.id once an invitee claims the slot; null = still available.
+  // The unique constraint enforces "claim once" semantics.
+  bookedBookingId  String?  @unique
+  createdAt        DateTime @default(now())
+
+  meetingType MeetingType @relation(fields: [meetingTypeId], references: [id], onDelete: Cascade)
+
+  @@index([meetingTypeId])
+  @@unique([meetingTypeId, startsAt])
+}
 
 model RoundRobinState {
   meetingTypeId      String   @id

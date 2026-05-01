@@ -34,8 +34,23 @@ export default async function PublicBookingPage({
 
   let slots: { startsAt: string; endsAt: string }[] = [];
   let needsHostReauth = false;
+
+  // One-off: bypass the availability engine entirely. List unbooked slots straight from the DB.
+  if (meetingType.isOneOff) {
+    const oneOffs = await prisma.oneOffSlot.findMany({
+      where: { meetingTypeId: meetingType.id, bookedBookingId: null },
+      orderBy: { startsAt: "asc" },
+    });
+    slots = oneOffs.map((s) => ({
+      startsAt: s.startsAt.toISOString(),
+      endsAt: s.endsAt.toISOString(),
+    }));
+  }
+
   try {
-    if (meetingType.routingMode === "ROUND_ROBIN" && resolved.multiHosts) {
+    if (meetingType.isOneOff) {
+      // already populated above
+    } else if (meetingType.routingMode === "ROUND_ROBIN" && resolved.multiHosts) {
       const computed = await computeRoundRobinSlots(meetingType, resolved.multiHosts, range);
       slots = computed.map((s) => ({
         startsAt: s.startsAt.toISOString(),

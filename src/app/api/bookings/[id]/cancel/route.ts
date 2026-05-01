@@ -65,6 +65,16 @@ export async function POST(
     data: { status: "CANCELLED", googleEventId: null },
   });
 
+  // One-off: free up the slot so it can be claimed again.
+  if (booking.meetingType.isOneOff) {
+    await prisma.oneOffSlot
+      .updateMany({
+        where: { meetingTypeId: booking.meetingTypeId, bookedBookingId: booking.id },
+        data: { bookedBookingId: null },
+      })
+      .catch(() => undefined);
+  }
+
   // Cancellation email — fire-and-forget.
   const slugForUrl = booking.project?.slug ?? booking.host.slug;
   const tmpl = bookingCancellationTemplate({

@@ -6,6 +6,7 @@ import { AppShell } from "@/components/app-shell";
 import { buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { NewSchedulingMenu } from "@/components/new-scheduling-menu";
+import { CopyLinkButton, OpenBookingLink } from "@/components/copy-link-button";
 
 export default async function MeetingTypesPage() {
   const ctx = await getPageContextOrRedirect();
@@ -73,28 +74,22 @@ export default async function MeetingTypesPage() {
                     {meetingTypes.map((mt) => {
                       const url = `${publicEnv.NEXT_PUBLIC_APP_URL}/${ctx.host.slug}/${mt.slug}`;
                       return (
-                        <li key={mt.id} className="flex items-center justify-between gap-4 p-4">
-                          <div className="min-w-0">
-                            <Link
-                              href={`/dashboard/meeting-types/${mt.id}`}
-                              className="text-sm font-medium text-foreground hover:underline"
-                            >
-                              {mt.name}
-                            </Link>
-                            <p className="truncate text-xs text-muted-foreground">
-                              {mt.durationMinutes} min · {url}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <a
-                              href={`/${ctx.host.slug}/${mt.slug}`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-xs text-muted-foreground underline hover:text-foreground"
-                            >
-                              Open booking page ↗
-                            </a>
-                          </div>
+                        <li key={mt.id}>
+                          <Link
+                            href={`/dashboard/meeting-types/${mt.id}`}
+                            className="flex items-center justify-between gap-4 p-4 hover:bg-surface-muted transition-colors"
+                          >
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-foreground">{mt.name}</p>
+                              <p className="truncate text-xs text-muted-foreground">
+                                {mt.durationMinutes} min · {url}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <CopyLinkButton url={`/${ctx.host.slug}/${mt.slug}`} />
+                              <OpenBookingLink href={`/${ctx.host.slug}/${mt.slug}`} />
+                            </div>
+                          </Link>
                         </li>
                       );
                     })}
@@ -115,21 +110,22 @@ export default async function MeetingTypesPage() {
                       const total = mt.oneOffSlots.length;
                       const claimed = mt.oneOffSlots.filter((s) => s.bookedBookingId).length;
                       return (
-                        <li key={mt.id} className="flex items-center justify-between gap-4 p-4">
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium text-foreground">{mt.name}</p>
-                            <p className="truncate text-xs text-muted-foreground">
-                              {claimed}/{total} slots booked · {url}
-                            </p>
-                          </div>
-                          <a
-                            href={`/${ctx.host.slug}/${mt.slug}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-xs text-muted-foreground underline hover:text-foreground"
+                        <li key={mt.id}>
+                          <Link
+                            href={`/dashboard/meeting-types/${mt.id}`}
+                            className="flex items-center justify-between gap-4 p-4 hover:bg-surface-muted transition-colors"
                           >
-                            Open booking page ↗
-                          </a>
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-foreground">{mt.name}</p>
+                              <p className="truncate text-xs text-muted-foreground">
+                                {claimed}/{total} slots booked · {url}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <CopyLinkButton url={`/${ctx.host.slug}/${mt.slug}`} />
+                              <OpenBookingLink href={`/${ctx.host.slug}/${mt.slug}`} />
+                            </div>
+                          </Link>
                         </li>
                       );
                     })}

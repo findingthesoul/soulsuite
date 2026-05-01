@@ -38,9 +38,9 @@ const ITEMS: ItemSpec[] = [
     title: "Group",
     hosts: "1 host",
     invitees: "Multiple invitees",
-    blurb: "Webinars, office hours, classes.",
+    blurb: "Webinars, office hours, classes. Set max invitees on the meeting type.",
     icon: GroupIcon,
-    comingSoon: true,
+    href: "/dashboard/meeting-types/new",
   },
   {
     key: "round-robin",
@@ -56,9 +56,9 @@ const ITEMS: ItemSpec[] = [
     title: "Collective",
     hosts: "Multiple hosts",
     invitees: "1 invitee",
-    blurb: "Panel interviews, group sales calls.",
+    blurb: "Panel interviews, group sales calls. Lives inside a Team.",
     icon: Users,
-    comingSoon: true,
+    href: "/dashboard/projects",
   },
 ];
 
@@ -70,7 +70,7 @@ const SECONDARY_ITEMS: ItemSpec[] = [
     invitees: "",
     blurb: "Offer a single time outside your normal schedule.",
     icon: CalendarClock,
-    comingSoon: true,
+    href: "/dashboard/meeting-types/one-off/new",
   },
   {
     key: "poll",

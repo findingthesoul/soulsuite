@@ -5,11 +5,17 @@ import { usePathname } from "next/navigation";
 import { LayoutDashboard, FolderOpen, CalendarDays, Inbox, Clock, Users, HelpCircle } from "lucide-react";
 import { version as APP_VERSION } from "../../package.json";
 
-const NAV_ITEMS = [
-  { href: "/dashboard", label: "Home", icon: LayoutDashboard, exact: true },
-  { href: "/dashboard/bookings", label: "Bookings", icon: Inbox, exact: false },
-  { href: "/dashboard/projects", label: "Teams", icon: FolderOpen, exact: false },
-  { href: "/dashboard/meeting-types", label: "Scheduling", icon: CalendarDays, exact: false },
+const NAV_ITEMS: {
+  href: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  exact: boolean;
+  tour?: string;
+}[] = [
+  { href: "/dashboard", label: "Home", icon: LayoutDashboard, exact: true, tour: "sidebar-home" },
+  { href: "/dashboard/bookings", label: "Bookings", icon: Inbox, exact: false, tour: "sidebar-bookings" },
+  { href: "/dashboard/projects", label: "Teams", icon: FolderOpen, exact: false, tour: "sidebar-teams" },
+  { href: "/dashboard/meeting-types", label: "Scheduling", icon: CalendarDays, exact: false, tour: "sidebar-scheduling" },
 ];
 
 const SETTINGS_NAV_ITEMS = [
@@ -78,6 +84,14 @@ export function SidebarNav({ compact = false, overlay = false }: Props) {
       </nav>
 
       <div className="border-t border-border px-4 py-4 space-y-2">
+        <Link
+          href="/support"
+          className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          title="Help"
+        >
+          <HelpCircle className="h-3.5 w-3.5 shrink-0" />
+          <span className={labelClass()}>Help</span>
+        </Link>
         <a
           href="mailto:support@soul.com"
           className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors"

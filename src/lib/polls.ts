@@ -22,15 +22,24 @@ export const proposedSlotSchema: z.ZodType<ProposedSlot> = z.object({
   endsAt: z.string().datetime(),
 });
 
-export const createPollSchema = z.object({
-  name: z.string().trim().min(2).max(120),
-  durationMinutes: z.number().int().refine((v) => (DURATION_OPTIONS as readonly number[]).includes(v)),
-  proposedSlots: z.array(proposedSlotSchema).min(2).max(20),
-  inviteeEmails: z
-    .array(z.string().email().max(200).transform((s) => s.toLowerCase()))
-    .min(1)
-    .max(50),
-});
+export const createPollSchema = z
+  .object({
+    name: z.string().trim().min(2).max(120),
+    durationMinutes: z.number().int().refine((v) => (DURATION_OPTIONS as readonly number[]).includes(v)),
+    proposedSlots: z.array(proposedSlotSchema).min(2).max(20),
+    inviteeEmails: z
+      .array(z.string().email().max(200).transform((s) => s.toLowerCase()))
+      .min(1)
+      .max(50),
+    // Defaults to PERSONAL for backwards compat with older clients. PROJECT polls require
+    // a projectId; the API double-checks the caller has LEAD role on it.
+    scope: z.enum(["PERSONAL", "PROJECT"]).default("PERSONAL"),
+    projectId: z.string().min(1).optional(),
+  })
+  .refine(
+    (data) => (data.scope === "PROJECT" ? !!data.projectId : true),
+    { message: "projectId is required for PROJECT scope.", path: ["projectId"] },
+  );
 
 export const voteSchema = z.record(z.string().min(1), z.enum(VOTE_VALUES));
 

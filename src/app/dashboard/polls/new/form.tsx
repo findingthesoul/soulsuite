@@ -22,14 +22,25 @@ function blankSlot(): SlotDraft {
   return { date: "", time: "" };
 }
 
-export function NewPollForm() {
+interface LeadProject {
+  id: string;
+  name: string;
+}
+
+type PollScope = "PERSONAL" | "PROJECT";
+
+export function NewPollForm({ leadProjects }: { leadProjects: LeadProject[] }) {
   const router = useRouter();
   const [name, setName] = useState("");
   const [durationMinutes, setDurationMinutes] = useState<number>(30);
   const [slots, setSlots] = useState<SlotDraft[]>(() => [blankSlot(), blankSlot()]);
   const [emailsText, setEmailsText] = useState("");
+  const [scope, setScope] = useState<PollScope>("PERSONAL");
+  const [projectId, setProjectId] = useState<string>(leadProjects[0]?.id ?? "");
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+
+  const canCreateTeamPoll = leadProjects.length > 0;
 
   const parsedEmails = useMemo(
     () =>
@@ -71,6 +82,10 @@ export function NewPollForm() {
     const invalid = parsedEmails.find((e) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
     if (invalid) return setError(`Not a valid email: ${invalid}`);
 
+    if (scope === "PROJECT" && !projectId) {
+      return setError("Pick a team for the poll.");
+    }
+
     startTransition(async () => {
       const res = await fetch("/api/polls", {
         method: "POST",
@@ -80,6 +95,8 @@ export function NewPollForm() {
           durationMinutes,
           proposedSlots,
           inviteeEmails: parsedEmails,
+          scope,
+          projectId: scope === "PROJECT" ? projectId : undefined,
         }),
       });
       if (!res.ok) {
@@ -94,6 +111,70 @@ export function NewPollForm() {
 
   return (
     <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Scope</CardTitle>
+          <CardDescription>
+            Personal polls belong to you. Team polls are owned by a project — bookings show up in the
+            team&apos;s view and can be filtered by project.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setScope("PERSONAL")}
+              className={`rounded-md border px-3 py-3 text-left text-sm transition-colors ${
+                scope === "PERSONAL"
+                  ? "border-foreground bg-surface-muted text-foreground"
+                  : "border-border text-muted-foreground hover:bg-surface-muted"
+              }`}
+            >
+              <p className="font-medium text-foreground">Personal</p>
+              <p className="text-xs text-muted-foreground">Just for you.</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => canCreateTeamPoll && setScope("PROJECT")}
+              disabled={!canCreateTeamPoll}
+              title={
+                canCreateTeamPoll
+                  ? undefined
+                  : "You need to be a project lead to create a team poll"
+              }
+              className={`rounded-md border px-3 py-3 text-left text-sm transition-colors ${
+                !canCreateTeamPoll
+                  ? "border-border text-muted-foreground/50 cursor-not-allowed"
+                  : scope === "PROJECT"
+                    ? "border-foreground bg-surface-muted text-foreground"
+                    : "border-border text-muted-foreground hover:bg-surface-muted"
+              }`}
+            >
+              <p className="font-medium text-foreground">Team</p>
+              <p className="text-xs text-muted-foreground">
+                {canCreateTeamPoll ? "Owned by a project you lead." : "Requires project lead role."}
+              </p>
+            </button>
+          </div>
+          {scope === "PROJECT" && canCreateTeamPoll && (
+            <div className="space-y-1.5">
+              <Label htmlFor="project">Team</Label>
+              <Select
+                id="project"
+                value={projectId}
+                onChange={(e) => setProjectId(e.target.value)}
+              >
+                {leadProjects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle>Details</CardTitle>

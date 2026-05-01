@@ -1,3 +1,4 @@
+import { cache } from "react";
 import type { User } from "@supabase/supabase-js";
 import { prisma } from "@/lib/prisma";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -7,20 +8,23 @@ import { serverEnv } from "@/lib/env";
 import type { Host } from "@prisma/client";
 
 // Returns the Supabase Auth user for the current request, or null if signed out.
-export async function getCurrentAuthUser(): Promise<User | null> {
+// React.cache memoises within a single request so multiple callers (middleware,
+// page-context, route handlers) share one auth round-trip.
+export const getCurrentAuthUser = cache(async (): Promise<User | null> => {
   const sb = await createSupabaseServerClient();
   const { data, error } = await sb.auth.getUser();
   if (error) return null;
   return data.user;
-}
+});
 
-// Returns the Host row for the current signed-in user. Will NOT create one — use
-// ensureHostFromAuthUser in the OAuth callback for that, where we have the refresh token.
-export async function getCurrentHost(): Promise<Host | null> {
+// Returns the Host row for the current signed-in user. Memoised per-request — pages that
+// call getPageContextOrRedirect AND a permissions helper (which also calls getCurrentHost)
+// only hit the DB once.
+export const getCurrentHost = cache(async (): Promise<Host | null> => {
   const user = await getCurrentAuthUser();
   if (!user) return null;
   return prisma.host.findUnique({ where: { authUserId: user.id } });
-}
+});
 
 // Domain check used during workspace + project bootstrap. Compares the email's host part
 // (case-insensitive) to WORKSPACE_PRIMARY_EMAIL_DOMAIN.

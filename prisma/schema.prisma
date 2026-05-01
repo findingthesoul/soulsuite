@@ -414,6 +414,7 @@ model Invite {
   @@index([email])
   @@index([workspaceId])
   @@index([projectId])
+  @@index([expiresAt])
 }
 
 // ────────────────────────────────────────────────────────────────────────────

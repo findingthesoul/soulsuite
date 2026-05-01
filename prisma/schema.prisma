@@ -288,8 +288,10 @@ model Booking {
   finalizedFromPoll Poll?       @relation("PollFinalizedBooking")
 
   @@index([hostId, startsAt])
+  @@index([hostId, status, startsAt])
   @@index([projectId])
   @@index([meetingTypeId])
+  @@index([meetingTypeId, startsAt])
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -326,6 +328,7 @@ model Poll {
 
   @@index([hostId])
   @@index([projectId])
+  @@index([ownerHostId, status])
 }
 
 model PollResponse {

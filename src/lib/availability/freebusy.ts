@@ -2,8 +2,34 @@ import { calendarFor, isGoogleAuthError } from "@/lib/google/client";
 import type { BusyInterval } from "./engine";
 
 interface HostInput {
+  // Identity used for caching. Optional so existing callers without a hostId still work.
+  id?: string;
   googleRefreshToken: string | null;
   calendars: { id: string; googleCalendarId: string; role: "PRIMARY" | "CONFLICT_CHECK" | "WRITE_TARGET" }[];
+}
+
+// In-memory freebusy cache. Brief §"Rate limits" wants a 60-second per-host cache so public
+// booking page renders don't fan out one Google call per host on every refresh. Keyed on
+// (hostId, sortedCalendarIds, range bucket). Lives per serverless instance — good enough to
+// cushion bursts on a warm function; cold starts pay the freebusy cost once.
+interface CacheEntry {
+  expiresAt: number;
+  busy: BusyInterval[];
+}
+const FREEBUSY_TTL_MS = 60_000;
+const _freebusyCache = new Map<string, CacheEntry>();
+
+function freebusyCacheKey(hostId: string, calendars: HostInput["calendars"], from: Date, to: Date): string {
+  const ids = calendars.map((c) => c.googleCalendarId).sort().join(",");
+  // 30-second buckets so adjacent renders land on the same cache slot.
+  const bucket = 30_000;
+  return `${hostId}|${ids}|${Math.floor(from.getTime() / bucket)}|${Math.floor(to.getTime() / bucket)}`;
+}
+
+export function bustFreebusyCacheForHost(hostId: string): void {
+  for (const k of _freebusyCache.keys()) {
+    if (k.startsWith(`${hostId}|`)) _freebusyCache.delete(k);
+  }
 }
 
 /**
@@ -33,8 +59,8 @@ export function resolveConflictCalendars(
  *
  * Throws on revoked credentials — callers catch and surface "needs re-auth" (brief §Token rotation).
  *
- * V1: no caching. Brief §Rate limits suggests a 60-second cache per host; add later if we
- * hit Google's ~500-req/100-sec/user limit.
+ * Cached for 60s per (hostId, calendars, range bucket) when the host has an `id`. Booking
+ * writes call `bustFreebusyCacheForHost(hostId)` to invalidate.
  */
 export async function fetchHostBusy(
   host: HostInput,
@@ -44,6 +70,13 @@ export async function fetchHostBusy(
   if (!host.googleRefreshToken) return [];
   const effective = resolveConflictCalendars(host.calendars, meetingType);
   if (effective.length === 0) return [];
+
+  const cacheable = !!host.id;
+  const cacheKey = cacheable ? freebusyCacheKey(host.id!, effective, range.from, range.to) : null;
+  if (cacheKey) {
+    const hit = _freebusyCache.get(cacheKey);
+    if (hit && hit.expiresAt > Date.now()) return hit.busy;
+  }
 
   const cal = calendarFor(host.googleRefreshToken);
   const res = await cal.freebusy.query({
@@ -61,6 +94,7 @@ export async function fetchHostBusy(
       if (b.start && b.end) out.push({ start: new Date(b.start), end: new Date(b.end) });
     }
   }
+  if (cacheKey) _freebusyCache.set(cacheKey, { busy: out, expiresAt: Date.now() + FREEBUSY_TTL_MS });
   return out;
 }
 

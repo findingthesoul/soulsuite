@@ -5,6 +5,7 @@ import { sendEmail, bookingCancellationTemplate, appUrl } from "@/lib/email";
 import { getEmailLogoUrl } from "@/lib/branding";
 import { getZoomAccessTokenForHost } from "@/lib/zoom/host";
 import { deleteZoomMeeting } from "@/lib/zoom/client";
+import { bustFreebusyCacheForHost } from "@/lib/availability/freebusy";
 
 // Public cancel — anyone with the booking ID can cancel. The booking ID is a CUID (~22
 // random chars), unguessable in practice, which mirrors the same access model as the
@@ -98,5 +99,6 @@ export async function POST(
     replyTo: booking.host.email,
   });
 
+  bustFreebusyCacheForHost(booking.hostId);
   return NextResponse.json({ ok: true });
 }

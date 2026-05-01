@@ -2,10 +2,32 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { publicEnv } from "@/lib/env";
 
-// Keeps the Supabase Auth session cookie fresh on every request. Without this,
-// expired access tokens won't be silently refreshed and Server Components see no user.
+// Refreshes the Supabase auth cookie on auth-required requests. We skip the network call
+// for public paths (booking flow, poll voting, invite landing, .ics feeds) because each
+// `getUser()` is a JWT verify + occasional refresh network hop to Supabase, and the public
+// pages don't read the user from cookies anyway. Saves ~50–200 ms on every public hit.
+
+const AUTH_REQUIRED_PREFIXES: readonly string[] = [
+  "/dashboard",
+  "/settings",
+  "/onboarding",
+  "/auth",
+  "/request-access",
+  "/api/settings",
+  "/api/projects",
+  "/api/meeting-types",
+];
+
+function needsSession(pathname: string): boolean {
+  return AUTH_REQUIRED_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+}
+
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });
+
+  if (!needsSession(request.nextUrl.pathname)) {
+    return response;
+  }
 
   const supabase = createServerClient(
     publicEnv.NEXT_PUBLIC_SUPABASE_URL,
@@ -33,8 +55,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: [
-    // Run on everything except static assets and the public booking pages where we don't need auth.
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
-  ],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)"],
 };

@@ -93,6 +93,7 @@ model Host {
   ownedPolls           Poll[]            @relation("PollOwner")
   bookings             Booking[]
   invitesSent          Invite[]          @relation("InviteSender")
+  conferencingHostFor  MeetingType[]     @relation("MeetingTypeConferencingHost")
 }
 
 enum CalendarRole {
@@ -218,6 +219,12 @@ model MeetingType {
   // Which conferencing system to attach to the booking. GOOGLE_MEET is the legacy default;
   // ZOOM/TEAMS require the host to have connected the corresponding provider in /settings/connections.
   conferencingProvider  ConferencingProvider @default(GOOGLE_MEET)
+  // For COLLECTIVE routing: which assigned host's account creates the conferencing meeting (Zoom
+  // meeting / Google Meet event owner). Other assigned hosts are added as alternative hosts (Zoom)
+  // or attendees (Google Meet). Null for SINGLE / ROUND_ROBIN — those modes derive the host from
+  // the booking flow itself.
+  conferencingHostId    String?
+  conferencingHost      Host?                @relation("MeetingTypeConferencingHost", fields: [conferencingHostId], references: [id], onDelete: SetNull)
   isActive              Boolean              @default(true)
   // One-off meetings: when true, the host hand-picks specific date/time slots (stored as
   // OneOffSlot rows) instead of using working hours + availability engine. Hidden from regular

@@ -53,6 +53,7 @@ interface Initial {
   intakeFields: IntakeField[];
   isActive: boolean;
   conferencingProvider: ConferencingProvider;
+  conferencingHostId: string | null;
   maxInvitees: number;
   workingHoursOverride: Schedule | null;
 }
@@ -84,6 +85,7 @@ interface DraftValues {
   intakeFields: IntakeField[];
   isActive: boolean;
   conferencingProvider: ConferencingProvider;
+  conferencingHostId: string | null;
   maxInvitees: number;
   workingHoursOverride: Schedule | null;
 }
@@ -104,6 +106,7 @@ function initialToDraft(initial: Initial): DraftValues {
     intakeFields: initial.intakeFields,
     isActive: initial.isActive,
     conferencingProvider: initial.conferencingProvider,
+    conferencingHostId: initial.conferencingHostId,
     maxInvitees: initial.maxInvitees,
     workingHoursOverride: initial.workingHoursOverride,
   };
@@ -181,21 +184,36 @@ function EditProjectMeetingTypeForm({
     const set = new Set(draft.assignedHostIds);
     if (on) set.add(hostId);
     else set.delete(hostId);
-    setDraft({ ...draft, assignedHostIds: [...set] });
+    const nextIds = [...set];
+    const nextConfHost =
+      draft.routingMode === "COLLECTIVE"
+        ? draft.conferencingHostId && nextIds.includes(draft.conferencingHostId)
+          ? draft.conferencingHostId
+          : nextIds[0] ?? null
+        : draft.conferencingHostId;
+    setDraft({ ...draft, assignedHostIds: nextIds, conferencingHostId: nextConfHost });
   }
 
   function setRoutingMode(mode: RoutingMode) {
+    const nextAssigned: string[] =
+      mode === "SINGLE"
+        ? draft.assignedHostIds.slice(0, 1).length > 0
+          ? [draft.assignedHostIds[0]]
+          : members[0]?.hostId
+            ? [members[0].hostId]
+            : []
+        : draft.assignedHostIds;
+    const nextConfHost =
+      mode === "COLLECTIVE"
+        ? draft.conferencingHostId && nextAssigned.includes(draft.conferencingHostId)
+          ? draft.conferencingHostId
+          : nextAssigned[0] ?? null
+        : null;
     setDraft({
       ...draft,
       routingMode: mode,
-      assignedHostIds:
-        mode === "SINGLE"
-          ? draft.assignedHostIds.slice(0, 1).length > 0
-            ? [draft.assignedHostIds[0]]
-            : members[0]?.hostId
-              ? [members[0].hostId]
-              : []
-          : draft.assignedHostIds,
+      assignedHostIds: nextAssigned,
+      conferencingHostId: nextConfHost,
       conflictCalendarIds: mode === "SINGLE" ? draft.conflictCalendarIds : [],
     });
   }
@@ -230,6 +248,7 @@ function EditProjectMeetingTypeForm({
           intakeFields: draft.intakeFields,
           isActive: draft.isActive,
           conferencingProvider: draft.conferencingProvider,
+          conferencingHostId: draft.routingMode === "COLLECTIVE" ? draft.conferencingHostId : null,
           maxInvitees: draft.maxInvitees,
           workingHoursOverride: overridePayload,
         }),
@@ -424,6 +443,7 @@ function CreateProjectMeetingTypeForm({
     intakeFields: [],
     isActive: true,
     conferencingProvider: "GOOGLE_MEET",
+    conferencingHostId: null,
     maxInvitees: 1,
     workingHoursOverride: null,
   };
@@ -455,24 +475,41 @@ function CreateProjectMeetingTypeForm({
       const set = new Set(prev.assignedHostIds);
       if (on) set.add(hostId);
       else set.delete(hostId);
-      return { ...prev, assignedHostIds: [...set] };
+      const nextIds = [...set];
+      const nextConfHost =
+        prev.routingMode === "COLLECTIVE"
+          ? prev.conferencingHostId && nextIds.includes(prev.conferencingHostId)
+            ? prev.conferencingHostId
+            : nextIds[0] ?? null
+          : prev.conferencingHostId;
+      return { ...prev, assignedHostIds: nextIds, conferencingHostId: nextConfHost };
     });
   }
 
   function setRoutingMode(mode: RoutingMode) {
-    setDraft((prev) => ({
-      ...prev,
-      routingMode: mode,
-      assignedHostIds:
+    setDraft((prev) => {
+      const nextAssigned: string[] =
         mode === "SINGLE"
           ? prev.assignedHostIds.slice(0, 1).length > 0
             ? [prev.assignedHostIds[0]]
             : members[0]?.hostId
               ? [members[0].hostId]
               : []
-          : prev.assignedHostIds,
-      conflictCalendarIds: mode === "SINGLE" ? prev.conflictCalendarIds : [],
-    }));
+          : prev.assignedHostIds;
+      const nextConfHost =
+        mode === "COLLECTIVE"
+          ? prev.conferencingHostId && nextAssigned.includes(prev.conferencingHostId)
+            ? prev.conferencingHostId
+            : nextAssigned[0] ?? null
+          : null;
+      return {
+        ...prev,
+        routingMode: mode,
+        assignedHostIds: nextAssigned,
+        conferencingHostId: nextConfHost,
+        conflictCalendarIds: mode === "SINGLE" ? prev.conflictCalendarIds : [],
+      };
+    });
   }
 
   function handleNameChange(value: string) {
@@ -509,6 +546,7 @@ function CreateProjectMeetingTypeForm({
           intakeFields: draft.intakeFields,
           isActive: draft.isActive,
           conferencingProvider: draft.conferencingProvider,
+          conferencingHostId: draft.routingMode === "COLLECTIVE" ? draft.conferencingHostId : null,
           maxInvitees: draft.maxInvitees,
           workingHoursOverride: overridePayload,
         }),
@@ -686,14 +724,33 @@ function validateDraft(draft: DraftValues, members: ProjectMember[]): string | n
     return "Group meetings (max invitees > 1) only work with single-host routing.";
   }
   if (draft.conferencingProvider === "ZOOM") {
-    const missing = draft.assignedHostIds
-      .map((id) => members.find((m) => m.hostId === id))
-      .filter((m): m is ProjectMember => Boolean(m && !m.hasZoom));
-    if (missing.length > 0) {
-      return `These assigned hosts haven't connected Zoom: ${missing
-        .map((m) => m.name)
-        .join(", ")}. They need to connect in Settings → Connections first.`;
+    if (draft.routingMode === "COLLECTIVE") {
+      const confId = draft.conferencingHostId;
+      if (!confId || !draft.assignedHostIds.includes(confId)) {
+        return "Pick a conferencing host from the assigned hosts.";
+      }
+      const confMember = members.find((m) => m.hostId === confId);
+      if (!confMember?.hasZoom) {
+        return `${confMember?.name ?? "The conferencing host"} hasn't connected Zoom yet.`;
+      }
+    } else {
+      // SINGLE / ROUND_ROBIN: every booking host needs Zoom (each booking uses their own).
+      const missing = draft.assignedHostIds
+        .map((id) => members.find((m) => m.hostId === id))
+        .filter((m): m is ProjectMember => Boolean(m && !m.hasZoom));
+      if (missing.length > 0) {
+        return `These assigned hosts haven't connected Zoom: ${missing
+          .map((m) => m.name)
+          .join(", ")}. They need to connect in Settings → Connections first.`;
+      }
     }
+  }
+  if (
+    draft.routingMode === "COLLECTIVE" &&
+    draft.conferencingProvider !== "NONE" &&
+    !draft.conferencingHostId
+  ) {
+    return "Pick a conferencing host from the assigned hosts.";
   }
   return null;
 }
@@ -1049,26 +1106,81 @@ function ProjectConferencingEditor({
   members: ProjectMember[];
 }) {
   const assigned = draft.assignedHostIds.map((id) => members.find((m) => m.hostId === id)).filter(Boolean) as ProjectMember[];
-  const missingZoom = draft.conferencingProvider === "ZOOM" ? assigned.filter((m) => !m.hasZoom) : [];
+  const isCollective = draft.routingMode === "COLLECTIVE";
+  const showPicker = isCollective && draft.conferencingProvider !== "NONE";
+  // For COLLECTIVE only the conferencing host needs Zoom; otherwise every assigned host does.
+  const confHost = isCollective
+    ? assigned.find((m) => m.hostId === draft.conferencingHostId)
+    : undefined;
+  const missingZoom =
+    draft.conferencingProvider === "ZOOM"
+      ? isCollective
+        ? confHost && !confHost.hasZoom
+          ? [confHost]
+          : []
+        : assigned.filter((m) => !m.hasZoom)
+      : [];
   const anyAssignedHasZoom = assigned.some((m) => m.hasZoom);
+  const zoomDisabled = isCollective ? !anyAssignedHasZoom : !assigned.every((m) => m.hasZoom);
+  const zoomLabel = isCollective
+    ? anyAssignedHasZoom
+      ? ""
+      : " — at least one assigned host must connect Zoom first"
+    : zoomDisabled
+      ? " — every assigned host must connect Zoom first"
+      : "";
 
   return (
-    <div className="space-y-2">
-      <Label htmlFor="projectConferencingProvider">Provider</Label>
-      <Select
-        id="projectConferencingProvider"
-        value={draft.conferencingProvider}
-        onChange={(e) => update("conferencingProvider", e.target.value as ConferencingProvider)}
-      >
-        <option value="GOOGLE_MEET">Google Meet</option>
-        <option value="ZOOM" disabled={!anyAssignedHasZoom}>
-          Zoom{anyAssignedHasZoom ? "" : " — at least one assigned host must connect Zoom first"}
-        </option>
-        <option value="TEAMS" disabled>
-          Microsoft Teams — coming later
-        </option>
-        <option value="NONE">None (no conferencing link)</option>
-      </Select>
+    <div className="space-y-3">
+      <div className="space-y-1.5">
+        <Label htmlFor="projectConferencingProvider">Provider</Label>
+        <Select
+          id="projectConferencingProvider"
+          value={draft.conferencingProvider}
+          onChange={(e) => update("conferencingProvider", e.target.value as ConferencingProvider)}
+        >
+          <option value="GOOGLE_MEET">Google Meet</option>
+          <option value="ZOOM" disabled={zoomDisabled}>
+            Zoom{zoomLabel}
+          </option>
+          <option value="TEAMS" disabled>
+            Microsoft Teams — coming later
+          </option>
+          <option value="NONE">None (no conferencing link)</option>
+        </Select>
+      </div>
+
+      {showPicker && (
+        <div className="space-y-1.5">
+          <Label htmlFor="conferencingHost">Conferencing host</Label>
+          <Select
+            id="conferencingHost"
+            value={draft.conferencingHostId ?? ""}
+            onChange={(e) => update("conferencingHostId", e.target.value || null)}
+          >
+            {assigned.length === 0 && <option value="">— pick assigned hosts first —</option>}
+            {assigned.map((m) => (
+              <option key={m.hostId} value={m.hostId}>
+                {m.name} — {m.email}
+                {draft.conferencingProvider === "ZOOM" && !m.hasZoom ? " (no Zoom)" : ""}
+              </option>
+            ))}
+          </Select>
+          {draft.conferencingProvider === "ZOOM" && (
+            <p className="text-xs text-muted-foreground">
+              Only this host needs Zoom connected. Others will be added as alternative hosts where
+              possible, otherwise as guests.
+            </p>
+          )}
+          {draft.conferencingProvider === "GOOGLE_MEET" && (
+            <p className="text-xs text-muted-foreground">
+              The Meet link is created on this host&apos;s calendar. Other assigned hosts join as
+              attendees.
+            </p>
+          )}
+        </div>
+      )}
+
       {missingZoom.length > 0 && (
         <p className="text-xs text-destructive">
           {missingZoom.map((m) => m.name).join(", ")} {missingZoom.length === 1 ? "hasn't" : "haven't"} connected Zoom yet.

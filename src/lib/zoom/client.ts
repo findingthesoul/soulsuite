@@ -74,6 +74,10 @@ export interface CreateZoomMeetingArgs {
   durationMinutes: number;
   timezone: string;
   agenda?: string;
+  // Semicolon-separated emails of co-hosts in the same Zoom account. Cross-org emails make
+  // Zoom reject the create call (400 "User ... is not in this account"); the booking flow
+  // retries without alternative_hosts on that error.
+  alternativeHosts?: string[];
 }
 
 export interface CreatedZoomMeeting {
@@ -82,9 +86,21 @@ export interface CreatedZoomMeeting {
   passcode: string | null;
 }
 
-// Creates a scheduled (type=2) meeting on the host's Zoom account. We deliberately don't
-// pass an alternative_hosts list — v1 ties bookings 1:1 to a single host.
+// Creates a scheduled (type=2) meeting on the host's Zoom account. For COLLECTIVE meeting
+// types we pass `alternative_hosts` so other assigned hosts (in the same Zoom account) join
+// with co-host privileges. The Zoom REST API expects a semicolon-separated string of emails;
+// cross-org emails are rejected — see ZoomAlternativeHostsError below.
+export class ZoomAlternativeHostsError extends Error {
+  constructor(public readonly underlying: string) {
+    super(`Zoom rejected alternative_hosts: ${underlying}`);
+    this.name = "ZoomAlternativeHostsError";
+  }
+}
+
 export async function createZoomMeeting(accessToken: string, args: CreateZoomMeetingArgs): Promise<CreatedZoomMeeting> {
+  const altHosts = args.alternativeHosts && args.alternativeHosts.length > 0
+    ? args.alternativeHosts.join(";")
+    : undefined;
   const res = await fetch("https://api.zoom.us/v2/users/me/meetings", {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
@@ -95,10 +111,23 @@ export async function createZoomMeeting(accessToken: string, args: CreateZoomMee
       duration: args.durationMinutes,
       timezone: args.timezone,
       agenda: args.agenda,
-      settings: { join_before_host: true, waiting_room: false },
+      settings: {
+        join_before_host: true,
+        waiting_room: false,
+        ...(altHosts ? { alternative_hosts: altHosts } : {}),
+      },
     }),
   });
-  if (!res.ok) throw new Error(`Zoom meeting creation failed: ${res.status} ${await res.text()}`);
+  if (!res.ok) {
+    const text = await res.text();
+    // Zoom returns 400 + code 1115 (or message containing "alternative" / "not exist in this account")
+    // when a listed alternative host isn't in the same Zoom org. Surface a typed error so the
+    // caller can retry without alternative_hosts.
+    if (altHosts && res.status === 400 && /alternative|not exist|not belong|account/i.test(text)) {
+      throw new ZoomAlternativeHostsError(text);
+    }
+    throw new Error(`Zoom meeting creation failed: ${res.status} ${text}`);
+  }
   const json = (await res.json()) as { id: number; join_url: string; password?: string };
   return { meetingId: String(json.id), joinUrl: json.join_url, passcode: json.password ?? null };
 }

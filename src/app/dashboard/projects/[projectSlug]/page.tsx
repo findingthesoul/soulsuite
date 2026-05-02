@@ -144,10 +144,19 @@ export default async function ProjectDashboardPage({
                         className="flex items-center justify-between gap-4 p-4 hover:bg-surface-muted transition-colors"
                       >
                         <div className="min-w-0">
-                          <p className="text-sm font-medium text-foreground">
-                            {mt.name}
+                          <p className="text-sm font-medium text-foreground flex items-center gap-2 flex-wrap">
+                            <span>{mt.name}</span>
+                            <span className="text-xs uppercase tracking-wide text-subtle-foreground border border-border rounded-md px-1.5 py-0.5">
+                              {mt.maxInvitees > 1
+                                ? "Group"
+                                : mt.routingMode === "ROUND_ROBIN"
+                                  ? "Round-robin"
+                                  : mt.routingMode === "COLLECTIVE"
+                                    ? "Collective"
+                                    : "Single"}
+                            </span>
                             {!mt.isActive && (
-                              <span className="ml-2 text-xs uppercase tracking-wide text-subtle-foreground">inactive</span>
+                              <span className="text-xs uppercase tracking-wide text-subtle-foreground">inactive</span>
                             )}
                           </p>
                           <p className="truncate text-xs text-muted-foreground">

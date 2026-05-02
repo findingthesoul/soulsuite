@@ -24,7 +24,24 @@ async function refreshAndStore(hostId: string): Promise<string | null> {
   });
   if (!host?.zoomRefreshToken) return null;
 
-  const tokens = await refreshAccessToken(host.zoomRefreshToken);
+  let tokens;
+  try {
+    tokens = await refreshAccessToken(host.zoomRefreshToken);
+  } catch (err) {
+    // invalid_grant means Zoom revoked or rotated past the token we have. Auto-clear so the
+    // settings page surfaces "Reconnect Zoom" and downstream features (booking finalisation,
+    // MT form Zoom validation) treat the host as disconnected instead of repeatedly hitting a
+    // dead token.
+    const message = err instanceof Error ? err.message : String(err);
+    if (/invalid_grant|invalid token/i.test(message)) {
+      await prisma.host
+        .update({ where: { id: hostId }, data: { zoomRefreshToken: null } })
+        .catch(() => undefined);
+      _tokenCache.delete(hostId);
+      return null;
+    }
+    throw err;
+  }
   // Persist rotated refresh token (Zoom invalidates the old one). Guard with a `where`
   // condition so a concurrent rotation that already wrote a newer token wins.
   await prisma.host.update({

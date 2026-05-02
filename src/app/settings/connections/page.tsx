@@ -15,6 +15,9 @@ export default async function ConnectionsPage({
   const sp = await searchParams;
   const zoomReady = isZoomConfigured();
   const isConnected = !!ctx.host.zoomRefreshToken;
+  // Previously connected (we have an account email on file) but the refresh token has been
+  // auto-cleared because Zoom rejected it (invalid_grant). Surface a reconnect prompt.
+  const zoomNeedsReconnect = !isConnected && !!ctx.host.zoomAccountEmail;
 
   return (
     <AppShell {...shellProps(ctx)}>
@@ -49,6 +52,11 @@ export default async function ConnectionsPage({
                 <p className="text-xs text-muted-foreground">
                   Connected as <span className="font-mono">{ctx.host.zoomAccountEmail}</span>
                   {ctx.host.zoomConnectedAt ? ` · since ${ctx.host.zoomConnectedAt.toLocaleDateString("en-GB")}` : ""}
+                </p>
+              ) : zoomNeedsReconnect ? (
+                <p className="text-xs text-destructive">
+                  Connection expired (was <span className="font-mono">{ctx.host.zoomAccountEmail}</span>).
+                  Reconnect to keep paid + Zoom-based bookings working.
                 </p>
               ) : (
                 <p className="text-xs text-muted-foreground">

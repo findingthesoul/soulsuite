@@ -100,6 +100,11 @@ model Host {
   zoomRefreshToken   String?
   zoomAccountEmail   String?
   zoomConnectedAt    DateTime?
+  // Microsoft Graph OAuth (multi-tenant). Captured in /api/oauth/microsoft/callback.
+  // Null = not connected. Required to create Microsoft Teams onlineMeetings on this host's account.
+  microsoftRefreshToken String?
+  microsoftAccountEmail String?
+  microsoftConnectedAt  DateTime?
   timezone           String    @default("Europe/Amsterdam")
   // JSON shape: { mon: [{start: "09:00", end: "17:00"}], tue: [...], ... }
   workingHours       Json?

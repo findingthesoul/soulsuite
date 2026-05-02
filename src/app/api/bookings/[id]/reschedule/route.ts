@@ -9,6 +9,8 @@ import { sendEmail, bookingRescheduleTemplate, appUrl } from "@/lib/email";
 import { getEmailLogoUrl } from "@/lib/branding";
 import { getZoomAccessTokenForHost } from "@/lib/zoom/host";
 import { updateZoomMeeting } from "@/lib/zoom/client";
+import { getMicrosoftAccessTokenForHost } from "@/lib/microsoft/host";
+import { updateTeamsMeeting } from "@/lib/microsoft/client";
 import { bustFreebusyCacheForHost } from "@/lib/availability/freebusy";
 
 const bodySchema = z.object({
@@ -146,6 +148,22 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       }
     } catch (err) {
       console.error("[reschedule] zoom update failed", err);
+    }
+  }
+
+  // Same shape for Microsoft Teams. Graph PATCH on /me/onlineMeetings/{id} accepts a new
+  // start/end window — failure is logged but not fatal (the join URL stays valid).
+  if (booking.conferencingProvider === "TEAMS" && booking.providerMeetingId) {
+    try {
+      const accessToken = await getMicrosoftAccessTokenForHost(host.id);
+      if (accessToken) {
+        await updateTeamsMeeting(accessToken, booking.providerMeetingId, {
+          startsAtIso: startsAt.toISOString(),
+          endsAtIso: endsAt.toISOString(),
+        });
+      }
+    } catch (err) {
+      console.error("[reschedule] teams update failed", err);
     }
   }
 

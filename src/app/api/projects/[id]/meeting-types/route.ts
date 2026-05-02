@@ -100,10 +100,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     );
   }
 
-  if (data.conferencingProvider === "TEAMS") {
-    return new NextResponse("Microsoft Teams is not supported yet.", { status: 400 });
-  }
-
   // Resolve conferencing host. SINGLE: implicit (assignedHostIds[0]). COLLECTIVE: explicit pick
   // from assignedHostIds. ROUND_ROBIN: not used (each booking uses its picked host).
   let conferencingHostId: string | null = null;
@@ -140,6 +136,33 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       if (missing.length > 0) {
         return new NextResponse(
           `These hosts haven't connected Zoom: ${missing.map((h) => h.name).join(", ")}.`,
+          { status: 400 },
+        );
+      }
+    }
+  }
+
+  if (data.conferencingProvider === "TEAMS") {
+    if (data.routingMode === "COLLECTIVE") {
+      const confHost = await prisma.host.findUnique({
+        where: { id: conferencingHostId! },
+        select: { id: true, name: true, microsoftRefreshToken: true },
+      });
+      if (!confHost?.microsoftRefreshToken) {
+        return new NextResponse(
+          `${confHost?.name ?? "Conferencing host"} hasn't connected Microsoft.`,
+          { status: 400 },
+        );
+      }
+    } else {
+      const hosts = await prisma.host.findMany({
+        where: { id: { in: data.assignedHostIds } },
+        select: { id: true, name: true, microsoftRefreshToken: true },
+      });
+      const missing = hosts.filter((h) => !h.microsoftRefreshToken);
+      if (missing.length > 0) {
+        return new NextResponse(
+          `These hosts haven't connected Microsoft: ${missing.map((h) => h.name).join(", ")}.`,
           { status: 400 },
         );
       }

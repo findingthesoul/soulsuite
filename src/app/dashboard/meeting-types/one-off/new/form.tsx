@@ -32,9 +32,11 @@ interface SlotDraft {
 export function OneOffMeetingTypeForm({
   hostSlug,
   hostHasZoom,
+  hostHasMicrosoft,
 }: {
   hostSlug: string;
   hostHasZoom: boolean;
+  hostHasMicrosoft: boolean;
 }) {
   const router = useRouter();
   const [name, setName] = useState("");
@@ -69,6 +71,9 @@ export function OneOffMeetingTypeForm({
     }
     if (conferencingProvider === "ZOOM" && !hostHasZoom) {
       return setError("Connect Zoom in Settings → Connections before picking it.");
+    }
+    if (conferencingProvider === "TEAMS" && !hostHasMicrosoft) {
+      return setError("Connect Microsoft in Settings → Connections before picking it.");
     }
     if (slots.length < 1) return setError("Add at least one slot.");
 
@@ -168,8 +173,8 @@ export function OneOffMeetingTypeForm({
             <option value="ZOOM" disabled={!hostHasZoom}>
               Zoom{hostHasZoom ? "" : " — connect in Settings → Connections first"}
             </option>
-            <option value="TEAMS" disabled>
-              Microsoft Teams — coming later
+            <option value="TEAMS" disabled={!hostHasMicrosoft}>
+              Microsoft Teams{hostHasMicrosoft ? "" : " — connect in Settings → Connections first"}
             </option>
             <option value="NONE">None (no conferencing link)</option>
           </Select>

@@ -107,10 +107,6 @@ export async function PATCH(
     );
   }
 
-  if (data.conferencingProvider === "TEAMS") {
-    return new NextResponse("Microsoft Teams is not supported yet.", { status: 400 });
-  }
-
   let conferencingHostId: string | null = null;
   if (data.routingMode === "COLLECTIVE" && data.conferencingProvider !== "NONE") {
     if (!data.conferencingHostId) {
@@ -143,6 +139,33 @@ export async function PATCH(
       if (missing.length > 0) {
         return new NextResponse(
           `These hosts haven't connected Zoom: ${missing.map((h) => h.name).join(", ")}.`,
+          { status: 400 },
+        );
+      }
+    }
+  }
+
+  if (data.conferencingProvider === "TEAMS") {
+    if (data.routingMode === "COLLECTIVE") {
+      const confHost = await prisma.host.findUnique({
+        where: { id: conferencingHostId! },
+        select: { id: true, name: true, microsoftRefreshToken: true },
+      });
+      if (!confHost?.microsoftRefreshToken) {
+        return new NextResponse(
+          `${confHost?.name ?? "Conferencing host"} hasn't connected Microsoft.`,
+          { status: 400 },
+        );
+      }
+    } else {
+      const hosts = await prisma.host.findMany({
+        where: { id: { in: data.assignedHostIds } },
+        select: { id: true, name: true, microsoftRefreshToken: true },
+      });
+      const missing = hosts.filter((h) => !h.microsoftRefreshToken);
+      if (missing.length > 0) {
+        return new NextResponse(
+          `These hosts haven't connected Microsoft: ${missing.map((h) => h.name).join(", ")}.`,
           { status: 400 },
         );
       }

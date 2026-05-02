@@ -121,11 +121,13 @@ export function MeetingTypeForm({
   hostSlug,
   hostCalendars,
   hostHasZoom,
+  hostHasMicrosoft,
   initial,
 }: {
   hostSlug: string;
   hostCalendars: HostCalendar[];
   hostHasZoom: boolean;
+  hostHasMicrosoft: boolean;
   initial?: Initial;
 }) {
   const router = useRouter();
@@ -138,6 +140,7 @@ export function MeetingTypeForm({
         hostSlug={hostSlug}
         hostCalendars={hostCalendars}
         hostHasZoom={hostHasZoom}
+        hostHasMicrosoft={hostHasMicrosoft}
         initial={initial}
       />
     );
@@ -149,6 +152,7 @@ export function MeetingTypeForm({
       hostSlug={hostSlug}
       hostCalendars={hostCalendars}
       hostHasZoom={hostHasZoom}
+      hostHasMicrosoft={hostHasMicrosoft}
       onCreated={(id) => {
         // unused for now; create POST returns id but redirect is enough.
         void id;
@@ -166,11 +170,13 @@ function EditMeetingTypeForm({
   hostSlug,
   hostCalendars,
   hostHasZoom,
+  hostHasMicrosoft,
   initial,
 }: {
   hostSlug: string;
   hostCalendars: HostCalendar[];
   hostHasZoom: boolean;
+  hostHasMicrosoft: boolean;
   initial: Initial;
 }) {
   const router = useRouter();
@@ -204,6 +210,9 @@ function EditMeetingTypeForm({
     }
     if (draft.conferencingProvider === "ZOOM" && !hostHasZoom) {
       return setError("Connect Zoom in Settings → Connections before picking it.");
+    }
+    if (draft.conferencingProvider === "TEAMS" && !hostHasMicrosoft) {
+      return setError("Connect Microsoft in Settings → Connections before picking it.");
     }
     if (!Number.isInteger(draft.maxInvitees) || draft.maxInvitees < 1 || draft.maxInvitees > 50) {
       return setError("Max invitees must be a whole number between 1 and 50.");
@@ -337,7 +346,12 @@ function EditMeetingTypeForm({
           <CardDescription>Where the meeting happens. Zoom requires you to connect it in Settings.</CardDescription>
         </CardHeader>
         <CardContent>
-          <ConferencingEditor draft={draft} update={update} hostHasZoom={hostHasZoom} />
+          <ConferencingEditor
+            draft={draft}
+            update={update}
+            hostHasZoom={hostHasZoom}
+            hostHasMicrosoft={hostHasMicrosoft}
+          />
         </CardContent>
       </Card>
 
@@ -390,11 +404,13 @@ function CreateMeetingTypeForm({
   hostSlug,
   hostCalendars,
   hostHasZoom,
+  hostHasMicrosoft,
   router,
 }: {
   hostSlug: string;
   hostCalendars: HostCalendar[];
   hostHasZoom: boolean;
+  hostHasMicrosoft: boolean;
   onCreated: (id: string) => void;
   router: Router;
 }) {
@@ -427,6 +443,9 @@ function CreateMeetingTypeForm({
     }
     if (draft.conferencingProvider === "ZOOM" && !hostHasZoom) {
       return setError("Connect Zoom in Settings → Connections before picking it.");
+    }
+    if (draft.conferencingProvider === "TEAMS" && !hostHasMicrosoft) {
+      return setError("Connect Microsoft in Settings → Connections before picking it.");
     }
     if (!Number.isInteger(draft.maxInvitees) || draft.maxInvitees < 1 || draft.maxInvitees > 50) {
       return setError("Max invitees must be a whole number between 1 and 50.");
@@ -536,7 +555,12 @@ function CreateMeetingTypeForm({
           <CardDescription>Where the meeting happens. Zoom requires you to connect it in Settings.</CardDescription>
         </CardHeader>
         <CardContent>
-          <ConferencingEditor draft={draft} update={update} hostHasZoom={hostHasZoom} />
+          <ConferencingEditor
+            draft={draft}
+            update={update}
+            hostHasZoom={hostHasZoom}
+            hostHasMicrosoft={hostHasMicrosoft}
+          />
         </CardContent>
       </Card>
 
@@ -859,10 +883,12 @@ function ConferencingEditor({
   draft,
   update,
   hostHasZoom,
+  hostHasMicrosoft,
 }: {
   draft: DraftValues;
   update: <K extends keyof DraftValues>(key: K, value: DraftValues[K]) => void;
   hostHasZoom: boolean;
+  hostHasMicrosoft: boolean;
 }) {
   return (
     <div className="space-y-2">
@@ -876,8 +902,8 @@ function ConferencingEditor({
         <option value="ZOOM" disabled={!hostHasZoom}>
           Zoom{hostHasZoom ? "" : " — connect in Settings → Connections first"}
         </option>
-        <option value="TEAMS" disabled>
-          Microsoft Teams — coming later
+        <option value="TEAMS" disabled={!hostHasMicrosoft}>
+          Microsoft Teams{hostHasMicrosoft ? "" : " — connect in Settings → Connections first"}
         </option>
         <option value="NONE">None (no conferencing link)</option>
       </Select>

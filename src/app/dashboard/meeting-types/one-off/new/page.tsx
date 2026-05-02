@@ -13,7 +13,11 @@ export default async function NewOneOffMeetingTypePage() {
             Hand-pick specific time slots — invitees claim a slot directly without checking availability.
           </p>
         </header>
-        <OneOffMeetingTypeForm hostSlug={ctx.host.slug} hostHasZoom={!!ctx.host.zoomRefreshToken} />
+        <OneOffMeetingTypeForm
+          hostSlug={ctx.host.slug}
+          hostHasZoom={!!ctx.host.zoomRefreshToken}
+          hostHasMicrosoft={!!ctx.host.microsoftRefreshToken}
+        />
       </div>
     </AppShell>
   );

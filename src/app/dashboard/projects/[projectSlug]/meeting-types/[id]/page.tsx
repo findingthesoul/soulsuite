@@ -57,6 +57,7 @@ export default async function EditProjectMeetingTypePage({
             email: m.host.email,
             isExternal: m.isExternal,
             hasZoom: !!m.host.zoomRefreshToken,
+            hasMicrosoft: !!m.host.microsoftRefreshToken,
             calendars: m.host.calendars.map((c) => ({
               id: c.id,
               summary: c.summary ?? c.googleCalendarId,

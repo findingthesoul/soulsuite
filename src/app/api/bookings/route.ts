@@ -13,6 +13,8 @@ import { sendEmail, bookingConfirmationTemplate, appUrl } from "@/lib/email";
 import { getEmailLogoUrl } from "@/lib/branding";
 import { getZoomAccessTokenForHost } from "@/lib/zoom/host";
 import { createZoomMeeting, ZoomAlternativeHostsError } from "@/lib/zoom/client";
+import { getMicrosoftAccessTokenForHost } from "@/lib/microsoft/host";
+import { createTeamsMeeting, TeamsAttendeesError } from "@/lib/microsoft/client";
 import { upsertContactFromBooking, workspaceIdForMeetingType } from "@/lib/contacts";
 
 const bodySchema = z.object({
@@ -444,7 +446,57 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  let bookingMeetUrl: string | null = zoomMeeting?.joinUrl ?? null;
+  // For TEAMS: same shape as Zoom — create the onlineMeeting first, attach the join URL to
+  // the Google event description + location. Failure rolls back the booking row.
+  let teamsMeeting: { id: string; joinUrl: string } | null = null;
+  if (meetingType.conferencingProvider === "TEAMS") {
+    try {
+      const accessToken = await getMicrosoftAccessTokenForHost(host.id);
+      if (!accessToken) {
+        await prisma.booking.delete({ where: { id: bookingId } }).catch(() => undefined);
+        return new NextResponse(
+          "The host hasn't connected Microsoft — please pick another time or contact them.",
+          { status: 502 },
+        );
+      }
+      // For COLLECTIVE: pass other assigned hosts' emails as attendees. Cross-tenant emails may
+      // be rejected by Graph (depends on the tenant's external collaboration policy); we catch
+      // TeamsAttendeesError and retry without attendees (they'll join via the calendar invite).
+      const attendeeEmails =
+        meetingType.routingMode === "COLLECTIVE"
+          ? collectiveCoHosts.map((h) => h.email)
+          : [];
+      const teamsArgs = {
+        subject: `${meetingType.name} — ${body.inviteeName}`,
+        startsAtIso: startsAt.toISOString(),
+        endsAtIso: endsAt.toISOString(),
+      };
+      try {
+        teamsMeeting = await createTeamsMeeting(accessToken, {
+          ...teamsArgs,
+          attendees: attendeeEmails,
+        });
+      } catch (err) {
+        if (err instanceof TeamsAttendeesError) {
+          console.warn(
+            "[booking] teams attendees rejected (cross-tenant); retrying without",
+            err.underlying,
+          );
+          teamsMeeting = await createTeamsMeeting(accessToken, teamsArgs);
+        } else {
+          throw err;
+        }
+      }
+    } catch (err) {
+      console.error("[booking] teams create failed", err);
+      await prisma.booking.delete({ where: { id: bookingId } }).catch(() => undefined);
+      return new NextResponse("Couldn't create the Microsoft Teams meeting — please try again.", {
+        status: 502,
+      });
+    }
+  }
+
+  let bookingMeetUrl: string | null = zoomMeeting?.joinUrl ?? teamsMeeting?.joinUrl ?? null;
   try {
     const cal = calendarFor(host.googleRefreshToken!);
     const useGoogleMeet = meetingType.conferencingProvider === "GOOGLE_MEET";
@@ -456,7 +508,8 @@ export async function POST(request: NextRequest) {
         ? `\nJoin Zoom: ${zoomMeeting.joinUrl}` +
           (zoomMeeting.passcode ? `\nPasscode: ${zoomMeeting.passcode}` : "") +
           "\n"
-        : "");
+        : "") +
+      (teamsMeeting ? `\nJoin Microsoft Teams: ${teamsMeeting.joinUrl}\n` : "");
     const ev = await cal.events.insert({
       calendarId: writeTarget.googleCalendarId,
       conferenceDataVersion: useGoogleMeet ? 1 : 0,
@@ -484,7 +537,7 @@ export async function POST(request: NextRequest) {
         googleEventId: ev.data.id ?? null,
         conferencingProvider: meetingType.conferencingProvider,
         meetUrl: bookingMeetUrl,
-        providerMeetingId: zoomMeeting?.meetingId ?? null,
+        providerMeetingId: zoomMeeting?.meetingId ?? teamsMeeting?.id ?? null,
       },
     });
     // Round-robin fairness: stamp the picked host so the next ROUND_ROBIN booking on this

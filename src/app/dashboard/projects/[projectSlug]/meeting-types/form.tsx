@@ -34,6 +34,7 @@ interface ProjectMember {
   email: string;
   isExternal: boolean;
   hasZoom: boolean;
+  hasMicrosoft: boolean;
   calendars: { id: string; summary: string; role: "PRIMARY" | "CONFLICT_CHECK" | "WRITE_TARGET" }[];
 }
 
@@ -745,6 +746,27 @@ function validateDraft(draft: DraftValues, members: ProjectMember[]): string | n
       }
     }
   }
+  if (draft.conferencingProvider === "TEAMS") {
+    if (draft.routingMode === "COLLECTIVE") {
+      const confId = draft.conferencingHostId;
+      if (!confId || !draft.assignedHostIds.includes(confId)) {
+        return "Pick a conferencing host from the assigned hosts.";
+      }
+      const confMember = members.find((m) => m.hostId === confId);
+      if (!confMember?.hasMicrosoft) {
+        return `${confMember?.name ?? "The conferencing host"} hasn't connected Microsoft yet.`;
+      }
+    } else {
+      const missing = draft.assignedHostIds
+        .map((id) => members.find((m) => m.hostId === id))
+        .filter((m): m is ProjectMember => Boolean(m && !m.hasMicrosoft));
+      if (missing.length > 0) {
+        return `These assigned hosts haven't connected Microsoft: ${missing
+          .map((m) => m.name)
+          .join(", ")}. They need to connect in Settings → Connections first.`;
+      }
+    }
+  }
   if (
     draft.routingMode === "COLLECTIVE" &&
     draft.conferencingProvider !== "NONE" &&
@@ -1129,6 +1151,26 @@ function ProjectConferencingEditor({
     : zoomDisabled
       ? " — every assigned host must connect Zoom first"
       : "";
+  // Same shape for Microsoft Teams (mirrors Zoom rules).
+  const missingMicrosoft =
+    draft.conferencingProvider === "TEAMS"
+      ? isCollective
+        ? confHost && !confHost.hasMicrosoft
+          ? [confHost]
+          : []
+        : assigned.filter((m) => !m.hasMicrosoft)
+      : [];
+  const anyAssignedHasMicrosoft = assigned.some((m) => m.hasMicrosoft);
+  const microsoftDisabled = isCollective
+    ? !anyAssignedHasMicrosoft
+    : !assigned.every((m) => m.hasMicrosoft);
+  const microsoftLabel = isCollective
+    ? anyAssignedHasMicrosoft
+      ? ""
+      : " — at least one assigned host must connect Microsoft first"
+    : microsoftDisabled
+      ? " — every assigned host must connect Microsoft first"
+      : "";
 
   return (
     <div className="space-y-3">
@@ -1143,8 +1185,8 @@ function ProjectConferencingEditor({
           <option value="ZOOM" disabled={zoomDisabled}>
             Zoom{zoomLabel}
           </option>
-          <option value="TEAMS" disabled>
-            Microsoft Teams — coming later
+          <option value="TEAMS" disabled={microsoftDisabled}>
+            Microsoft Teams{microsoftLabel}
           </option>
           <option value="NONE">None (no conferencing link)</option>
         </Select>
@@ -1163,6 +1205,7 @@ function ProjectConferencingEditor({
               <option key={m.hostId} value={m.hostId}>
                 {m.name} — {m.email}
                 {draft.conferencingProvider === "ZOOM" && !m.hasZoom ? " (no Zoom)" : ""}
+                {draft.conferencingProvider === "TEAMS" && !m.hasMicrosoft ? " (no Microsoft)" : ""}
               </option>
             ))}
           </Select>
@@ -1170,6 +1213,12 @@ function ProjectConferencingEditor({
             <p className="text-xs text-muted-foreground">
               Only this host needs Zoom connected. Others will be added as alternative hosts where
               possible, otherwise as guests.
+            </p>
+          )}
+          {draft.conferencingProvider === "TEAMS" && (
+            <p className="text-xs text-muted-foreground">
+              Only this host needs Microsoft connected. Others will be added as Teams attendees
+              where possible, otherwise as calendar-invite guests.
             </p>
           )}
           {draft.conferencingProvider === "GOOGLE_MEET" && (
@@ -1184,6 +1233,12 @@ function ProjectConferencingEditor({
       {missingZoom.length > 0 && (
         <p className="text-xs text-destructive">
           {missingZoom.map((m) => m.name).join(", ")} {missingZoom.length === 1 ? "hasn't" : "haven't"} connected Zoom yet.
+        </p>
+      )}
+      {missingMicrosoft.length > 0 && (
+        <p className="text-xs text-destructive">
+          {missingMicrosoft.map((m) => m.name).join(", ")}{" "}
+          {missingMicrosoft.length === 1 ? "hasn't" : "haven't"} connected Microsoft yet.
         </p>
       )}
     </div>

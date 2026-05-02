@@ -5,6 +5,8 @@ import { sendEmail, bookingCancellationTemplate, appUrl } from "@/lib/email";
 import { getEmailLogoUrl } from "@/lib/branding";
 import { getZoomAccessTokenForHost } from "@/lib/zoom/host";
 import { deleteZoomMeeting } from "@/lib/zoom/client";
+import { getMicrosoftAccessTokenForHost } from "@/lib/microsoft/host";
+import { deleteTeamsMeeting } from "@/lib/microsoft/client";
 import { bustFreebusyCacheForHost } from "@/lib/availability/freebusy";
 
 // Public cancel — anyone with the booking ID can cancel. The booking ID is a CUID (~22
@@ -58,6 +60,16 @@ export async function POST(
       if (accessToken) await deleteZoomMeeting(accessToken, booking.providerMeetingId);
     } catch (err) {
       console.error("[cancel] zoom delete failed", err);
+    }
+  }
+
+  // Same best-effort tear-down for Microsoft Teams onlineMeetings.
+  if (booking.conferencingProvider === "TEAMS" && booking.providerMeetingId) {
+    try {
+      const accessToken = await getMicrosoftAccessTokenForHost(booking.hostId);
+      if (accessToken) await deleteTeamsMeeting(accessToken, booking.providerMeetingId);
+    } catch (err) {
+      console.error("[cancel] teams delete failed", err);
     }
   }
 

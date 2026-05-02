@@ -67,8 +67,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (parsed.data.conferencingProvider === "ZOOM" && !host.zoomRefreshToken) {
     return new NextResponse("Connect Zoom in Settings → Connections before using it.", { status: 400 });
   }
-  if (parsed.data.conferencingProvider === "TEAMS") {
-    return new NextResponse("Microsoft Teams is not supported yet.", { status: 400 });
+  if (parsed.data.conferencingProvider === "TEAMS" && !host.microsoftRefreshToken) {
+    return new NextResponse("Connect Microsoft in Settings → Connections before using it.", { status: 400 });
   }
 
   // Validate that any conflict-calendar IDs belong to this host.

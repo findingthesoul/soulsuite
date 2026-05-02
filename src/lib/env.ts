@@ -25,6 +25,12 @@ const serverSchema = z.object({
   // /settings/connections page hides the Zoom card and meeting types can't pick ZOOM.
   ZOOM_CLIENT_ID: z.string().min(1).optional(),
   ZOOM_CLIENT_SECRET: z.string().min(1).optional(),
+  // Microsoft Graph OAuth (Azure AD app registration). Both optional — when unset the
+  // /settings/connections page hides the Microsoft Teams card and meeting types can't pick TEAMS.
+  // Tenant defaults to "common" so non-Soul invitees can join — see CLAUDE.md notes on multi-tenant.
+  MICROSOFT_CLIENT_ID: z.string().min(1).optional(),
+  MICROSOFT_CLIENT_SECRET: z.string().min(1).optional(),
+  MICROSOFT_TENANT_ID: z.string().min(1).default("common"),
 });
 
 export const publicEnv = publicSchema.parse({
@@ -52,6 +58,9 @@ export function serverEnv() {
       EMAIL_FROM: process.env.EMAIL_FROM,
       ZOOM_CLIENT_ID: process.env.ZOOM_CLIENT_ID,
       ZOOM_CLIENT_SECRET: process.env.ZOOM_CLIENT_SECRET,
+      MICROSOFT_CLIENT_ID: process.env.MICROSOFT_CLIENT_ID,
+      MICROSOFT_CLIENT_SECRET: process.env.MICROSOFT_CLIENT_SECRET,
+      MICROSOFT_TENANT_ID: process.env.MICROSOFT_TENANT_ID,
     });
   }
   return _serverEnv;

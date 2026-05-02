@@ -14,10 +14,16 @@ import { Card } from "@/components/ui/card";
 import { formatPrice } from "@/lib/stripe/client";
 import { PaymentRow } from "./row";
 
-type Filter = "failed" | "refunded" | "healthy" | "all";
+type Filter = "failed" | "refunded" | "healthy" | "invoice" | "all";
 
 function parseFilter(value: string | undefined): Filter {
-  if (value === "refunded" || value === "healthy" || value === "all") return value;
+  if (
+    value === "refunded" ||
+    value === "healthy" ||
+    value === "invoice" ||
+    value === "all"
+  )
+    return value;
   return "failed";
 }
 
@@ -44,7 +50,9 @@ export default async function PaymentsPage({
 
   const baseWhere: Prisma.BookingWhereInput = {
     hostId: { in: manageableHostIds },
-    paymentStatus: { in: ["PAID", "REFUNDED", "FAILED"] },
+    paymentStatus: {
+      in: ["PAID", "REFUNDED", "FAILED", "INVOICE_PENDING", "INVOICE_SENT"],
+    },
   };
 
   const filterWhere: Prisma.BookingWhereInput =
@@ -54,7 +62,13 @@ export default async function PaymentsPage({
         ? { ...baseWhere, paymentStatus: "REFUNDED" }
         : filter === "healthy"
           ? { ...baseWhere, paymentStatus: "PAID", status: "CONFIRMED" }
-          : baseWhere;
+          : filter === "invoice"
+            ? {
+                ...baseWhere,
+                paymentMethod: "INVOICE",
+                paymentStatus: { in: ["INVOICE_PENDING", "INVOICE_SENT"] },
+              }
+            : baseWhere;
 
   const [bookings, counts] = await Promise.all([
     prisma.booking.findMany({
@@ -69,6 +83,7 @@ export default async function PaymentsPage({
         inviteeName: true,
         status: true,
         paymentStatus: true,
+        paymentMethod: true,
         stripePaymentIntent: true,
         googleEventId: true,
         hostId: true,
@@ -93,11 +108,18 @@ export default async function PaymentsPage({
       prisma.booking.count({
         where: { ...baseWhere, paymentStatus: "PAID", status: "CONFIRMED" },
       }),
+      prisma.booking.count({
+        where: {
+          ...baseWhere,
+          paymentMethod: "INVOICE",
+          paymentStatus: { in: ["INVOICE_PENDING", "INVOICE_SENT"] },
+        },
+      }),
       prisma.booking.count({ where: baseWhere }),
     ]),
   ]);
 
-  const [failedCount, refundedCount, healthyCount, allCount] = counts;
+  const [failedCount, refundedCount, healthyCount, invoiceCount, allCount] = counts;
 
   const rows = bookings.map((b) => {
     const slugForUrl =
@@ -119,11 +141,14 @@ export default async function PaymentsPage({
       hostName: b.host.name,
       priceLabel,
       paymentStatus: b.paymentStatus,
+      paymentMethod: b.paymentMethod,
       status: b.status,
       detailHref,
       isFailedToFinalize:
         b.paymentStatus === "PAID" && b.status === "CANCELLED" && !b.googleEventId,
       hasPaymentIntent: !!b.stripePaymentIntent,
+      isInvoicePending: b.paymentMethod === "INVOICE" && b.paymentStatus === "INVOICE_PENDING",
+      isInvoiceSent: b.paymentMethod === "INVOICE" && b.paymentStatus === "INVOICE_SENT",
     };
   });
 
@@ -146,6 +171,7 @@ export default async function PaymentsPage({
             failed: failedCount,
             refunded: refundedCount,
             healthy: healthyCount,
+            invoice: invoiceCount,
             all: allCount,
           }}
         />
@@ -159,7 +185,9 @@ export default async function PaymentsPage({
                   ? "No refunds yet."
                   : filter === "healthy"
                     ? "No confirmed paid bookings yet."
-                    : "No paid bookings yet."}
+                    : filter === "invoice"
+                      ? "No invoice bookings waiting for follow-up."
+                      : "No paid bookings yet."}
             </div>
           </Card>
         ) : (
@@ -196,7 +224,7 @@ function Filters({
   counts,
 }: {
   filter: Filter;
-  counts: { failed: number; refunded: number; healthy: number; all: number };
+  counts: { failed: number; refunded: number; healthy: number; invoice: number; all: number };
 }) {
   function pillClass(active: boolean) {
     return [
@@ -219,6 +247,9 @@ function Filters({
       </Link>
       <Link href={href("healthy")} className={pillClass(filter === "healthy")}>
         Healthy ({counts.healthy})
+      </Link>
+      <Link href={href("invoice")} className={pillClass(filter === "invoice")}>
+        Invoice (pending) ({counts.invoice})
       </Link>
       <Link href={href("all")} className={pillClass(filter === "all")}>
         All ({counts.all})

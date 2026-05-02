@@ -85,6 +85,13 @@ interface BookingTemplateInput {
   // Workspace logo URL (https://...) — rendered at the top on a forced white background so
   // it stays legible in dark-mode email clients.
   logoUrl?: string | null;
+  // Invoice-payment heads-up. Rendered as an extra block on the confirmation email so the
+  // invitee knows an invoice will follow from the host (rather than nothing showing up).
+  invoice?: {
+    billingEmail: string;
+    companyName: string;
+    reference?: string | null;
+  } | null;
 }
 
 function brandFrame(title: string, body: string, logoUrl?: string | null): string {
@@ -114,6 +121,19 @@ function brandFrame(title: string, body: string, logoUrl?: string | null): strin
 export function bookingConfirmationTemplate(b: BookingTemplateInput): { html: string; text: string; subject: string } {
   const when = formatDateRange(b.startsAtIso, b.endsAtIso);
   const subject = `Confirmed: ${b.meetingTypeName} with ${b.hostName} — ${when}`;
+  const invoiceBlockHtml = b.invoice
+    ? `<div style="margin:20px 0;padding:14px 16px;border:1px solid #e7e5e4;border-radius:8px;background:#fafaf9">
+        <p style="margin:0 0 4px;font-size:13px;color:#57534e">Payment</p>
+        <p style="margin:0;font-size:14px">An invoice will be sent to <strong>${escapeHtml(
+          b.invoice.billingEmail,
+        )}</strong> at <strong>${escapeHtml(b.invoice.companyName)}</strong>${
+          b.invoice.reference ? ` (Reference: ${escapeHtml(b.invoice.reference)})` : ""
+        }.</p>
+        <p style="margin:6px 0 0;font-size:12px;color:#a8a29e">Look out for an email from ${escapeHtml(
+          b.hostName,
+        )}.</p>
+      </div>`
+    : "";
   const html = brandFrame(
     "You're booked",
     /* body */ `<p>Hi ${escapeHtml(b.inviteeName)},</p>
@@ -123,6 +143,7 @@ export function bookingConfirmationTemplate(b: BookingTemplateInput): { html: st
       <tr><td style="padding:4px 0;color:#57534e">What</td><td style="padding:4px 0 4px 24px">${escapeHtml(b.meetingTypeName)}</td></tr>
       ${b.meetUrl ? `<tr><td style="padding:4px 0;color:#57534e">Join</td><td style="padding:4px 0 4px 24px"><a href="${escapeAttr(b.meetUrl)}">${escapeHtml(b.meetUrl)}</a></td></tr>` : ""}
     </table>
+    ${invoiceBlockHtml}
     ${b.icalUrl ? `<p style="margin-top:12px"><a href="${escapeAttr(b.icalUrl)}" style="display:inline-block;padding:8px 14px;border:1px solid #e7e5e4;color:#0c0a09;border-radius:6px;text-decoration:none">Add to calendar (.ics)</a></p>` : ""}
     <p>Need to change something?</p>
     <p>
@@ -135,6 +156,11 @@ export function bookingConfirmationTemplate(b: BookingTemplateInput): { html: st
     `You're booked: ${b.meetingTypeName} with ${b.hostName}\n\n` +
     `When: ${when}\n` +
     (b.meetUrl ? `Join: ${b.meetUrl}\n` : "") +
+    (b.invoice
+      ? `\nPayment: An invoice will be sent to ${b.invoice.billingEmail} at ${b.invoice.companyName}.${
+          b.invoice.reference ? ` Reference: ${b.invoice.reference}.` : ""
+        }\n`
+      : "") +
     (b.icalUrl ? `Add to calendar: ${b.icalUrl}\n` : "") +
     `\nReschedule: ${b.rescheduleUrl}\nCancel: ${b.cancelUrl}\n`;
   return { html, text, subject };

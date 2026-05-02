@@ -45,7 +45,13 @@ interface Initial {
   workingHoursOverride: Schedule | null;
   priceCents: number | null;
   priceCurrency: string | null;
+  paymentMethod: PaymentMethod;
 }
+
+// Mirrors the Prisma enum + the UI-only "ADYEN" placeholder. ADYEN is rejected by the API; we
+// surface it as a disabled option so users can see it's planned without us having to write a
+// real handler yet.
+export type PaymentMethod = "STRIPE" | "INVOICE" | "ADYEN";
 
 const SUPPORTED_CURRENCIES = ["eur", "usd", "gbp"] as const;
 
@@ -89,6 +95,7 @@ interface DraftValues {
   isPaid: boolean;
   priceMajor: string;
   priceCurrency: string;
+  paymentMethod: PaymentMethod;
 }
 
 const DRAFT_DEFAULT: DraftValues = {
@@ -109,6 +116,7 @@ const DRAFT_DEFAULT: DraftValues = {
   isPaid: false,
   priceMajor: "",
   priceCurrency: "eur",
+  paymentMethod: "STRIPE",
 };
 
 function initialToDraft(initial: Initial): DraftValues {
@@ -131,6 +139,7 @@ function initialToDraft(initial: Initial): DraftValues {
     isPaid,
     priceMajor: isPaid && initial.priceCents != null ? (initial.priceCents / 100).toString() : "",
     priceCurrency: initial.priceCurrency ?? "eur",
+    paymentMethod: initial.paymentMethod,
   };
 }
 
@@ -152,14 +161,19 @@ function pricingPayload(draft: DraftValues):
 
 function validatePricing(draft: DraftValues, hostHasStripe: boolean): string | null {
   if (!draft.isPaid) return null;
-  if (!hostHasStripe) {
+  if (draft.paymentMethod === "ADYEN") {
+    return "Adyen isn't available yet — pick Stripe or invoice.";
+  }
+  if (draft.paymentMethod === "STRIPE" && !hostHasStripe) {
     return "Connect Stripe under Settings → Payments first.";
   }
   const major = Number(draft.priceMajor);
   if (!Number.isFinite(major) || major <= 0) {
     return "Enter a price greater than 0.";
   }
-  if (Math.round(major * 100) < 50) {
+  // The 0.50 minimum is a Stripe constraint; invoice has no such floor (the host can charge
+  // anything they want on the manual invoice). Keep the check to catch typos either way.
+  if (draft.paymentMethod === "STRIPE" && Math.round(major * 100) < 50) {
     return "Stripe requires a minimum charge of 0.50.";
   }
   if (!(SUPPORTED_CURRENCIES as readonly string[]).includes(draft.priceCurrency)) {
@@ -348,6 +362,7 @@ function EditMeetingTypeForm({
           workingHoursOverride: overridePayload,
           priceCents: pricing.priceCents,
           priceCurrency: pricing.priceCurrency,
+          paymentMethod: draft.isPaid ? draft.paymentMethod : "STRIPE",
         }),
       });
       if (!res.ok) {
@@ -623,6 +638,7 @@ function CreateMeetingTypeForm({
           workingHoursOverride: overridePayload,
           priceCents: pricing.priceCents,
           priceCurrency: pricing.priceCurrency,
+          paymentMethod: draft.isPaid ? draft.paymentMethod : "STRIPE",
         }),
       });
       if (!res.ok) {
@@ -1130,11 +1146,80 @@ function PricingEditor({
           </div>
         </div>
       )}
-      {draft.isPaid && !hostHasStripe && (
+      {draft.isPaid && (
+        <PaymentMethodPicker
+          value={draft.paymentMethod}
+          onChange={(v) => update("paymentMethod", v)}
+        />
+      )}
+      {draft.isPaid && draft.paymentMethod === "STRIPE" && !hostHasStripe && (
         <p className="text-xs text-destructive">
           Connect Stripe under Settings → Payments first.
         </p>
       )}
+    </div>
+  );
+}
+
+// Payment-method radio shared by personal + project pricing editors. Adyen renders disabled to
+// signal it's planned without us shipping any code path for it.
+export function PaymentMethodPicker({
+  value,
+  onChange,
+}: {
+  value: PaymentMethod;
+  onChange: (v: PaymentMethod) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <Label>Payment method</Label>
+      <div className="space-y-2 text-sm">
+        <label className="flex items-start gap-2">
+          <input
+            type="radio"
+            name="paymentMethod"
+            checked={value === "STRIPE"}
+            onChange={() => onChange("STRIPE")}
+            className="h-4 w-4 mt-0.5 border-border accent-foreground"
+          />
+          <span>
+            <span className="text-foreground">Stripe (online card)</span>
+            <span className="block text-xs text-muted-foreground">
+              Invitee pays via Stripe Checkout before the booking is confirmed.
+            </span>
+          </span>
+        </label>
+        <label className="flex items-start gap-2">
+          <input
+            type="radio"
+            name="paymentMethod"
+            checked={value === "INVOICE"}
+            onChange={() => onChange("INVOICE")}
+            className="h-4 w-4 mt-0.5 border-border accent-foreground"
+          />
+          <span>
+            <span className="text-foreground">Pay by invoice</span>
+            <span className="block text-xs text-muted-foreground">
+              Invitee fills in billing details at booking time. You send the invoice from your own
+              system after the meeting is booked.
+            </span>
+          </span>
+        </label>
+        <label className="flex items-start gap-2 opacity-60 cursor-not-allowed">
+          <input
+            type="radio"
+            name="paymentMethod"
+            checked={value === "ADYEN"}
+            onChange={() => onChange("ADYEN")}
+            disabled
+            className="h-4 w-4 mt-0.5 border-border accent-foreground"
+          />
+          <span>
+            <span className="text-foreground">Adyen</span>
+            <span className="block text-xs text-muted-foreground">Coming soon.</span>
+          </span>
+        </label>
+      </div>
     </div>
   );
 }

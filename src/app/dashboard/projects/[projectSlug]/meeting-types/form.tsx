@@ -26,6 +26,8 @@ import {
   type Schedule,
 } from "@/components/working-hours-editor";
 
+import { PaymentMethodPicker, type PaymentMethod } from "@/app/dashboard/meeting-types/form";
+
 type ConferencingProvider = "GOOGLE_MEET" | "ZOOM" | "TEAMS" | "NONE";
 type RoutingMode = "SINGLE" | "ROUND_ROBIN" | "COLLECTIVE";
 
@@ -62,6 +64,7 @@ interface Initial {
   workingHoursOverride: Schedule | null;
   priceCents: number | null;
   priceCurrency: string | null;
+  paymentMethod: PaymentMethod;
 }
 
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
@@ -97,6 +100,7 @@ interface DraftValues {
   isPaid: boolean;
   priceMajor: string;
   priceCurrency: string;
+  paymentMethod: PaymentMethod;
 }
 
 function initialToDraft(initial: Initial): DraftValues {
@@ -128,6 +132,7 @@ function initialToDraft(initial: Initial): DraftValues {
     isPaid,
     priceMajor: isPaid && initial.priceCents != null ? (initial.priceCents / 100).toString() : "",
     priceCurrency: initial.priceCurrency ?? "eur",
+    paymentMethod: initial.paymentMethod,
   };
 }
 
@@ -297,6 +302,7 @@ function EditProjectMeetingTypeForm({
           workingHoursOverride: overridePayload,
           priceCents: pricing.priceCents,
           priceCurrency: pricing.priceCurrency,
+          paymentMethod: draft.isPaid ? draft.paymentMethod : "STRIPE",
         }),
       });
       if (!res.ok) {
@@ -564,6 +570,7 @@ function CreateProjectMeetingTypeForm({
     isPaid: false,
     priceMajor: "",
     priceCurrency: "eur",
+    paymentMethod: "STRIPE",
   };
 
   const [draft, setDraft] = useState<DraftValues>(draftDefault);
@@ -670,6 +677,7 @@ function CreateProjectMeetingTypeForm({
           workingHoursOverride: overridePayload,
           priceCents: pricing.priceCents,
           priceCurrency: pricing.priceCurrency,
+          paymentMethod: draft.isPaid ? draft.paymentMethod : "STRIPE",
         }),
       });
       if (!res.ok) {
@@ -962,10 +970,13 @@ function validateProjectDraft(
     });
   }
   if (draft.isPaid) {
+    if (draft.paymentMethod === "ADYEN") {
+      errors.push({ tabKey: "pricing", message: "Adyen isn't available yet — pick Stripe or invoice." });
+    }
     const major = Number(draft.priceMajor);
     if (!Number.isFinite(major) || major <= 0) {
       errors.push({ tabKey: "pricing", message: "Enter a price greater than 0." });
-    } else if (Math.round(major * 100) < 50) {
+    } else if (draft.paymentMethod === "STRIPE" && Math.round(major * 100) < 50) {
       errors.push({
         tabKey: "pricing",
         message: "Stripe requires a minimum charge of 0.50.",
@@ -974,23 +985,27 @@ function validateProjectDraft(
     if (!(SUPPORTED_CURRENCIES as readonly string[]).includes(draft.priceCurrency)) {
       errors.push({ tabKey: "pricing", message: "Pick a currency." });
     }
-    if (draft.routingMode === "COLLECTIVE") {
-      const confHost = members.find((m) => m.hostId === draft.conferencingHostId);
-      if (!confHost?.hasStripe) {
-        errors.push({
-          tabKey: "pricing",
-          message: `${confHost?.name ?? "The conferencing host"} hasn't connected Stripe under Settings → Payments.`,
-        });
-      }
-    } else {
-      const missing = draft.assignedHostIds
-        .map((id) => members.find((m) => m.hostId === id))
-        .filter((m): m is ProjectMember => Boolean(m && !m.hasStripe));
-      if (missing.length > 0) {
-        errors.push({
-          tabKey: "pricing",
-          message: `These assigned hosts haven't connected Stripe: ${missing.map((m) => m.name).join(", ")}. Connect under Settings → Payments first.`,
-        });
+    // Stripe-account requirement only applies when actually using Stripe. INVOICE rail has no
+    // such constraint — the host invoices manually outside the app.
+    if (draft.paymentMethod === "STRIPE") {
+      if (draft.routingMode === "COLLECTIVE") {
+        const confHost = members.find((m) => m.hostId === draft.conferencingHostId);
+        if (!confHost?.hasStripe) {
+          errors.push({
+            tabKey: "pricing",
+            message: `${confHost?.name ?? "The conferencing host"} hasn't connected Stripe under Settings → Payments.`,
+          });
+        }
+      } else {
+        const missing = draft.assignedHostIds
+          .map((id) => members.find((m) => m.hostId === id))
+          .filter((m): m is ProjectMember => Boolean(m && !m.hasStripe));
+        if (missing.length > 0) {
+          errors.push({
+            tabKey: "pricing",
+            message: `These assigned hosts haven't connected Stripe: ${missing.map((m) => m.name).join(", ")}. Connect under Settings → Payments first.`,
+          });
+        }
       }
     }
   }
@@ -1055,23 +1070,28 @@ function validateDraft(draft: DraftValues, members: ProjectMember[]): string | n
   // Pricing — every host that could be the booking host needs Stripe connected:
   //   SINGLE/ROUND_ROBIN: every assigned host. COLLECTIVE: the conferencing host.
   if (draft.isPaid) {
+    if (draft.paymentMethod === "ADYEN") return "Adyen isn't available yet — pick Stripe or invoice.";
     const major = Number(draft.priceMajor);
     if (!Number.isFinite(major) || major <= 0) return "Enter a price greater than 0.";
-    if (Math.round(major * 100) < 50) return "Stripe requires a minimum charge of 0.50.";
+    if (draft.paymentMethod === "STRIPE" && Math.round(major * 100) < 50) {
+      return "Stripe requires a minimum charge of 0.50.";
+    }
     if (!(SUPPORTED_CURRENCIES as readonly string[]).includes(draft.priceCurrency)) {
       return "Pick a currency.";
     }
-    if (draft.routingMode === "COLLECTIVE") {
-      const confHost = members.find((m) => m.hostId === draft.conferencingHostId);
-      if (!confHost?.hasStripe) {
-        return `${confHost?.name ?? "The conferencing host"} hasn't connected Stripe under Settings → Payments.`;
-      }
-    } else {
-      const missing = draft.assignedHostIds
-        .map((id) => members.find((m) => m.hostId === id))
-        .filter((m): m is ProjectMember => Boolean(m && !m.hasStripe));
-      if (missing.length > 0) {
-        return `These assigned hosts haven't connected Stripe: ${missing.map((m) => m.name).join(", ")}. Connect under Settings → Payments first.`;
+    if (draft.paymentMethod === "STRIPE") {
+      if (draft.routingMode === "COLLECTIVE") {
+        const confHost = members.find((m) => m.hostId === draft.conferencingHostId);
+        if (!confHost?.hasStripe) {
+          return `${confHost?.name ?? "The conferencing host"} hasn't connected Stripe under Settings → Payments.`;
+        }
+      } else {
+        const missing = draft.assignedHostIds
+          .map((id) => members.find((m) => m.hostId === id))
+          .filter((m): m is ProjectMember => Boolean(m && !m.hasStripe));
+        if (missing.length > 0) {
+          return `These assigned hosts haven't connected Stripe: ${missing.map((m) => m.name).join(", ")}. Connect under Settings → Payments first.`;
+        }
       }
     }
   }
@@ -1794,7 +1814,13 @@ function ProjectPricingEditor({
           </div>
         </div>
       )}
-      {draft.isPaid && missing.length > 0 && (
+      {draft.isPaid && (
+        <PaymentMethodPicker
+          value={draft.paymentMethod}
+          onChange={(v) => update("paymentMethod", v)}
+        />
+      )}
+      {draft.isPaid && draft.paymentMethod === "STRIPE" && missing.length > 0 && (
         <p className="text-xs text-destructive">
           {missing.map((m) => m.name).join(", ")} {missing.length === 1 ? "hasn't" : "haven't"} connected
           Stripe. Each booking host needs to connect under their own Settings → Payments first.

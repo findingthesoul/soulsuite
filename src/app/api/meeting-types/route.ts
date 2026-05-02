@@ -41,9 +41,13 @@ const bodySchema = z.object({
   conferencingProvider: z.enum(["GOOGLE_MEET", "ZOOM", "TEAMS", "NONE"]).default("GOOGLE_MEET"),
   maxInvitees: z.number().int().min(1).max(50).default(1),
   workingHoursOverride: workingHoursSchema.nullable().optional(),
-  // Pricing — paid meeting types route through Stripe Checkout. Both fields null = free.
+  // Pricing — paid meeting types route through Stripe Checkout or invoice. Both fields null = free.
   priceCents: z.number().int().min(50).max(10_000_000).nullable().optional(),
   priceCurrency: z.enum(["eur", "usd", "gbp"]).nullable().optional(),
+  // STRIPE (default) = Stripe Checkout. INVOICE = capture billing details, host invoices manually.
+  // ADYEN intentionally rejected — UI shows it as a placeholder, but the DB enum doesn't include
+  // it yet (no code path to handle it).
+  paymentMethod: z.enum(["STRIPE", "INVOICE", "ADYEN"]).default("STRIPE"),
 });
 
 export async function POST(request: NextRequest) {
@@ -64,12 +68,16 @@ export async function POST(request: NextRequest) {
     return new NextResponse("Microsoft Teams is not supported yet.", { status: 400 });
   }
 
-  // Pricing: paid MTs require the host to have a Stripe account configured.
+  // Pricing: paid MTs need a currency, plus per-rail validation (Stripe needs a connected
+  // account; invoice needs nothing extra). ADYEN is rejected — UI placeholder only.
   const isPaid = (data.priceCents ?? 0) > 0;
+  if (data.paymentMethod === "ADYEN") {
+    return new NextResponse("Adyen isn't available yet — pick Stripe or invoice.", { status: 400 });
+  }
   if (isPaid && !data.priceCurrency) {
     return new NextResponse("Pick a currency for paid meeting types.", { status: 400 });
   }
-  if (isPaid && !host.stripeAccountId) {
+  if (isPaid && data.paymentMethod === "STRIPE" && !host.stripeAccountId) {
     return new NextResponse("Connect Stripe under Settings → Payments first.", { status: 400 });
   }
 
@@ -105,6 +113,9 @@ export async function POST(request: NextRequest) {
           workingHoursOverride: data.workingHoursOverride ?? Prisma.JsonNull,
           priceCents: isPaid ? data.priceCents! : null,
           priceCurrency: isPaid ? data.priceCurrency! : null,
+          // Free MTs always store STRIPE (the schema default) so the column is meaningless
+          // for them. Only paid MTs honour the chosen rail.
+          paymentMethod: isPaid && data.paymentMethod === "INVOICE" ? "INVOICE" : "STRIPE",
         },
       });
       const intakeFormId = await syncIntakeForm({

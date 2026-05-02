@@ -106,7 +106,13 @@ function initialToDraft(initial: Initial): DraftValues {
     intakeFields: initial.intakeFields,
     isActive: initial.isActive,
     conferencingProvider: initial.conferencingProvider,
-    conferencingHostId: initial.conferencingHostId,
+    // Legacy collective MTs predate the per-MT conferencing host. Default to the first
+    // assigned host so the form's validation matches what the UI shows.
+    conferencingHostId:
+      initial.conferencingHostId ??
+      (initial.routingMode === "COLLECTIVE" && initial.conferencingProvider !== "NONE"
+        ? initial.assignedHostIds[0] ?? null
+        : null),
     maxInvitees: initial.maxInvitees,
     workingHoursOverride: initial.workingHoursOverride,
   };

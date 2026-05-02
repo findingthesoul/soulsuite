@@ -42,7 +42,11 @@ export function TabsList({ className, children, ...props }: TabsListProps) {
     <div
       role="tablist"
       className={cn(
-        "flex flex-wrap items-center gap-1 border-b border-border",
+        // On small screens we let tabs scroll horizontally instead of wrapping —
+        // wrapping pushes the tab strip into multiple rows on phones, which
+        // looks like an accidental layout glitch. The desktop behaviour is
+        // unchanged via `sm:flex-wrap`.
+        "flex items-center gap-1 border-b border-border overflow-x-auto whitespace-nowrap sm:flex-wrap sm:overflow-visible sm:whitespace-normal",
         className,
       )}
       {...props}
@@ -75,7 +79,7 @@ export function TabsTrigger({
       data-state={active ? "active" : "inactive"}
       onClick={() => ctx.onValueChange(value)}
       className={cn(
-        "relative -mb-px inline-flex items-center gap-2 px-3 py-2 text-sm font-medium transition-colors border-b-2",
+        "relative -mb-px inline-flex shrink-0 items-center gap-2 px-3 py-2 text-sm font-medium transition-colors border-b-2",
         active
           ? "border-foreground text-foreground"
           : "border-transparent text-muted-foreground hover:text-foreground",

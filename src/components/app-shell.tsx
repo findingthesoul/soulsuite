@@ -1,6 +1,7 @@
 import * as React from "react";
 import { UserMenu } from "@/components/user-menu";
 import { Sidebar } from "@/components/sidebar";
+import { MobileNav } from "@/components/mobile-nav";
 
 export interface AppShellProps {
   user: { name: string; email: string };
@@ -25,12 +26,18 @@ export function AppShell({ user, workspaceName, logoUrl, brandColor, hasWorkspac
 
       {/* Main area */}
       <div className="flex flex-1 flex-col min-w-0 overflow-y-auto">
-        {/* Top bar */}
-        <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center justify-end border-b border-border bg-surface px-4 sm:px-6">
+        {/* Top bar — mobile shows a hamburger on the left; desktop is right-aligned only. */}
+        <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border bg-surface px-4 sm:px-6 md:justify-end">
+          <MobileNav
+            workspaceName={workspaceName}
+            logoUrl={logoUrl}
+            brandColor={brandColor}
+            hasWorkspace={hasWorkspace}
+          />
           <UserMenu name={user.name} email={user.email} />
         </header>
 
-        <main className="flex-1 px-4 py-8 sm:px-8 sm:py-10 w-full max-w-4xl">
+        <main className="flex-1 px-4 py-6 sm:px-8 sm:py-10 w-full max-w-4xl">
           {children}
         </main>
       </div>

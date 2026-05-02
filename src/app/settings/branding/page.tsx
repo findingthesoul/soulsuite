@@ -13,16 +13,8 @@ export default async function BrandingSettingsPage() {
 
   return (
     <AppShell {...shellProps(ctx)}>
-      <div className="mx-auto w-full max-w-2xl space-y-6">
-        <header className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Branding</h1>
-          <p className="text-sm text-muted-foreground">
-            Logo and brand colour for {ws.name}. Used in the app header and (later) on public booking pages.
-          </p>
-        </header>
-        <BrandingForm
-          initial={{ name: ws.name, logoUrl: ws.logoUrl, brandColor: ws.brandColor }}
-        />
+      <div className="mx-auto w-full max-w-2xl">
+        <BrandingForm initial={{ name: ws.name, logoUrl: ws.logoUrl, brandColor: ws.brandColor }} />
       </div>
     </AppShell>
   );

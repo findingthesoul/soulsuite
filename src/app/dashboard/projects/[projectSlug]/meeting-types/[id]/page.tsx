@@ -79,6 +79,7 @@ export default async function EditProjectMeetingTypePage({
             intakeFields,
             isActive: mt.isActive,
             conferencingProvider: mt.conferencingProvider,
+            conferencingHostId: mt.conferencingHostId,
             maxInvitees: mt.maxInvitees,
             workingHoursOverride: mt.workingHoursOverride as never,
           }}

@@ -30,6 +30,7 @@ const patchSchema = z.object({
   intakeFields: intakeFieldsSchema.default([]),
   isActive: z.boolean(),
   conferencingProvider: z.enum(["GOOGLE_MEET", "ZOOM", "TEAMS", "NONE"]),
+  conferencingHostId: z.string().min(1).nullable().optional(),
   maxInvitees: z.number().int().min(1).max(50).default(1),
   workingHoursOverride: workingHoursSchema.nullable().optional(),
 });
@@ -109,17 +110,42 @@ export async function PATCH(
   if (data.conferencingProvider === "TEAMS") {
     return new NextResponse("Microsoft Teams is not supported yet.", { status: 400 });
   }
+
+  let conferencingHostId: string | null = null;
+  if (data.routingMode === "COLLECTIVE" && data.conferencingProvider !== "NONE") {
+    if (!data.conferencingHostId) {
+      return new NextResponse("Pick a conferencing host from the assigned hosts.", { status: 400 });
+    }
+    if (!data.assignedHostIds.includes(data.conferencingHostId)) {
+      return new NextResponse("Conferencing host must be one of the assigned hosts.", { status: 400 });
+    }
+    conferencingHostId = data.conferencingHostId;
+  }
+
   if (data.conferencingProvider === "ZOOM") {
-    const hosts = await prisma.host.findMany({
-      where: { id: { in: data.assignedHostIds } },
-      select: { id: true, name: true, zoomRefreshToken: true },
-    });
-    const missing = hosts.filter((h) => !h.zoomRefreshToken);
-    if (missing.length > 0) {
-      return new NextResponse(
-        `These hosts haven't connected Zoom: ${missing.map((h) => h.name).join(", ")}.`,
-        { status: 400 },
-      );
+    if (data.routingMode === "COLLECTIVE") {
+      const confHost = await prisma.host.findUnique({
+        where: { id: conferencingHostId! },
+        select: { id: true, name: true, zoomRefreshToken: true },
+      });
+      if (!confHost?.zoomRefreshToken) {
+        return new NextResponse(
+          `${confHost?.name ?? "Conferencing host"} hasn't connected Zoom.`,
+          { status: 400 },
+        );
+      }
+    } else {
+      const hosts = await prisma.host.findMany({
+        where: { id: { in: data.assignedHostIds } },
+        select: { id: true, name: true, zoomRefreshToken: true },
+      });
+      const missing = hosts.filter((h) => !h.zoomRefreshToken);
+      if (missing.length > 0) {
+        return new NextResponse(
+          `These hosts haven't connected Zoom: ${missing.map((h) => h.name).join(", ")}.`,
+          { status: 400 },
+        );
+      }
     }
   }
 
@@ -141,6 +167,7 @@ export async function PATCH(
           conflictCalendarIds: data.conflictCalendarIds,
           isActive: data.isActive,
           conferencingProvider: data.conferencingProvider,
+          conferencingHostId,
           maxInvitees: data.maxInvitees,
           workingHoursOverride: data.workingHoursOverride ?? Prisma.JsonNull,
         },

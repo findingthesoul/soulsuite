@@ -12,7 +12,7 @@ import { pickRoundRobinHost } from "@/lib/round-robin";
 import { sendEmail, bookingConfirmationTemplate, appUrl } from "@/lib/email";
 import { getEmailLogoUrl } from "@/lib/branding";
 import { getZoomAccessTokenForHost } from "@/lib/zoom/host";
-import { createZoomMeeting } from "@/lib/zoom/client";
+import { createZoomMeeting, ZoomAlternativeHostsError } from "@/lib/zoom/client";
 import { upsertContactFromBooking, workspaceIdForMeetingType } from "@/lib/contacts";
 
 const bodySchema = z.object({
@@ -217,8 +217,10 @@ export async function POST(request: NextRequest) {
     );
     host = freeHosts.find((h) => h.id === winnerId) ?? freeHosts[0];
   } else if (meetingType.routingMode === "COLLECTIVE") {
-    const firstId = candidateHostIds[0];
-    host = freeHosts.find((h) => h.id === firstId) ?? freeHosts[0];
+    // Conferencing host (set on the MT) owns the calendar event + Zoom meeting; the rest are
+    // co-hosts/attendees. Falls back to assignedHostIds[0] for legacy MTs predating the picker.
+    const ownerId = meetingType.conferencingHostId ?? candidateHostIds[0];
+    host = freeHosts.find((h) => h.id === ownerId) ?? freeHosts[0];
   } else {
     host = freeHosts[0];
   }
@@ -404,13 +406,37 @@ export async function POST(request: NextRequest) {
           { status: 502 },
         );
       }
-      zoomMeeting = await createZoomMeeting(accessToken, {
+      // For COLLECTIVE: try to add the other assigned hosts as Zoom alternative hosts. If their
+      // emails aren't in the same Zoom org, Zoom rejects the entire create call — we catch
+      // ZoomAlternativeHostsError and retry without the list (they'll join as guests via the
+      // calendar invite instead).
+      const altHosts =
+        meetingType.routingMode === "COLLECTIVE"
+          ? collectiveCoHosts.map((h) => h.email)
+          : [];
+      const zoomArgs = {
         topic: `${meetingType.name} — ${body.inviteeName}`,
         startsAtIso: startsAt.toISOString(),
         durationMinutes: meetingType.durationMinutes,
         timezone: "UTC",
         agenda: meetingType.description ?? undefined,
-      });
+      };
+      try {
+        zoomMeeting = await createZoomMeeting(accessToken, {
+          ...zoomArgs,
+          alternativeHosts: altHosts,
+        });
+      } catch (err) {
+        if (err instanceof ZoomAlternativeHostsError) {
+          console.warn(
+            "[booking] zoom alternative_hosts rejected (cross-org); retrying without",
+            err.underlying,
+          );
+          zoomMeeting = await createZoomMeeting(accessToken, zoomArgs);
+        } else {
+          throw err;
+        }
+      }
     } catch (err) {
       console.error("[booking] zoom create failed", err);
       await prisma.booking.delete({ where: { id: bookingId } }).catch(() => undefined);

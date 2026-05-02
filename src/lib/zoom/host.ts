@@ -24,6 +24,14 @@ async function refreshAndStore(hostId: string): Promise<string | null> {
   });
   if (!host?.zoomRefreshToken) return null;
 
+  console.log(
+    "[zoom] refreshing token for host",
+    hostId,
+    "tokenPrefix",
+    host.zoomRefreshToken.slice(0, 12),
+    "tokenLength",
+    host.zoomRefreshToken.length,
+  );
   let tokens;
   try {
     tokens = await refreshAccessToken(host.zoomRefreshToken);

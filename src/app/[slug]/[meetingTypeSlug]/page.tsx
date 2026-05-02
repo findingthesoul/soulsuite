@@ -117,6 +117,8 @@ export default async function PublicBookingPage({
         conferencingProvider: meetingType.conferencingProvider,
       }}
       projectName={projectName}
+      hostNames={resolved.multiHosts?.map((h) => h.name) ?? null}
+      routingMode={meetingType.routingMode}
       intakeFields={intakeFields}
       initialSlots={slots}
     />

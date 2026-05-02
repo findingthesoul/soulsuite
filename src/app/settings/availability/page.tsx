@@ -6,11 +6,7 @@ export default async function AvailabilitySettingsPage() {
   const ctx = await getPageContextOrRedirect();
   return (
     <AppShell {...shellProps(ctx)}>
-      <div className="mx-auto w-full max-w-2xl space-y-6">
-        <header className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Availability</h1>
-          <p className="text-sm text-muted-foreground">Timezone and weekly working hours.</p>
-        </header>
+      <div className="mx-auto w-full max-w-2xl">
         <WorkingHoursForm
           variant="edit"
           initial={{

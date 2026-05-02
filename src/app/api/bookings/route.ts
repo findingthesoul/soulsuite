@@ -447,7 +447,7 @@ export async function POST(request: NextRequest) {
         await cal.events.patch({
           calendarId: writeTarget.googleCalendarId,
           eventId: anchor.googleEventId,
-          sendUpdates: "all",
+          sendUpdates: "none",
           requestBody: { attendees: nextAttendees },
         });
       } catch (err) {

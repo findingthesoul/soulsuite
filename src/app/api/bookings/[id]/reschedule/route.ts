@@ -118,7 +118,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       await cal.events.patch({
         calendarId: writeTarget.googleCalendarId,
         eventId: booking.googleEventId,
-        sendUpdates: "all",
+        sendUpdates: "none",
         requestBody: {
           start: { dateTime: startsAt.toISOString(), timeZone: "UTC" },
           end: { dateTime: endsAt.toISOString(), timeZone: "UTC" },

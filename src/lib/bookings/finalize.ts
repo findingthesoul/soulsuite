@@ -159,7 +159,10 @@ export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResul
     const ev = await cal.events.insert({
       calendarId: writeTarget.googleCalendarId,
       conferenceDataVersion: useGoogleMeet ? 1 : 0,
-      sendUpdates: "all",
+      // We send our own branded confirmation via Resend (with cancel/reschedule URLs that
+       // round-trip to Soul Suite). Setting `none` means Google still adds the event to every
+       // attendee's calendar, but doesn't email them about it — invitees get exactly one email.
+       sendUpdates: "none",
       requestBody: {
         summary: `${meetingType.name} — ${booking.inviteeName}`,
         description,

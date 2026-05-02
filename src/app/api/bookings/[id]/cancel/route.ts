@@ -36,7 +36,7 @@ export async function POST(
         await cal.events.delete({
           calendarId: writeTarget.googleCalendarId,
           eventId: booking.googleEventId,
-          sendUpdates: "all",
+          sendUpdates: "none",
         });
       }
     } catch (err) {

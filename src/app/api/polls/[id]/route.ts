@@ -84,7 +84,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const ev = await cal.events.insert({
       calendarId: writeTarget.googleCalendarId,
       conferenceDataVersion: 1,
-      sendUpdates: "all",
+      sendUpdates: "none",
       requestBody: {
         summary: `${poll.name}`,
         description: `Group meeting finalized from a Soul Suite poll.\nInvitees: ${inviteeEmails.join(", ")}`,

@@ -7,6 +7,13 @@ import { BUFFER_MINUTES, MIN_NOTICE_MINUTES, MAX_ADVANCE_DAYS } from "@/lib/sche
 import { intakeFieldsSchema } from "@/lib/intake";
 import { syncIntakeForm } from "@/lib/intake-server";
 
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+const rangeSchema = z
+  .object({ start: z.string().regex(TIME_RE), end: z.string().regex(TIME_RE) })
+  .refine((r) => r.start < r.end, { message: "Start must be before end." });
+const dayKey = z.enum(["mon", "tue", "wed", "thu", "fri", "sat", "sun"]);
+const workingHoursSchema = z.record(dayKey, z.array(rangeSchema));
+
 const bodySchema = z.object({
   name: z.string().trim().min(2).max(80),
   slug: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/),
@@ -33,6 +40,7 @@ const bodySchema = z.object({
   isActive: z.boolean().optional(),
   conferencingProvider: z.enum(["GOOGLE_MEET", "ZOOM", "TEAMS", "NONE"]).default("GOOGLE_MEET"),
   maxInvitees: z.number().int().min(1).max(50).default(1),
+  workingHoursOverride: workingHoursSchema.nullable().optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -82,6 +90,7 @@ export async function POST(request: NextRequest) {
           conflictCalendarIds: data.conflictCalendarIds,
           conferencingProvider: data.conferencingProvider,
           maxInvitees: data.maxInvitees,
+          workingHoursOverride: data.workingHoursOverride ?? null,
         },
       });
       const intakeFormId = await syncIntakeForm({

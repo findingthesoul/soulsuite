@@ -82,20 +82,36 @@ export default async function ProjectDashboardPage({
           </div>
           <Card>
             <ul className="divide-y divide-border">
-              {members.map((m) => (
-                <li key={m.id} className="flex items-center justify-between gap-3 p-3 text-sm">
-                  <div className="min-w-0">
-                    <p className="font-medium text-foreground truncate">{m.host.name}</p>
-                    <p className="text-xs text-muted-foreground truncate">
-                      {m.host.email}
-                      {m.isExternal && " · external"}
-                    </p>
-                  </div>
-                  <span className="text-xs uppercase tracking-wide text-subtle-foreground shrink-0">
-                    {m.role}
-                  </span>
-                </li>
-              ))}
+              {members.map((m) => {
+                const isSelf = m.hostId === ctx.host.id;
+                const canEditHours = isLead || isSelf;
+                const hasOverride = Boolean(m.workingHoursOverride);
+                return (
+                  <li key={m.id} className="flex items-center justify-between gap-3 p-3 text-sm">
+                    <div className="min-w-0">
+                      <p className="font-medium text-foreground truncate">{m.host.name}</p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {m.host.email}
+                        {m.isExternal && " · external"}
+                        {hasOverride && " · custom hours"}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      {canEditHours && (
+                        <Link
+                          href={`/dashboard/projects/${project.slug}/members/${m.id}/availability`}
+                          className="text-xs underline text-muted-foreground hover:text-foreground"
+                        >
+                          {isSelf ? "My hours" : "Hours"}
+                        </Link>
+                      )}
+                      <span className="text-xs uppercase tracking-wide text-subtle-foreground">
+                        {m.role}
+                      </span>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           </Card>
         </section>

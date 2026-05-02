@@ -78,8 +78,21 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     (b) => !(b.start.getTime() === booking.startsAt.getTime() && b.end.getTime() === booking.endsAt.getTime()),
   );
 
+  // For project-scoped MTs, honour the host's per-team working-hours override.
+  let projectMemberOverride: unknown = null;
+  if (meetingType.scope === "PROJECT" && meetingType.projectId) {
+    const member = await prisma.projectMember.findUnique({
+      where: { projectId_hostId: { projectId: meetingType.projectId, hostId: host.id } },
+      select: { workingHoursOverride: true },
+    });
+    projectMemberOverride = member?.workingHoursOverride ?? null;
+  }
+
   const slots = computeAvailableSlots({
-    host: { timezone: host.timezone, workingHours: effectiveWorkingHours(meetingType, host) },
+    host: {
+      timezone: host.timezone,
+      workingHours: effectiveWorkingHours(meetingType, host, projectMemberOverride),
+    },
     meetingType: {
       durationMinutes: meetingType.durationMinutes,
       bufferBeforeMinutes: meetingType.bufferBeforeMinutes,

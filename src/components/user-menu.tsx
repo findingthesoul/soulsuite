@@ -21,6 +21,7 @@ import { useSidebar } from "@/components/sidebar-provider";
 export function UserMenu({ name, email }: { name: string; email: string }) {
   const { mode, setMode } = useTheme();
   const { mode: sidebarMode, setMode: setSidebarMode } = useSidebar();
+  const signoutFormRef = React.useRef<HTMLFormElement>(null);
 
   return (
     <DropdownMenu>
@@ -90,14 +91,16 @@ export function UserMenu({ name, email }: { name: string; email: string }) {
           </DropdownMenuRadioItem>
         </DropdownMenuRadioGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuItem asChild>
-          <form action="/auth/signout" method="post" className="w-full">
-            <button type="submit" className="flex w-full items-center gap-2">
-              <LogOut className="h-4 w-4" />
-              Sign out
-            </button>
-          </form>
+        <DropdownMenuItem
+          onSelect={(e) => {
+            e.preventDefault();
+            signoutFormRef.current?.submit();
+          }}
+        >
+          <LogOut className="h-4 w-4" />
+          Sign out
         </DropdownMenuItem>
+        <form ref={signoutFormRef} action="/auth/signout" method="post" className="hidden" />
       </DropdownMenuContent>
     </DropdownMenu>
   );

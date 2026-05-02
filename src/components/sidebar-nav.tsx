@@ -95,14 +95,6 @@ export function SidebarNav({ compact = false, overlay = false }: Props) {
           <HelpCircle className="h-3.5 w-3.5 shrink-0" />
           <span className={labelClass()}>Help</span>
         </Link>
-        <a
-          href="mailto:support@soul.com"
-          className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
-          title="Support"
-        >
-          <HelpCircle className="h-3.5 w-3.5 shrink-0" />
-          <span className={labelClass()}>Support</span>
-        </a>
         <p className={`text-xs text-subtle-foreground pl-0.5 ${labelClass()}`}>v{APP_VERSION}</p>
       </div>
     </div>

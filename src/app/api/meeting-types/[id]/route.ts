@@ -41,6 +41,8 @@ const patchSchema = z.object({
   conferencingProvider: z.enum(["GOOGLE_MEET", "ZOOM", "TEAMS", "NONE"]),
   maxInvitees: z.number().int().min(1).max(50).default(1),
   workingHoursOverride: workingHoursSchema.nullable().optional(),
+  priceCents: z.number().int().min(50).max(10_000_000).nullable().optional(),
+  priceCurrency: z.enum(["eur", "usd", "gbp"]).nullable().optional(),
 });
 
 async function findOwnedMeetingType(id: string, hostId: string) {
@@ -69,6 +71,14 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
   if (parsed.data.conferencingProvider === "TEAMS") {
     return new NextResponse("Microsoft Teams is not supported yet.", { status: 400 });
+  }
+
+  const isPaid = (parsed.data.priceCents ?? 0) > 0;
+  if (isPaid && !parsed.data.priceCurrency) {
+    return new NextResponse("Pick a currency for paid meeting types.", { status: 400 });
+  }
+  if (isPaid && !host.stripeAccountId) {
+    return new NextResponse("Connect Stripe under Settings → Payments first.", { status: 400 });
   }
 
   // Validate that any conflict-calendar IDs belong to this host.
@@ -100,6 +110,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
           conferencingProvider: parsed.data.conferencingProvider,
           maxInvitees: parsed.data.maxInvitees,
           workingHoursOverride: parsed.data.workingHoursOverride ?? Prisma.JsonNull,
+          priceCents: isPaid ? parsed.data.priceCents! : null,
+          priceCurrency: isPaid ? parsed.data.priceCurrency! : null,
         },
       });
       const newFormId = await syncIntakeForm({

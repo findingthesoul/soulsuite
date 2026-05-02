@@ -57,6 +57,7 @@ export default async function EditProjectMeetingTypePage({
             email: m.host.email,
             isExternal: m.isExternal,
             hasZoom: !!m.host.zoomRefreshToken,
+            hasStripe: !!m.host.stripeAccountId,
             calendars: m.host.calendars.map((c) => ({
               id: c.id,
               summary: c.summary ?? c.googleCalendarId,
@@ -82,6 +83,8 @@ export default async function EditProjectMeetingTypePage({
             conferencingHostId: mt.conferencingHostId,
             maxInvitees: mt.maxInvitees,
             workingHoursOverride: mt.workingHoursOverride as never,
+            priceCents: mt.priceCents,
+            priceCurrency: mt.priceCurrency,
           }}
         />
       </div>

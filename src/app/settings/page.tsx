@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ChevronRight, Palette, Users, Building2, CalendarRange, Clock, Video, User as UserIcon } from "lucide-react";
+import { ChevronRight, Palette, Users, Building2, CalendarRange, Clock, Video, User as UserIcon, CreditCard } from "lucide-react";
 import { getPageContextOrRedirect, shellProps } from "@/lib/page-context";
 import { getWorkspaceRole, canManageWorkspace } from "@/lib/permissions";
 import { AppShell } from "@/components/app-shell";
@@ -43,6 +43,13 @@ export default async function SettingsIndexPage() {
       title: "Connections",
       description: "Connect Zoom (and later Teams) so meeting types can use them.",
       icon: Video,
+      section: "personal",
+    },
+    {
+      href: "/settings/payments",
+      title: "Payments",
+      description: "Connect Stripe so paid meeting types can collect payment.",
+      icon: CreditCard,
       section: "personal",
     },
     {

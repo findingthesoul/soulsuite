@@ -100,6 +100,9 @@ model Host {
   zoomRefreshToken   String?
   zoomAccountEmail   String?
   zoomConnectedAt    DateTime?
+  // Stripe Connect Standard — host pastes their account ID (acct_…) on /settings/payments.
+  // Null = no Stripe connected; paid meeting types blocked from saving until set.
+  stripeAccountId    String?
   timezone           String    @default("Europe/Amsterdam")
   // JSON shape: { mon: [{start: "09:00", end: "17:00"}], tue: [...], ... }
   workingHours       Json?
@@ -262,6 +265,12 @@ model MeetingType {
   // OneOffSlot rows) instead of using working hours + availability engine. Hidden from regular
   // meeting-type lists; surfaced under a dedicated dashboard section.
   isOneOff              Boolean              @default(false)
+  // Pricing — paid meeting types route the invitee through Stripe Checkout before the booking
+  // is finalised. Null/0 priceCents = free (existing flow). priceCurrency is ISO-4217 lowercase
+  // (eur, usd, gbp). Validation in the MT API blocks save when priceCents > 0 and the host has
+  // no stripeAccountId.
+  priceCents            Int?
+  priceCurrency         String?
   createdAt             DateTime             @default(now())
 
   host       Host?            @relation("PersonalMeetingTypeHost", fields: [hostId], references: [id], onDelete: Cascade)
@@ -307,6 +316,17 @@ enum BookingStatus {
   RESCHEDULED
 }
 
+// Payment lifecycle for paid meeting types. NOT_REQUIRED = free MT (default). PENDING = Stripe
+// Checkout session opened, awaiting webhook. PAID = checkout completed and the booking has been
+// finalised (Google + emails). FAILED = expired or payment intent failed. REFUNDED = manual.
+enum PaymentStatus {
+  NOT_REQUIRED
+  PENDING
+  PAID
+  REFUNDED
+  FAILED
+}
+
 model Booking {
   id                   String               @id @default(cuid())
   meetingTypeId        String
@@ -329,6 +349,12 @@ model Booking {
   // Idempotency key for Google event creation (brief §Idempotency).
   requestId            String               @unique
   status               BookingStatus        @default(CONFIRMED)
+  // Payment fields — only meaningful when the meeting type has priceCents > 0. For free MTs the
+  // status stays NOT_REQUIRED and stripe* fields stay null. PENDING bookings exist but have no
+  // googleEventId / meetUrl yet; the webhook flips PAID and runs finalizeBooking().
+  paymentStatus        PaymentStatus        @default(NOT_REQUIRED)
+  stripeSessionId      String?
+  stripePaymentIntent  String?
   createdAt            DateTime             @default(now())
 
   meetingType       MeetingType @relation(fields: [meetingTypeId], references: [id])
@@ -341,6 +367,7 @@ model Booking {
   @@index([projectId])
   @@index([meetingTypeId])
   @@index([meetingTypeId, startsAt])
+  @@index([stripeSessionId])
 }
 
 // ────────────────────────────────────────────────────────────────────────────

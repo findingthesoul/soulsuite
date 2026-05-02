@@ -7,6 +7,10 @@ const publicSchema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
   NEXT_PUBLIC_APP_URL: z.string().url(),
+  // Stripe publishable key — only the host's Stripe account ID is used server-side for Connect,
+  // but the publishable key is referenced here for completeness and any future Elements work.
+  // Optional so the app still boots in dev without Stripe configured.
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: z.string().min(1).optional(),
 });
 
 const serverSchema = z.object({
@@ -25,12 +29,19 @@ const serverSchema = z.object({
   // /settings/connections page hides the Zoom card and meeting types can't pick ZOOM.
   ZOOM_CLIENT_ID: z.string().min(1).optional(),
   ZOOM_CLIENT_SECRET: z.string().min(1).optional(),
+  // Stripe — STRIPE_SECRET_KEY is required for paid meeting types to work; without it the
+  // booking API returns a clear error when an invitee tries to book a paid MT. STRIPE_WEBHOOK_SECRET
+  // is required for the /api/stripe/webhook route to verify signatures. Both optional at boot
+  // time so dev environments without Stripe can still run.
+  STRIPE_SECRET_KEY: z.string().min(1).optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
 });
 
 export const publicEnv = publicSchema.parse({
   NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
   NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
   NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
 });
 
 // Lazy because the browser bundle must not evaluate this.
@@ -52,6 +63,8 @@ export function serverEnv() {
       EMAIL_FROM: process.env.EMAIL_FROM,
       ZOOM_CLIENT_ID: process.env.ZOOM_CLIENT_ID,
       ZOOM_CLIENT_SECRET: process.env.ZOOM_CLIENT_SECRET,
+      STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
+      STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
     });
   }
   return _serverEnv;

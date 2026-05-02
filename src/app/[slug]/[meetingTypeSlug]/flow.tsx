@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight, Clock, Globe, Video } from "lucide-react";
+import { ChevronLeft, ChevronRight, Clock, Globe, Video, CreditCard } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +23,8 @@ interface MeetingType {
   description: string | null;
   durationMinutes: number;
   conferencingProvider: "GOOGLE_MEET" | "ZOOM" | "TEAMS" | "NONE";
+  priceCents: number | null;
+  priceCurrency: string | null;
 }
 interface SerializedSlot {
   startsAt: string;
@@ -161,6 +163,14 @@ function EventPanel({
           <Clock className="h-4 w-4 shrink-0" />
           <span>{meetingType.durationMinutes} minutes</span>
         </li>
+        {meetingType.priceCents != null && meetingType.priceCents > 0 && meetingType.priceCurrency && (
+          <li className="flex items-center gap-2 font-medium text-foreground">
+            <CreditCard className="h-4 w-4 shrink-0" />
+            <span>
+              {formatPriceClient(meetingType.priceCents, meetingType.priceCurrency)} — paid via Stripe
+            </span>
+          </li>
+        )}
         {meetingType.conferencingProvider !== "NONE" && (
           <li className="flex items-center gap-2">
             <Video className="h-4 w-4 shrink-0" />
@@ -491,7 +501,14 @@ function DetailsPanel({
         setError(text || "Failed to create booking.");
         return;
       }
-      const data = (await res.json()) as { id: string };
+      const data = (await res.json()) as { id: string; checkoutUrl?: string };
+      // Paid meeting types: server returns a Stripe Checkout URL → redirect there. The booking
+      // is created in PENDING state and the webhook finalises it after payment. Free MTs return
+      // just { id } and we go straight to the confirmation page.
+      if (data.checkoutUrl) {
+        window.location.assign(data.checkoutUrl);
+        return;
+      }
       onBooked(data.id);
     });
   }
@@ -616,6 +633,17 @@ function tzOptions(): string[] {
       ? intl.supportedValuesOf("timeZone")
       : ["Europe/Amsterdam", "Europe/London", "America/New_York", "America/Los_Angeles", "UTC"];
   return [...list].sort();
+}
+
+function formatPriceClient(priceCents: number, currency: string): string {
+  const symbols: Record<string, string> = { eur: "€", usd: "$", gbp: "£" };
+  const symbol = symbols[currency.toLowerCase()] ?? currency.toUpperCase() + " ";
+  const major = priceCents / 100;
+  const formatted = major.toLocaleString("en-US", {
+    minimumFractionDigits: priceCents % 100 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  });
+  return `${symbol}${formatted}`;
 }
 
 function providerLabel(p: "GOOGLE_MEET" | "ZOOM" | "TEAMS" | "NONE"): string {

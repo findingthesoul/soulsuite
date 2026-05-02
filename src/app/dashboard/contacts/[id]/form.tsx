@@ -21,6 +21,7 @@ interface Initial {
 }
 
 interface Draft {
+  name: string;
   phone: string;
   company: string;
   jobTitle: string;
@@ -32,6 +33,7 @@ interface Draft {
 export function ContactDetailForm({ initial }: { initial: Initial }) {
   const router = useRouter();
   const { draft, dirty, update, discard, commit } = useDirtyState<Draft>({
+    name: initial.name ?? "",
     phone: initial.phone ?? "",
     company: initial.company ?? "",
     jobTitle: initial.jobTitle ?? "",
@@ -49,6 +51,7 @@ export function ContactDetailForm({ initial }: { initial: Initial }) {
     }
     startTransition(async () => {
       const next: Draft = {
+        name: draft.name.trim(),
         phone: draft.phone.trim(),
         company: draft.company.trim(),
         jobTitle: draft.jobTitle.trim(),
@@ -60,6 +63,7 @@ export function ContactDetailForm({ initial }: { initial: Initial }) {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
+          name: next.name || null,
           phone: next.phone || null,
           company: next.company || null,
           jobTitle: next.jobTitle || null,
@@ -98,7 +102,11 @@ export function ContactDetailForm({ initial }: { initial: Initial }) {
         </CardHeader>
         <CardContent className="space-y-4">
           <Field id="name" label="Name">
-            <Input id="name" value={initial.name ?? ""} disabled />
+            <Input
+              id="name"
+              value={draft.name}
+              onChange={(e) => update({ name: e.target.value })}
+            />
           </Field>
           <Field id="email" label="Email">
             <Input id="email" value={initial.email} disabled />

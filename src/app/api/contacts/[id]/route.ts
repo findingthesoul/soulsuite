@@ -3,9 +3,10 @@ import { z } from "zod";
 import { getCurrentHost } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
-// Editable contact fields. `email` and `name` are populated from booking history and not
-// mutable from the contact detail page (the spec calls them read-only).
+// Editable contact fields. `email` is the unique key per workspace and stays read-only.
+// `name` is editable so admins can correct typos from booking-time entries.
 const bodySchema = z.object({
+  name: z.string().trim().max(120).nullable(),
   phone: z.string().trim().max(40).nullable(),
   company: z.string().trim().max(120).nullable(),
   jobTitle: z.string().trim().max(120).nullable(),

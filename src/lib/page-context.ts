@@ -60,5 +60,6 @@ export function shellProps(ctx: PageContext) {
     workspaceName: ctx.workspace?.name,
     logoUrl: ctx.workspace?.logoUrl ?? null,
     brandColor: ctx.workspace?.brandColor ?? null,
+    hasWorkspace: !!ctx.workspace,
   };
 }

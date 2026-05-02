@@ -29,9 +29,10 @@ const SETTINGS_NAV_ITEMS = [
 interface Props {
   compact?: boolean; // collapsed (icons-only) sidebar
   overlay?: boolean; // hover mode — labels appear on group-hover
+  hasWorkspace?: boolean;
 }
 
-export function SidebarNav({ compact = false, overlay = false }: Props) {
+export function SidebarNav({ compact = false, overlay = false, hasWorkspace = false }: Props) {
   const pathname = usePathname();
 
   function isActive(href: string, exact: boolean) {
@@ -72,18 +73,22 @@ export function SidebarNav({ compact = false, overlay = false }: Props) {
           </Link>
         ))}
 
-        <div className="pt-4 pb-1">
-          <p className={`px-3 text-xs font-medium text-subtle-foreground uppercase tracking-wide ${sectionLabelClass()}`}>
-            Workspace
-          </p>
-        </div>
+        {hasWorkspace && (
+          <>
+            <div className="pt-4 pb-1">
+              <p className={`px-3 text-xs font-medium text-subtle-foreground uppercase tracking-wide ${sectionLabelClass()}`}>
+                Workspace
+              </p>
+            </div>
 
-        {SETTINGS_NAV_ITEMS.map(({ href, label, icon: Icon, exact }) => (
-          <Link key={href} href={href} className={navItemClass(href, exact)} title={label}>
-            <Icon className="h-4 w-4 shrink-0" />
-            <span className={labelClass()}>{label}</span>
-          </Link>
-        ))}
+            {SETTINGS_NAV_ITEMS.map(({ href, label, icon: Icon, exact }) => (
+              <Link key={href} href={href} className={navItemClass(href, exact)} title={label}>
+                <Icon className="h-4 w-4 shrink-0" />
+                <span className={labelClass()}>{label}</span>
+              </Link>
+            ))}
+          </>
+        )}
       </nav>
 
       <div className="border-t border-border px-4 py-4 space-y-2">

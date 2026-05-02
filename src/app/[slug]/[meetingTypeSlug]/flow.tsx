@@ -37,17 +37,35 @@ function detectTz(): string {
   }
 }
 
+// "with X", "with X and Y" (Collective — everyone attends), or "with X or Y" (Round-robin —
+// one host is picked at booking time). Personal MTs always go through the SINGLE branch.
+function formatWithClause(
+  primaryName: string,
+  hostNames?: string[] | null,
+  routingMode?: "SINGLE" | "ROUND_ROBIN" | "COLLECTIVE",
+): string {
+  const names = hostNames && hostNames.length > 0 ? hostNames : [primaryName];
+  if (names.length === 1) return `with ${names[0]}`;
+  const conjunction = routingMode === "ROUND_ROBIN" ? "or" : "and";
+  if (names.length === 2) return `with ${names[0]} ${conjunction} ${names[1]}`;
+  return `with ${names.slice(0, -1).join(", ")}, ${conjunction} ${names[names.length - 1]}`;
+}
+
 export function BookingFlow({
   host,
   meetingType,
   initialSlots,
   projectName,
+  hostNames,
+  routingMode,
   intakeFields,
 }: {
   host: Host;
   meetingType: MeetingType;
   initialSlots: SerializedSlot[];
   projectName?: string | null;
+  hostNames?: string[] | null;
+  routingMode?: "SINGLE" | "ROUND_ROBIN" | "COLLECTIVE";
   intakeFields: IntakeField[];
 }) {
   const router = useRouter();
@@ -88,7 +106,14 @@ export function BookingFlow({
       <div className="mx-auto max-w-5xl px-4 py-8 md:px-6 md:py-14">
         <div className="rounded-xl border border-border bg-surface shadow-xs overflow-hidden">
           <div className="grid md:grid-cols-[280px_1fr]">
-            <EventPanel host={host} meetingType={meetingType} tz={tz} projectName={projectName} />
+            <EventPanel
+              host={host}
+              meetingType={meetingType}
+              tz={tz}
+              projectName={projectName}
+              hostNames={hostNames}
+              routingMode={routingMode}
+            />
             <div className="p-6 md:p-8 border-t md:border-t-0 md:border-l border-border min-h-[480px]">
               {step === "pick" ? (
                 <PickPanel
@@ -141,18 +166,23 @@ function EventPanel({
   meetingType,
   tz,
   projectName,
+  hostNames,
+  routingMode,
 }: {
   host: Host;
   meetingType: MeetingType;
   tz: string;
   projectName?: string | null;
+  hostNames?: string[] | null;
+  routingMode?: "SINGLE" | "ROUND_ROBIN" | "COLLECTIVE";
 }) {
+  const withClause = formatWithClause(host.name, hostNames, routingMode);
   return (
     <aside className="p-6 md:p-8 bg-surface-muted/40 space-y-5">
       <Avatar name={projectName ?? host.name} size="lg" />
       <div className="space-y-1">
         <p className="text-sm text-muted-foreground">
-          {projectName ? `${projectName} · with ${host.name}` : host.name}
+          {projectName ? `${projectName}${withClause ? ` · ${withClause}` : ""}` : host.name}
         </p>
         <h1 className="text-2xl font-semibold tracking-tight leading-tight">{meetingType.name}</h1>
       </div>

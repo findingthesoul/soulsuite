@@ -334,19 +334,15 @@ function EditProjectMeetingTypeForm({
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Group bookings</CardTitle>
-          <CardDescription>
-            How many invitees can claim the same time slot. 1 keeps it 1:1. Only available with single-host routing.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {draft.routingMode !== "SINGLE" ? (
-            <p className="text-sm text-muted-foreground">
-              Group bookings are only available with single-host routing. Switch to Single to enable.
-            </p>
-          ) : (
+      {draft.routingMode === "SINGLE" && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Group bookings</CardTitle>
+            <CardDescription>
+              How many invitees can claim the same time slot. 1 keeps it 1:1.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
             <div className="space-y-1.5">
               <Label htmlFor="maxInvitees">Max invitees per slot</Label>
               <Input
@@ -363,9 +359,9 @@ function EditProjectMeetingTypeForm({
                 When &gt;1 the same slot accepts multiple bookings on a single calendar event.
               </p>
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

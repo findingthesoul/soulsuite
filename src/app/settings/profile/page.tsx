@@ -7,13 +7,7 @@ export default async function ProfilePage() {
   const { host } = ctx;
   return (
     <AppShell {...shellProps(ctx)}>
-      <div className="mx-auto w-full max-w-2xl space-y-6">
-        <header className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Profile</h1>
-          <p className="text-sm text-muted-foreground">
-            How you appear to teammates and invitees. Your sign-in email is fixed.
-          </p>
-        </header>
+      <div className="mx-auto w-full max-w-2xl">
         <ProfileForm
           initial={{
             name: host.name,

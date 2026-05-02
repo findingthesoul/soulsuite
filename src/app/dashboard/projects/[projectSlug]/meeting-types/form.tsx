@@ -2,24 +2,30 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { useDirtyState } from "@/lib/use-dirty-state";
+import { PageHeader, SaveBar } from "@/components/save-bar";
 import {
   BUFFER_MINUTES,
   MIN_NOTICE_MINUTES,
   MAX_ADVANCE_DAYS,
   formatMinutes,
-  formatBuffer,
-  formatMaxAdvanceDays,
 } from "@/lib/scheduling-rules";
-import { type IntakeField, FIELD_TYPE_LABELS } from "@/lib/intake";
+import { type IntakeField } from "@/lib/intake";
 import { IntakeFieldsEditor } from "@/components/intake-fields-editor";
+import {
+  WorkingHoursEditor,
+  coerceSchedule,
+  defaultSchedule,
+  type Schedule,
+} from "@/components/working-hours-editor";
 
 type ConferencingProvider = "GOOGLE_MEET" | "ZOOM" | "TEAMS" | "NONE";
+type RoutingMode = "SINGLE" | "ROUND_ROBIN" | "COLLECTIVE";
 
 interface ProjectMember {
   hostId: string;
@@ -41,12 +47,13 @@ interface Initial {
   minNoticeMinutes: number;
   maxAdvanceDays: number;
   conflictCalendarIds: string[];
-  routingMode: "SINGLE" | "ROUND_ROBIN" | "COLLECTIVE";
+  routingMode: RoutingMode;
   assignedHostIds: string[];
   intakeFields: IntakeField[];
   isActive: boolean;
   conferencingProvider: ConferencingProvider;
   maxInvitees: number;
+  workingHoursOverride: Schedule | null;
 }
 
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
@@ -71,12 +78,34 @@ interface DraftValues {
   minNoticeMinutes: number;
   maxAdvanceDays: number;
   conflictCalendarIds: string[];
-  routingMode: "SINGLE" | "ROUND_ROBIN" | "COLLECTIVE";
+  routingMode: RoutingMode;
   assignedHostIds: string[];
   intakeFields: IntakeField[];
   isActive: boolean;
   conferencingProvider: ConferencingProvider;
   maxInvitees: number;
+  workingHoursOverride: Schedule | null;
+}
+
+function initialToDraft(initial: Initial): DraftValues {
+  return {
+    name: initial.name,
+    slug: initial.slug,
+    description: initial.description ?? "",
+    durationMinutes: initial.durationMinutes,
+    bufferBeforeMinutes: initial.bufferBeforeMinutes,
+    bufferAfterMinutes: initial.bufferAfterMinutes,
+    minNoticeMinutes: initial.minNoticeMinutes,
+    maxAdvanceDays: initial.maxAdvanceDays,
+    conflictCalendarIds: initial.conflictCalendarIds,
+    routingMode: initial.routingMode,
+    assignedHostIds: initial.assignedHostIds,
+    intakeFields: initial.intakeFields,
+    isActive: initial.isActive,
+    conferencingProvider: initial.conferencingProvider,
+    maxInvitees: initial.maxInvitees,
+    workingHoursOverride: initial.workingHoursOverride,
+  };
 }
 
 export function ProjectMeetingTypeForm({
@@ -90,210 +119,133 @@ export function ProjectMeetingTypeForm({
   members: ProjectMember[];
   initial?: Initial;
 }) {
-  const router = useRouter();
   const isEdit = Boolean(initial);
-  const [editing, setEditing] = useState(!isEdit);
-
-  const draftDefault: DraftValues = {
-    name: "",
-    slug: "",
-    description: "",
-    durationMinutes: 30,
-    bufferBeforeMinutes: 0,
-    bufferAfterMinutes: 0,
-    minNoticeMinutes: 60,
-    maxAdvanceDays: 60,
-    conflictCalendarIds: [],
-    routingMode: "SINGLE",
-    assignedHostIds: members[0]?.hostId ? [members[0].hostId] : [],
-    intakeFields: [],
-    isActive: true,
-    conferencingProvider: "GOOGLE_MEET",
-    maxInvitees: 1,
-  };
-
-  const [committed, setCommitted] = useState<DraftValues>(() =>
-    initial
-      ? {
-          name: initial.name,
-          slug: initial.slug,
-          description: initial.description ?? "",
-          durationMinutes: initial.durationMinutes,
-          bufferBeforeMinutes: initial.bufferBeforeMinutes,
-          bufferAfterMinutes: initial.bufferAfterMinutes,
-          minNoticeMinutes: initial.minNoticeMinutes,
-          maxAdvanceDays: initial.maxAdvanceDays,
-          conflictCalendarIds: initial.conflictCalendarIds,
-          routingMode: initial.routingMode,
-          assignedHostIds: initial.assignedHostIds,
-          intakeFields: initial.intakeFields,
-          isActive: initial.isActive,
-          conferencingProvider: initial.conferencingProvider,
-          maxInvitees: initial.maxInvitees,
-        }
-      : draftDefault,
+  if (isEdit && initial) {
+    return (
+      <EditProjectMeetingTypeForm
+        projectId={projectId}
+        projectSlug={projectSlug}
+        members={members}
+        initial={initial}
+      />
+    );
+  }
+  return (
+    <CreateProjectMeetingTypeForm
+      projectId={projectId}
+      projectSlug={projectSlug}
+      members={members}
+    />
   );
+}
 
-  const [draft, setDraft] = useState<DraftValues>(committed);
-  const [slugTouched, setSlugTouched] = useState(Boolean(initial));
+// ────────────────────────────────────────────────────────────
+// Edit (direct-edit pattern)
+// ────────────────────────────────────────────────────────────
+
+function EditProjectMeetingTypeForm({
+  projectId,
+  projectSlug,
+  members,
+  initial,
+}: {
+  projectId: string;
+  projectSlug: string;
+  members: ProjectMember[];
+  initial: Initial;
+}) {
+  const router = useRouter();
+  const { draft, setDraft, dirty, reset, commit } = useDirtyState<DraftValues>(initialToDraft(initial));
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
   function update<K extends keyof DraftValues>(key: K, value: DraftValues[K]) {
-    setDraft((prev) => ({ ...prev, [key]: value }));
+    setDraft({ ...draft, [key]: value });
   }
 
-  // SINGLE-mode active host's calendars — used for the conflict-calendar override (which is
-  // disabled in ROUND_ROBIN since each host has their own calendars).
   const singleHostId = draft.routingMode === "SINGLE" ? draft.assignedHostIds[0] : undefined;
   const activeHostCalendars = members.find((m) => m.hostId === singleHostId)?.calendars ?? [];
 
-  // SINGLE → swap the one assigned host. Drops conflict calendar IDs that don't belong.
   function setSingleAssignedHost(hostId: string) {
     const host = members.find((m) => m.hostId === hostId);
     const validIds = new Set((host?.calendars ?? []).map((c) => c.id));
-    setDraft((prev) => ({
-      ...prev,
+    setDraft({
+      ...draft,
       assignedHostIds: [hostId],
-      conflictCalendarIds: prev.conflictCalendarIds.filter((id) => validIds.has(id)),
-    }));
-  }
-
-  // ROUND_ROBIN → toggle a host on/off in the assigned set.
-  function toggleAssignedHost(hostId: string, on: boolean) {
-    setDraft((prev) => {
-      const set = new Set(prev.assignedHostIds);
-      if (on) set.add(hostId);
-      else set.delete(hostId);
-      return { ...prev, assignedHostIds: [...set] };
+      conflictCalendarIds: draft.conflictCalendarIds.filter((id: string) => validIds.has(id)),
     });
   }
 
-  // Switching routing modes resets selection so we don't end up with invalid combinations.
-  function setRoutingMode(mode: "SINGLE" | "ROUND_ROBIN" | "COLLECTIVE") {
-    setDraft((prev) => ({
-      ...prev,
+  function toggleAssignedHost(hostId: string, on: boolean) {
+    const set = new Set(draft.assignedHostIds);
+    if (on) set.add(hostId);
+    else set.delete(hostId);
+    setDraft({ ...draft, assignedHostIds: [...set] });
+  }
+
+  function setRoutingMode(mode: RoutingMode) {
+    setDraft({
+      ...draft,
       routingMode: mode,
       assignedHostIds:
         mode === "SINGLE"
-          ? prev.assignedHostIds.slice(0, 1).length > 0
-            ? [prev.assignedHostIds[0]]
+          ? draft.assignedHostIds.slice(0, 1).length > 0
+            ? [draft.assignedHostIds[0]]
             : members[0]?.hostId
               ? [members[0].hostId]
               : []
-          : prev.assignedHostIds,
-      conflictCalendarIds: mode === "SINGLE" ? prev.conflictCalendarIds : [],
-    }));
+          : draft.assignedHostIds,
+      conflictCalendarIds: mode === "SINGLE" ? draft.conflictCalendarIds : [],
+    });
   }
 
-  function handleNameChange(value: string) {
-    update("name", value);
-    if (!slugTouched) update("slug", autoSlug(value));
+  function discard() {
+    setError(null);
+    reset();
   }
 
-  function startEdit() {
-    setDraft(committed);
-    setSlugTouched(true);
+  function save() {
     setError(null);
-    setEditing(true);
-  }
-  function cancel() {
-    if (!isEdit) {
-      router.push(`/dashboard/projects/${projectSlug}`);
-      return;
-    }
-    setDraft(committed);
-    setSlugTouched(true);
-    setError(null);
-    setEditing(false);
-  }
-
-  function submit() {
-    setError(null);
-    if (draft.name.trim().length < 2) return setError("Name is required.");
-    if (!SLUG_RE.test(draft.slug)) {
-      return setError("Slug must be 2–40 chars, lowercase letters/digits/hyphens.");
-    }
-    if (![15, 30, 45, 60, 90, 120].includes(draft.durationMinutes)) {
-      return setError("Duration must be 15, 30, 45, 60, 90, or 120 minutes.");
-    }
-    if (draft.routingMode === "SINGLE") {
-      const id = draft.assignedHostIds[0];
-      if (!id || !members.some((m) => m.hostId === id)) {
-        return setError("Pick an assigned host from the project members.");
-      }
-    } else {
-      const label = draft.routingMode === "COLLECTIVE" ? "Collective" : "Round-robin";
-      if (draft.assignedHostIds.length < 2) {
-        return setError(`${label} needs at least two assigned hosts.`);
-      }
-      const allValid = draft.assignedHostIds.every((id) => members.some((m) => m.hostId === id));
-      if (!allValid) return setError("All assigned hosts must be project members.");
-    }
-    if (!Number.isInteger(draft.maxInvitees) || draft.maxInvitees < 1 || draft.maxInvitees > 50) {
-      return setError("Max invitees must be a whole number between 1 and 50.");
-    }
-    if (draft.maxInvitees > 1 && draft.routingMode !== "SINGLE") {
-      return setError("Group meetings (max invitees > 1) only work with single-host routing.");
-    }
-    if (draft.conferencingProvider === "ZOOM") {
-      const missing = draft.assignedHostIds
-        .map((id) => members.find((m) => m.hostId === id))
-        .filter((m): m is ProjectMember => Boolean(m && !m.hasZoom));
-      if (missing.length > 0) {
-        return setError(
-          `These assigned hosts haven't connected Zoom: ${missing.map((m) => m.name).join(", ")}. They need to connect in Settings → Connections first.`,
-        );
-      }
-    }
+    const validation = validateDraft(draft, members);
+    if (validation) return setError(validation);
+    const overridePayload = serialiseOverride(draft.workingHoursOverride);
 
     startTransition(async () => {
-      const url = isEdit
-        ? `/api/projects/${projectId}/meeting-types/${initial!.id}`
-        : `/api/projects/${projectId}/meeting-types`;
-      const method = isEdit ? "PATCH" : "POST";
-      const body = {
-        name: draft.name.trim(),
-        slug: draft.slug,
-        description: draft.description.trim() || null,
-        durationMinutes: draft.durationMinutes,
-        bufferBeforeMinutes: draft.bufferBeforeMinutes,
-        bufferAfterMinutes: draft.bufferAfterMinutes,
-        minNoticeMinutes: draft.minNoticeMinutes,
-        maxAdvanceDays: draft.maxAdvanceDays,
-        conflictCalendarIds: draft.conflictCalendarIds,
-        routingMode: draft.routingMode,
-        assignedHostIds: draft.assignedHostIds,
-        intakeFields: draft.intakeFields,
-        isActive: draft.isActive,
-        conferencingProvider: draft.conferencingProvider,
-        maxInvitees: draft.maxInvitees,
-      };
-      const res = await fetch(url, {
-        method,
+      const res = await fetch(`/api/projects/${projectId}/meeting-types/${initial.id}`, {
+        method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          name: draft.name.trim(),
+          slug: draft.slug,
+          description: draft.description.trim() || null,
+          durationMinutes: draft.durationMinutes,
+          bufferBeforeMinutes: draft.bufferBeforeMinutes,
+          bufferAfterMinutes: draft.bufferAfterMinutes,
+          minNoticeMinutes: draft.minNoticeMinutes,
+          maxAdvanceDays: draft.maxAdvanceDays,
+          conflictCalendarIds: draft.conflictCalendarIds,
+          routingMode: draft.routingMode,
+          assignedHostIds: draft.assignedHostIds,
+          intakeFields: draft.intakeFields,
+          isActive: draft.isActive,
+          conferencingProvider: draft.conferencingProvider,
+          maxInvitees: draft.maxInvitees,
+          workingHoursOverride: overridePayload,
+        }),
       });
       if (!res.ok) {
         setError((await res.text()) || "Failed to save");
         return;
       }
-      if (isEdit) {
-        setCommitted({ ...draft, name: draft.name.trim(), description: draft.description.trim() });
-        setEditing(false);
-        router.refresh();
-      } else {
-        router.push(`/dashboard/projects/${projectSlug}`);
-        router.refresh();
-      }
+      commit({ ...draft, name: draft.name.trim(), description: draft.description.trim() });
+      router.refresh();
     });
   }
 
   async function destroy() {
-    if (!isEdit) return;
     if (!confirm("Delete this meeting type? Existing bookings stay; the public link will 404.")) return;
     startTransition(async () => {
-      const res = await fetch(`/api/projects/${projectId}/meeting-types/${initial!.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/projects/${projectId}/meeting-types/${initial.id}`, { method: "DELETE" });
       if (!res.ok) {
         setError((await res.text()) || "Failed to delete");
         return;
@@ -305,41 +257,30 @@ export function ProjectMeetingTypeForm({
 
   return (
     <div className="space-y-6">
+      <PageHeader
+        title="Edit meeting type"
+        description={`Booking link: /${projectSlug}/${draft.slug || initial.slug}`}
+        actions={<SaveBar dirty={dirty} pending={pending} onSave={save} onDiscard={discard} />}
+      />
+
       <Card>
         <CardHeader>
-          <div className="flex items-start justify-between gap-3">
-            <div className="space-y-1">
-              <CardTitle>Details</CardTitle>
-              <CardDescription>Name, slug, duration, and assigned host.</CardDescription>
-            </div>
-            {isEdit && !editing && (
-              <Button variant="secondary" size="sm" onClick={startEdit}>
-                <Pencil className="h-3.5 w-3.5" />
-                Edit
-              </Button>
-            )}
-          </div>
+          <CardTitle>Details</CardTitle>
+          <CardDescription>Name, slug, duration, and assigned host.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {!editing ? (
-            <DetailsReadOnly committed={committed} projectSlug={projectSlug} members={members} />
-          ) : (
-            <DetailsEditor
-              draft={draft}
-              update={update}
-              onNameChange={handleNameChange}
-              onSlugChange={(v) => {
-                update("slug", v.toLowerCase());
-                setSlugTouched(true);
-              }}
-              setSingleAssignedHost={setSingleAssignedHost}
-              toggleAssignedHost={toggleAssignedHost}
-              setRoutingMode={setRoutingMode}
-              members={members}
-              projectSlug={projectSlug}
-              isEdit={isEdit}
-            />
-          )}
+          <DetailsEditor
+            draft={draft}
+            update={update}
+            onNameChange={(v) => update("name", v)}
+            onSlugChange={(v) => update("slug", v.toLowerCase())}
+            setSingleAssignedHost={setSingleAssignedHost}
+            toggleAssignedHost={toggleAssignedHost}
+            setRoutingMode={setRoutingMode}
+            members={members}
+            projectSlug={projectSlug}
+            isEdit
+          />
         </CardContent>
       </Card>
 
@@ -349,7 +290,20 @@ export function ProjectMeetingTypeForm({
           <CardDescription>Buffers, how soon people can book, and how far ahead.</CardDescription>
         </CardHeader>
         <CardContent>
-          {!editing ? <SchedulingReadOnly committed={committed} /> : <SchedulingEditor draft={draft} update={update} />}
+          <SchedulingEditor draft={draft} update={update} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Availability</CardTitle>
+          <CardDescription>
+            Defaults to each assigned host&apos;s working hours. Override here when this meeting type
+            only happens at specific times — applies to every assigned host.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <AvailabilityEditor draft={draft} update={update} />
         </CardContent>
       </Card>
 
@@ -361,13 +315,7 @@ export function ProjectMeetingTypeForm({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {!editing ? (
-            <p className="text-sm text-foreground">
-              {committed.maxInvitees > 1
-                ? `Up to ${committed.maxInvitees} invitees per slot.`
-                : "1:1 — one invitee per slot."}
-            </p>
-          ) : draft.routingMode !== "SINGLE" ? (
+          {draft.routingMode !== "SINGLE" ? (
             <p className="text-sm text-muted-foreground">
               Group bookings are only available with single-host routing. Switch to Single to enable.
             </p>
@@ -400,11 +348,7 @@ export function ProjectMeetingTypeForm({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {!editing ? (
-            <ProjectConferencingReadOnly committed={committed} />
-          ) : (
-            <ProjectConferencingEditor draft={draft} update={update} members={members} />
-          )}
+          <ProjectConferencingEditor draft={draft} update={update} members={members} />
         </CardContent>
       </Card>
 
@@ -416,14 +360,10 @@ export function ProjectMeetingTypeForm({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {!editing ? (
-            <IntakeReadOnly fields={committed.intakeFields} />
-          ) : (
-            <IntakeFieldsEditor
-              fields={draft.intakeFields}
-              onChange={(next) => update("intakeFields", next)}
-            />
-          )}
+          <IntakeFieldsEditor
+            fields={draft.intakeFields}
+            onChange={(next) => update("intakeFields", next)}
+          />
         </CardContent>
       </Card>
 
@@ -437,75 +377,328 @@ export function ProjectMeetingTypeForm({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {!editing ? (
-              <ConflictCalendarsReadOnly committed={committed} hostCalendars={activeHostCalendars} />
-            ) : (
-              <ConflictCalendarsEditor draft={draft} update={update} hostCalendars={activeHostCalendars} />
-            )}
+            <ConflictCalendarsEditor draft={draft} update={update} hostCalendars={activeHostCalendars} />
           </CardContent>
         </Card>
       )}
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 
-      {editing && (
-        <div className="flex items-center justify-between gap-2">
-          {isEdit ? (
-            <Button variant="destructive" onClick={destroy} disabled={pending}>
-              Delete
-            </Button>
-          ) : (
-            <span />
-          )}
-          <div className="flex gap-2">
-            <Button variant="secondary" onClick={cancel} disabled={pending}>
-              Cancel
-            </Button>
-            <Button onClick={submit} disabled={pending}>
-              {pending ? "Saving…" : isEdit ? "Save" : "Create"}
-            </Button>
-          </div>
-        </div>
-      )}
+      <div className="flex items-center justify-start">
+        <Button variant="destructive" onClick={destroy} disabled={pending}>
+          Delete
+        </Button>
+      </div>
     </div>
   );
 }
 
 // ────────────────────────────────────────────────────────────
-// Subviews
+// Create (legacy bottom-CTA pattern — kept by design)
 // ────────────────────────────────────────────────────────────
 
-function DetailsReadOnly({
-  committed,
+function CreateProjectMeetingTypeForm({
+  projectId,
   projectSlug,
   members,
 }: {
-  committed: DraftValues;
+  projectId: string;
   projectSlug: string;
   members: ProjectMember[];
 }) {
-  const assignedNames = committed.assignedHostIds
-    .map((id) => members.find((m) => m.hostId === id))
-    .filter((m): m is ProjectMember => Boolean(m))
-    .map((m) => m.name);
-  const routingLabel =
-    committed.routingMode === "ROUND_ROBIN"
-      ? `Round-robin · ${assignedNames.length} hosts`
-      : committed.routingMode === "COLLECTIVE"
-        ? `Collective · ${assignedNames.length} hosts`
-        : "Single host";
+  const router = useRouter();
+  const draftDefault: DraftValues = {
+    name: "",
+    slug: "",
+    description: "",
+    durationMinutes: 30,
+    bufferBeforeMinutes: 0,
+    bufferAfterMinutes: 0,
+    minNoticeMinutes: 60,
+    maxAdvanceDays: 60,
+    conflictCalendarIds: [],
+    routingMode: "SINGLE",
+    assignedHostIds: members[0]?.hostId ? [members[0].hostId] : [],
+    intakeFields: [],
+    isActive: true,
+    conferencingProvider: "GOOGLE_MEET",
+    maxInvitees: 1,
+    workingHoursOverride: null,
+  };
+
+  const [draft, setDraft] = useState<DraftValues>(draftDefault);
+  const [slugTouched, setSlugTouched] = useState(false);
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  function update<K extends keyof DraftValues>(key: K, value: DraftValues[K]) {
+    setDraft((prev) => ({ ...prev, [key]: value }));
+  }
+
+  const singleHostId = draft.routingMode === "SINGLE" ? draft.assignedHostIds[0] : undefined;
+  const activeHostCalendars = members.find((m) => m.hostId === singleHostId)?.calendars ?? [];
+
+  function setSingleAssignedHost(hostId: string) {
+    const host = members.find((m) => m.hostId === hostId);
+    const validIds = new Set((host?.calendars ?? []).map((c) => c.id));
+    setDraft((prev) => ({
+      ...prev,
+      assignedHostIds: [hostId],
+      conflictCalendarIds: prev.conflictCalendarIds.filter((id) => validIds.has(id)),
+    }));
+  }
+
+  function toggleAssignedHost(hostId: string, on: boolean) {
+    setDraft((prev) => {
+      const set = new Set(prev.assignedHostIds);
+      if (on) set.add(hostId);
+      else set.delete(hostId);
+      return { ...prev, assignedHostIds: [...set] };
+    });
+  }
+
+  function setRoutingMode(mode: RoutingMode) {
+    setDraft((prev) => ({
+      ...prev,
+      routingMode: mode,
+      assignedHostIds:
+        mode === "SINGLE"
+          ? prev.assignedHostIds.slice(0, 1).length > 0
+            ? [prev.assignedHostIds[0]]
+            : members[0]?.hostId
+              ? [members[0].hostId]
+              : []
+          : prev.assignedHostIds,
+      conflictCalendarIds: mode === "SINGLE" ? prev.conflictCalendarIds : [],
+    }));
+  }
+
+  function handleNameChange(value: string) {
+    update("name", value);
+    if (!slugTouched) update("slug", autoSlug(value));
+  }
+
+  function cancel() {
+    router.push(`/dashboard/projects/${projectSlug}`);
+  }
+
+  function submit() {
+    setError(null);
+    const validation = validateDraft(draft, members);
+    if (validation) return setError(validation);
+    const overridePayload = serialiseOverride(draft.workingHoursOverride);
+
+    startTransition(async () => {
+      const res = await fetch(`/api/projects/${projectId}/meeting-types`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: draft.name.trim(),
+          slug: draft.slug,
+          description: draft.description.trim() || null,
+          durationMinutes: draft.durationMinutes,
+          bufferBeforeMinutes: draft.bufferBeforeMinutes,
+          bufferAfterMinutes: draft.bufferAfterMinutes,
+          minNoticeMinutes: draft.minNoticeMinutes,
+          maxAdvanceDays: draft.maxAdvanceDays,
+          conflictCalendarIds: draft.conflictCalendarIds,
+          routingMode: draft.routingMode,
+          assignedHostIds: draft.assignedHostIds,
+          intakeFields: draft.intakeFields,
+          isActive: draft.isActive,
+          conferencingProvider: draft.conferencingProvider,
+          maxInvitees: draft.maxInvitees,
+          workingHoursOverride: overridePayload,
+        }),
+      });
+      if (!res.ok) {
+        setError((await res.text()) || "Failed to save");
+        return;
+      }
+      router.push(`/dashboard/projects/${projectSlug}`);
+      router.refresh();
+    });
+  }
+
   return (
-    <dl className="space-y-3 text-sm">
-      <Row label="Name" value={committed.name} />
-      <Row label="Booking link" value={`/${projectSlug}/${committed.slug}`} mono />
-      <Row label="Duration" value={`${committed.durationMinutes} minutes`} />
-      <Row label="Routing" value={routingLabel} />
-      <Row label="Assigned" value={assignedNames.length > 0 ? assignedNames.join(", ") : "—"} />
-      <Row label="Description" value={committed.description || "—"} />
-      <Row label="Status" value={committed.isActive ? "Active" : "Inactive"} />
-    </dl>
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Details</CardTitle>
+          <CardDescription>Name, slug, duration, and assigned host.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <DetailsEditor
+            draft={draft}
+            update={update}
+            onNameChange={handleNameChange}
+            onSlugChange={(v) => {
+              update("slug", v.toLowerCase());
+              setSlugTouched(true);
+            }}
+            setSingleAssignedHost={setSingleAssignedHost}
+            toggleAssignedHost={toggleAssignedHost}
+            setRoutingMode={setRoutingMode}
+            members={members}
+            projectSlug={projectSlug}
+            isEdit={false}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Scheduling rules</CardTitle>
+          <CardDescription>Buffers, how soon people can book, and how far ahead.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <SchedulingEditor draft={draft} update={update} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Availability</CardTitle>
+          <CardDescription>
+            Defaults to each assigned host&apos;s working hours. Override here when this meeting type
+            only happens at specific times — applies to every assigned host.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <AvailabilityEditor draft={draft} update={update} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Group bookings</CardTitle>
+          <CardDescription>
+            How many invitees can claim the same time slot. 1 keeps it 1:1. Only available with single-host routing.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {draft.routingMode !== "SINGLE" ? (
+            <p className="text-sm text-muted-foreground">
+              Group bookings are only available with single-host routing.
+            </p>
+          ) : (
+            <div className="space-y-1.5">
+              <Label htmlFor="maxInvitees">Max invitees per slot</Label>
+              <Input
+                id="maxInvitees"
+                type="number"
+                min={1}
+                max={50}
+                value={draft.maxInvitees}
+                onChange={(e) =>
+                  update("maxInvitees", Math.max(1, Math.min(50, Number(e.target.value) || 1)))
+                }
+              />
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Conferencing</CardTitle>
+          <CardDescription>
+            Where the meeting happens. Zoom requires every assigned host to have connected it.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ProjectConferencingEditor draft={draft} update={update} members={members} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Intake questions</CardTitle>
+          <CardDescription>
+            Optional questions shown after the slot is picked. Answers are stored on the booking.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <IntakeFieldsEditor
+            fields={draft.intakeFields}
+            onChange={(next) => update("intakeFields", next)}
+          />
+        </CardContent>
+      </Card>
+
+      {draft.routingMode === "SINGLE" && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Conflict calendars</CardTitle>
+            <CardDescription>
+              Which of the assigned host&apos;s calendars block this meeting type.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ConflictCalendarsEditor draft={draft} update={update} hostCalendars={activeHostCalendars} />
+          </CardContent>
+        </Card>
+      )}
+
+      {error && <p className="text-sm text-destructive">{error}</p>}
+
+      <div className="flex items-center justify-end gap-2">
+        <Button variant="secondary" onClick={cancel} disabled={pending}>
+          Cancel
+        </Button>
+        <Button onClick={submit} disabled={pending}>
+          {pending ? "Saving…" : "Create"}
+        </Button>
+      </div>
+    </div>
   );
 }
+
+// ────────────────────────────────────────────────────────────
+// Validation
+// ────────────────────────────────────────────────────────────
+
+function validateDraft(draft: DraftValues, members: ProjectMember[]): string | null {
+  if (draft.name.trim().length < 2) return "Name is required.";
+  if (!SLUG_RE.test(draft.slug)) return "Slug must be 2–40 chars, lowercase letters/digits/hyphens.";
+  if (![15, 30, 45, 60, 90, 120].includes(draft.durationMinutes)) {
+    return "Duration must be 15, 30, 45, 60, 90, or 120 minutes.";
+  }
+  if (draft.routingMode === "SINGLE") {
+    const id = draft.assignedHostIds[0];
+    if (!id || !members.some((m) => m.hostId === id)) {
+      return "Pick an assigned host from the project members.";
+    }
+  } else {
+    const label = draft.routingMode === "COLLECTIVE" ? "Collective" : "Round-robin";
+    if (draft.assignedHostIds.length < 2) {
+      return `${label} needs at least two assigned hosts.`;
+    }
+    const allValid = draft.assignedHostIds.every((id) => members.some((m) => m.hostId === id));
+    if (!allValid) return "All assigned hosts must be project members.";
+  }
+  if (!Number.isInteger(draft.maxInvitees) || draft.maxInvitees < 1 || draft.maxInvitees > 50) {
+    return "Max invitees must be a whole number between 1 and 50.";
+  }
+  if (draft.maxInvitees > 1 && draft.routingMode !== "SINGLE") {
+    return "Group meetings (max invitees > 1) only work with single-host routing.";
+  }
+  if (draft.conferencingProvider === "ZOOM") {
+    const missing = draft.assignedHostIds
+      .map((id) => members.find((m) => m.hostId === id))
+      .filter((m): m is ProjectMember => Boolean(m && !m.hasZoom));
+    if (missing.length > 0) {
+      return `These assigned hosts haven't connected Zoom: ${missing
+        .map((m) => m.name)
+        .join(", ")}. They need to connect in Settings → Connections first.`;
+    }
+  }
+  return null;
+}
+
+// ────────────────────────────────────────────────────────────
+// Shared editors
+// ────────────────────────────────────────────────────────────
 
 function DetailsEditor({
   draft,
@@ -525,7 +718,7 @@ function DetailsEditor({
   onSlugChange: (v: string) => void;
   setSingleAssignedHost: (hostId: string) => void;
   toggleAssignedHost: (hostId: string, on: boolean) => void;
-  setRoutingMode: (mode: "SINGLE" | "ROUND_ROBIN" | "COLLECTIVE") => void;
+  setRoutingMode: (mode: RoutingMode) => void;
   members: ProjectMember[];
   projectSlug: string;
   isEdit: boolean;
@@ -563,7 +756,7 @@ function DetailsEditor({
         <Select
           id="routingMode"
           value={draft.routingMode}
-          onChange={(e) => setRoutingMode(e.target.value as "SINGLE" | "ROUND_ROBIN" | "COLLECTIVE")}
+          onChange={(e) => setRoutingMode(e.target.value as RoutingMode)}
         >
           <option value="SINGLE">Single host — one specific person</option>
           <option value="ROUND_ROBIN">Round-robin — least-recently-booked host gets the slot</option>
@@ -653,16 +846,6 @@ function DetailsEditor({
   );
 }
 
-function SchedulingReadOnly({ committed }: { committed: DraftValues }) {
-  return (
-    <dl className="space-y-3 text-sm">
-      <Row label="Buffer" value={formatBuffer(committed.bufferBeforeMinutes, committed.bufferAfterMinutes)} />
-      <Row label="Min notice" value={formatMinutes(committed.minNoticeMinutes)} />
-      <Row label="Max advance" value={formatMaxAdvanceDays(committed.maxAdvanceDays)} />
-    </dl>
-  );
-}
-
 function SchedulingEditor({
   draft,
   update,
@@ -726,7 +909,7 @@ function SchedulingEditor({
           >
             {MAX_ADVANCE_DAYS.map((d) => (
               <option key={d} value={String(d)}>
-                {formatMaxAdvanceDays(d)}
+                {d} days
               </option>
             ))}
           </Select>
@@ -736,62 +919,48 @@ function SchedulingEditor({
   );
 }
 
-function IntakeReadOnly({ fields }: { fields: IntakeField[] }) {
-  if (fields.length === 0) {
-    return <p className="text-sm text-muted-foreground">No intake questions — bookings only collect name + email.</p>;
-  }
-  return (
-    <ul className="space-y-2 text-sm">
-      {fields.map((f) => (
-        <li key={f.key} className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-foreground">
-              {f.label || <span className="italic text-muted-foreground">Untitled</span>}
-              {f.required && <span className="text-destructive ml-0.5">*</span>}
-            </p>
-            {f.conditionalOn && (
-              <p className="text-xs text-muted-foreground">
-                Shown when <span className="font-mono">{f.conditionalOn.fieldKey}</span> = &ldquo;{f.conditionalOn.equals}&rdquo;
-              </p>
-            )}
-          </div>
-          <span className="text-xs uppercase tracking-wide text-subtle-foreground shrink-0">
-            {FIELD_TYPE_LABELS[f.type]}
-          </span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function ConflictCalendarsReadOnly({
-  committed,
-  hostCalendars,
+function AvailabilityEditor({
+  draft,
+  update,
 }: {
-  committed: DraftValues;
-  hostCalendars: ProjectMember["calendars"];
+  draft: DraftValues;
+  update: <K extends keyof DraftValues>(key: K, value: DraftValues[K]) => void;
 }) {
-  if (committed.conflictCalendarIds.length === 0) {
-    return <p className="text-sm text-muted-foreground">Using host default — every conflict-source calendar.</p>;
-  }
-  const ids = new Set(committed.conflictCalendarIds);
-  const picked = hostCalendars.filter((c) => ids.has(c.id));
-  if (picked.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        No matching calendars. Edit to choose again.
-      </p>
-    );
+  const overrideOn = draft.workingHoursOverride !== null;
+  function toggleOverride(on: boolean) {
+    update("workingHoursOverride", on ? defaultSchedule() : null);
   }
   return (
-    <ul className="space-y-1.5 text-sm">
-      {picked.map((c) => (
-        <li key={c.id} className="flex items-center gap-2">
-          <span className="inline-block h-1.5 w-1.5 rounded-full bg-foreground" />
-          <span className="text-foreground">{c.summary}</span>
-        </li>
-      ))}
-    </ul>
+    <div className="space-y-3">
+      <div className="space-y-2 text-sm">
+        <label className="flex items-center gap-2">
+          <input
+            type="radio"
+            name="projectAvailabilityMode"
+            checked={!overrideOn}
+            onChange={() => toggleOverride(false)}
+            className="h-4 w-4 border-border accent-foreground"
+          />
+          Use each host&apos;s default working hours
+        </label>
+        <label className="flex items-center gap-2">
+          <input
+            type="radio"
+            name="projectAvailabilityMode"
+            checked={overrideOn}
+            onChange={() => toggleOverride(true)}
+            className="h-4 w-4 border-border accent-foreground"
+          />
+          Custom for this meeting type (applied in each host&apos;s timezone)
+        </label>
+      </div>
+      {overrideOn && draft.workingHoursOverride && (
+        <WorkingHoursEditor
+          value={draft.workingHoursOverride}
+          onChange={(next) => update("workingHoursOverride", next)}
+        />
+      )}
+    </div>
   );
 }
 
@@ -868,26 +1037,6 @@ function ConflictCalendarsEditor({
   );
 }
 
-function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="grid grid-cols-[140px_1fr] gap-3">
-      <dt className="text-xs uppercase tracking-wide text-subtle-foreground pt-0.5">{label}</dt>
-      <dd className={mono ? "font-mono text-sm text-foreground" : "text-foreground"}>{value}</dd>
-    </div>
-  );
-}
-
-const PROJECT_PROVIDER_LABELS: Record<ConferencingProvider, string> = {
-  GOOGLE_MEET: "Google Meet",
-  ZOOM: "Zoom",
-  TEAMS: "Microsoft Teams",
-  NONE: "None (no link added)",
-};
-
-function ProjectConferencingReadOnly({ committed }: { committed: DraftValues }) {
-  return <p className="text-sm text-foreground">{PROJECT_PROVIDER_LABELS[committed.conferencingProvider]}</p>;
-}
-
 function ProjectConferencingEditor({
   draft,
   update,
@@ -925,4 +1074,11 @@ function ProjectConferencingEditor({
       )}
     </div>
   );
+}
+
+function serialiseOverride(s: Schedule | null): Schedule | null {
+  if (!s) return null;
+  const allEmpty = (Object.keys(s) as (keyof Schedule)[]).every((k) => s[k].length === 0);
+  if (allEmpty) return null;
+  return coerceSchedule(s);
 }

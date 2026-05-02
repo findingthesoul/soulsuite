@@ -2,7 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { calendarFor, isGoogleAuthError } from "@/lib/google/client";
-import { computeAvailableSlots, type WorkingHours } from "@/lib/availability/engine";
+import { computeAvailableSlots } from "@/lib/availability/engine";
+import { effectiveWorkingHours } from "@/lib/availability";
 import { fetchHostBusy } from "@/lib/availability/freebusy";
 import { sendEmail, bookingRescheduleTemplate, appUrl } from "@/lib/email";
 import { getEmailLogoUrl } from "@/lib/branding";
@@ -78,7 +79,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   );
 
   const slots = computeAvailableSlots({
-    host: { timezone: host.timezone, workingHours: (host.workingHours as WorkingHours | null) ?? {} },
+    host: { timezone: host.timezone, workingHours: effectiveWorkingHours(meetingType, host) },
     meetingType: {
       durationMinutes: meetingType.durationMinutes,
       bufferBeforeMinutes: meetingType.bufferBeforeMinutes,

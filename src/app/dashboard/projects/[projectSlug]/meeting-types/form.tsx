@@ -34,8 +34,11 @@ interface ProjectMember {
   email: string;
   isExternal: boolean;
   hasZoom: boolean;
+  hasStripe: boolean;
   calendars: { id: string; summary: string; role: "PRIMARY" | "CONFLICT_CHECK" | "WRITE_TARGET" }[];
 }
+
+const SUPPORTED_CURRENCIES = ["eur", "usd", "gbp"] as const;
 
 interface Initial {
   id: string;
@@ -56,6 +59,8 @@ interface Initial {
   conferencingHostId: string | null;
   maxInvitees: number;
   workingHoursOverride: Schedule | null;
+  priceCents: number | null;
+  priceCurrency: string | null;
 }
 
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
@@ -88,9 +93,13 @@ interface DraftValues {
   conferencingHostId: string | null;
   maxInvitees: number;
   workingHoursOverride: Schedule | null;
+  isPaid: boolean;
+  priceMajor: string;
+  priceCurrency: string;
 }
 
 function initialToDraft(initial: Initial): DraftValues {
+  const isPaid = (initial.priceCents ?? 0) > 0;
   return {
     name: initial.name,
     slug: initial.slug,
@@ -115,6 +124,21 @@ function initialToDraft(initial: Initial): DraftValues {
         : null),
     maxInvitees: initial.maxInvitees,
     workingHoursOverride: initial.workingHoursOverride,
+    isPaid,
+    priceMajor: isPaid && initial.priceCents != null ? (initial.priceCents / 100).toString() : "",
+    priceCurrency: initial.priceCurrency ?? "eur",
+  };
+}
+
+function pricingPayload(draft: DraftValues):
+  | { priceCents: number; priceCurrency: string }
+  | { priceCents: null; priceCurrency: null } {
+  if (!draft.isPaid) return { priceCents: null, priceCurrency: null };
+  const major = Number(draft.priceMajor);
+  if (!Number.isFinite(major) || major <= 0) return { priceCents: null, priceCurrency: null };
+  return {
+    priceCents: Math.round(major * 100),
+    priceCurrency: draft.priceCurrency,
   };
 }
 
@@ -234,6 +258,7 @@ function EditProjectMeetingTypeForm({
     const validation = validateDraft(draft, members);
     if (validation) return setError(validation);
     const overridePayload = serialiseOverride(draft.workingHoursOverride);
+    const pricing = pricingPayload(draft);
 
     startTransition(async () => {
       const res = await fetch(`/api/projects/${projectId}/meeting-types/${initial.id}`, {
@@ -257,6 +282,8 @@ function EditProjectMeetingTypeForm({
           conferencingHostId: draft.routingMode === "COLLECTIVE" ? draft.conferencingHostId : null,
           maxInvitees: draft.maxInvitees,
           workingHoursOverride: overridePayload,
+          priceCents: pricing.priceCents,
+          priceCurrency: pricing.priceCurrency,
         }),
       });
       if (!res.ok) {
@@ -390,6 +417,19 @@ function EditProjectMeetingTypeForm({
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle>Pricing</CardTitle>
+          <CardDescription>
+            Charge invitees through Stripe Checkout before the booking is confirmed. Each booking host
+            must have Stripe connected under their own Settings → Payments.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ProjectPricingEditor draft={draft} update={update} members={members} />
+        </CardContent>
+      </Card>
+
       {draft.routingMode === "SINGLE" && (
         <Card>
           <CardHeader>
@@ -448,6 +488,9 @@ function CreateProjectMeetingTypeForm({
     conferencingHostId: null,
     maxInvitees: 1,
     workingHoursOverride: null,
+    isPaid: false,
+    priceMajor: "",
+    priceCurrency: "eur",
   };
 
   const [draft, setDraft] = useState<DraftValues>(draftDefault);
@@ -528,6 +571,7 @@ function CreateProjectMeetingTypeForm({
     const validation = validateDraft(draft, members);
     if (validation) return setError(validation);
     const overridePayload = serialiseOverride(draft.workingHoursOverride);
+    const pricing = pricingPayload(draft);
 
     startTransition(async () => {
       const res = await fetch(`/api/projects/${projectId}/meeting-types`, {
@@ -551,6 +595,8 @@ function CreateProjectMeetingTypeForm({
           conferencingHostId: draft.routingMode === "COLLECTIVE" ? draft.conferencingHostId : null,
           maxInvitees: draft.maxInvitees,
           workingHoursOverride: overridePayload,
+          priceCents: pricing.priceCents,
+          priceCurrency: pricing.priceCurrency,
         }),
       });
       if (!res.ok) {
@@ -668,6 +714,19 @@ function CreateProjectMeetingTypeForm({
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle>Pricing</CardTitle>
+          <CardDescription>
+            Charge invitees through Stripe Checkout before the booking is confirmed. Each booking host
+            must have Stripe connected under their own Settings → Payments.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ProjectPricingEditor draft={draft} update={update} members={members} />
+        </CardContent>
+      </Card>
+
       {draft.routingMode === "SINGLE" && (
         <Card>
           <CardHeader>
@@ -753,6 +812,30 @@ function validateDraft(draft: DraftValues, members: ProjectMember[]): string | n
     !draft.conferencingHostId
   ) {
     return "Pick a conferencing host from the assigned hosts.";
+  }
+
+  // Pricing — every host that could be the booking host needs Stripe connected:
+  //   SINGLE/ROUND_ROBIN: every assigned host. COLLECTIVE: the conferencing host.
+  if (draft.isPaid) {
+    const major = Number(draft.priceMajor);
+    if (!Number.isFinite(major) || major <= 0) return "Enter a price greater than 0.";
+    if (Math.round(major * 100) < 50) return "Stripe requires a minimum charge of 0.50.";
+    if (!(SUPPORTED_CURRENCIES as readonly string[]).includes(draft.priceCurrency)) {
+      return "Pick a currency.";
+    }
+    if (draft.routingMode === "COLLECTIVE") {
+      const confHost = members.find((m) => m.hostId === draft.conferencingHostId);
+      if (!confHost?.hasStripe) {
+        return `${confHost?.name ?? "The conferencing host"} hasn't connected Stripe under Settings → Payments.`;
+      }
+    } else {
+      const missing = draft.assignedHostIds
+        .map((id) => members.find((m) => m.hostId === id))
+        .filter((m): m is ProjectMember => Boolean(m && !m.hasStripe));
+      if (missing.length > 0) {
+        return `These assigned hosts haven't connected Stripe: ${missing.map((m) => m.name).join(", ")}. Connect under Settings → Payments first.`;
+      }
+    }
   }
   return null;
 }
@@ -1186,6 +1269,88 @@ function ProjectConferencingEditor({
       {missingZoom.length > 0 && (
         <p className="text-xs text-destructive">
           {missingZoom.map((m) => m.name).join(", ")} {missingZoom.length === 1 ? "hasn't" : "haven't"} connected Zoom yet.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function ProjectPricingEditor({
+  draft,
+  update,
+  members,
+}: {
+  draft: DraftValues;
+  update: <K extends keyof DraftValues>(key: K, value: DraftValues[K]) => void;
+  members: ProjectMember[];
+}) {
+  // Required-Stripe set depends on routing: COLLECTIVE → conferencing host only;
+  // SINGLE/ROUND_ROBIN → every assigned host.
+  const required: ProjectMember[] =
+    draft.routingMode === "COLLECTIVE"
+      ? members.filter((m) => m.hostId === draft.conferencingHostId)
+      : draft.assignedHostIds
+          .map((id) => members.find((m) => m.hostId === id))
+          .filter((m): m is ProjectMember => Boolean(m));
+  const missing = required.filter((m) => !m.hasStripe);
+
+  return (
+    <div className="space-y-3">
+      <div className="space-y-2 text-sm">
+        <label className="flex items-center gap-2">
+          <input
+            type="radio"
+            name="projectPricingMode"
+            checked={!draft.isPaid}
+            onChange={() => update("isPaid", false)}
+            className="h-4 w-4 border-border accent-foreground"
+          />
+          Free
+        </label>
+        <label className="flex items-center gap-2">
+          <input
+            type="radio"
+            name="projectPricingMode"
+            checked={draft.isPaid}
+            onChange={() => update("isPaid", true)}
+            className="h-4 w-4 border-border accent-foreground"
+          />
+          Paid (collected via Stripe Checkout)
+        </label>
+      </div>
+      {draft.isPaid && (
+        <div className="grid gap-3 sm:grid-cols-[1fr_140px]">
+          <div className="space-y-1.5">
+            <Label htmlFor="projectPriceMajor">Amount</Label>
+            <Input
+              id="projectPriceMajor"
+              type="number"
+              inputMode="decimal"
+              min={0}
+              step="0.01"
+              value={draft.priceMajor}
+              onChange={(e) => update("priceMajor", e.target.value)}
+              placeholder="150"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="projectPriceCurrency">Currency</Label>
+            <Select
+              id="projectPriceCurrency"
+              value={draft.priceCurrency}
+              onChange={(e) => update("priceCurrency", e.target.value)}
+            >
+              <option value="eur">EUR (€)</option>
+              <option value="usd">USD ($)</option>
+              <option value="gbp">GBP (£)</option>
+            </Select>
+          </div>
+        </div>
+      )}
+      {draft.isPaid && missing.length > 0 && (
+        <p className="text-xs text-destructive">
+          {missing.map((m) => m.name).join(", ")} {missing.length === 1 ? "hasn't" : "haven't"} connected
+          Stripe. Each booking host needs to connect under their own Settings → Payments first.
         </p>
       )}
     </div>

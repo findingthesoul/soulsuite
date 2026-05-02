@@ -33,6 +33,8 @@ const patchSchema = z.object({
   conferencingHostId: z.string().min(1).nullable().optional(),
   maxInvitees: z.number().int().min(1).max(50).default(1),
   workingHoursOverride: workingHoursSchema.nullable().optional(),
+  priceCents: z.number().int().min(50).max(10_000_000).nullable().optional(),
+  priceCurrency: z.enum(["eur", "usd", "gbp"]).nullable().optional(),
 });
 
 async function authorize(host: { id: string }, projectId: string, mtId: string) {
@@ -122,6 +124,32 @@ export async function PATCH(
     conferencingHostId = data.conferencingHostId;
   }
 
+  const isPaid = (data.priceCents ?? 0) > 0;
+  if (isPaid) {
+    if (!data.priceCurrency) {
+      return new NextResponse("Pick a currency for paid meeting types.", { status: 400 });
+    }
+    const stripeRequiredHostIds =
+      data.routingMode === "COLLECTIVE"
+        ? conferencingHostId
+          ? [conferencingHostId]
+          : []
+        : data.assignedHostIds;
+    if (stripeRequiredHostIds.length > 0) {
+      const hosts = await prisma.host.findMany({
+        where: { id: { in: stripeRequiredHostIds } },
+        select: { id: true, name: true, stripeAccountId: true },
+      });
+      const missing = hosts.filter((h) => !h.stripeAccountId);
+      if (missing.length > 0) {
+        return new NextResponse(
+          `These hosts haven't connected Stripe: ${missing.map((h) => h.name).join(", ")}. Each booking host must connect Stripe under their own Settings → Payments first.`,
+          { status: 400 },
+        );
+      }
+    }
+  }
+
   if (data.conferencingProvider === "ZOOM") {
     if (data.routingMode === "COLLECTIVE") {
       const confHost = await prisma.host.findUnique({
@@ -170,6 +198,8 @@ export async function PATCH(
           conferencingHostId,
           maxInvitees: data.maxInvitees,
           workingHoursOverride: data.workingHoursOverride ?? Prisma.JsonNull,
+          priceCents: isPaid ? data.priceCents! : null,
+          priceCurrency: isPaid ? data.priceCurrency! : null,
         },
       });
       const newFormId = await syncIntakeForm({

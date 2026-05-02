@@ -1,0 +1,109 @@
+"use client";
+
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { SaveBar } from "@/components/save-bar";
+import { DirtyNavGuard } from "@/components/dirty-nav-guard";
+import { useDirtyState } from "@/lib/use-dirty-state";
+
+interface Initial {
+  stripeAccountId: string | null;
+}
+
+interface Draft {
+  stripeAccountId: string;
+}
+
+const ACCOUNT_ID_RE = /^acct_[A-Za-z0-9]+$/;
+
+export function PaymentsForm({ initial }: { initial: Initial }) {
+  const router = useRouter();
+  const { draft, dirty, update, discard, commit } = useDirtyState<Draft>({
+    stripeAccountId: initial.stripeAccountId ?? "",
+  });
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  function save() {
+    setError(null);
+    const value = draft.stripeAccountId.trim();
+    if (value && !ACCOUNT_ID_RE.test(value)) {
+      return setError("Stripe account IDs look like acct_xxx (letters and digits after the prefix).");
+    }
+    startTransition(async () => {
+      const res = await fetch("/api/settings/stripe-account", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ stripeAccountId: value || null }),
+      });
+      if (!res.ok) {
+        setError((await res.text()) || "Failed to save");
+        return;
+      }
+      commit({ stripeAccountId: value });
+      router.refresh();
+    });
+  }
+
+  const connected = Boolean(initial.stripeAccountId);
+
+  return (
+    <div className="space-y-6">
+      <header className="flex items-start justify-between gap-3">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-semibold tracking-tight">Payments</h1>
+          <p className="text-sm text-muted-foreground">
+            Connect your Stripe account so paid meeting types can collect payment before the booking is
+            confirmed.
+          </p>
+        </div>
+        <SaveBar dirty={dirty} pending={pending} onSave={save} onDiscard={discard} />
+      </header>
+      <DirtyNavGuard dirty={dirty} onSave={save} />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Stripe account</CardTitle>
+          <CardDescription>
+            Soul Suite uses Stripe Connect Standard with direct charges — payments go to your account,
+            not ours. Paste your account ID below. Find it under{" "}
+            <a
+              href="https://dashboard.stripe.com/settings/account"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline"
+            >
+              Stripe Dashboard → Account settings
+            </a>
+            .
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="stripeAccountId">Account ID</Label>
+            <Input
+              id="stripeAccountId"
+              value={draft.stripeAccountId}
+              onChange={(e) => update({ stripeAccountId: e.target.value })}
+              placeholder="acct_..."
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Status:{" "}
+            {connected ? (
+              <span className="text-foreground">Connected ({initial.stripeAccountId})</span>
+            ) : (
+              <span>Not connected — paid meeting types will be blocked.</span>
+            )}
+          </p>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

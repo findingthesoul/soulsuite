@@ -42,7 +42,11 @@ interface Initial {
   conferencingProvider: ConferencingProvider;
   maxInvitees: number;
   workingHoursOverride: Schedule | null;
+  priceCents: number | null;
+  priceCurrency: string | null;
 }
+
+const SUPPORTED_CURRENCIES = ["eur", "usd", "gbp"] as const;
 
 export type ConferencingProvider = "GOOGLE_MEET" | "ZOOM" | "TEAMS" | "NONE";
 
@@ -79,6 +83,11 @@ interface DraftValues {
   conferencingProvider: ConferencingProvider;
   maxInvitees: number;
   workingHoursOverride: Schedule | null;
+  // Pricing — paid is "on" when priceMajor (string for input control) > 0. We keep the raw
+  // string so the user can clear/retype freely.
+  isPaid: boolean;
+  priceMajor: string;
+  priceCurrency: string;
 }
 
 const DRAFT_DEFAULT: DraftValues = {
@@ -96,9 +105,13 @@ const DRAFT_DEFAULT: DraftValues = {
   conferencingProvider: "GOOGLE_MEET",
   maxInvitees: 1,
   workingHoursOverride: null,
+  isPaid: false,
+  priceMajor: "",
+  priceCurrency: "eur",
 };
 
 function initialToDraft(initial: Initial): DraftValues {
+  const isPaid = (initial.priceCents ?? 0) > 0;
   return {
     name: initial.name,
     slug: initial.slug,
@@ -114,18 +127,57 @@ function initialToDraft(initial: Initial): DraftValues {
     conferencingProvider: initial.conferencingProvider,
     maxInvitees: initial.maxInvitees,
     workingHoursOverride: initial.workingHoursOverride,
+    isPaid,
+    priceMajor: isPaid && initial.priceCents != null ? (initial.priceCents / 100).toString() : "",
+    priceCurrency: initial.priceCurrency ?? "eur",
   };
+}
+
+// Pricing payload helpers — convert the draft's UI-friendly fields back to (priceCents, priceCurrency)
+// for the API.
+function pricingPayload(draft: DraftValues):
+  | { priceCents: number; priceCurrency: string }
+  | { priceCents: null; priceCurrency: null } {
+  if (!draft.isPaid) return { priceCents: null, priceCurrency: null };
+  const major = Number(draft.priceMajor);
+  if (!Number.isFinite(major) || major <= 0) {
+    return { priceCents: null, priceCurrency: null };
+  }
+  return {
+    priceCents: Math.round(major * 100),
+    priceCurrency: draft.priceCurrency,
+  };
+}
+
+function validatePricing(draft: DraftValues, hostHasStripe: boolean): string | null {
+  if (!draft.isPaid) return null;
+  if (!hostHasStripe) {
+    return "Connect Stripe under Settings → Payments first.";
+  }
+  const major = Number(draft.priceMajor);
+  if (!Number.isFinite(major) || major <= 0) {
+    return "Enter a price greater than 0.";
+  }
+  if (Math.round(major * 100) < 50) {
+    return "Stripe requires a minimum charge of 0.50.";
+  }
+  if (!(SUPPORTED_CURRENCIES as readonly string[]).includes(draft.priceCurrency)) {
+    return "Pick a currency.";
+  }
+  return null;
 }
 
 export function MeetingTypeForm({
   hostSlug,
   hostCalendars,
   hostHasZoom,
+  hostHasStripe,
   initial,
 }: {
   hostSlug: string;
   hostCalendars: HostCalendar[];
   hostHasZoom: boolean;
+  hostHasStripe: boolean;
   initial?: Initial;
 }) {
   const router = useRouter();
@@ -138,6 +190,7 @@ export function MeetingTypeForm({
         hostSlug={hostSlug}
         hostCalendars={hostCalendars}
         hostHasZoom={hostHasZoom}
+        hostHasStripe={hostHasStripe}
         initial={initial}
       />
     );
@@ -149,6 +202,7 @@ export function MeetingTypeForm({
       hostSlug={hostSlug}
       hostCalendars={hostCalendars}
       hostHasZoom={hostHasZoom}
+      hostHasStripe={hostHasStripe}
       onCreated={(id) => {
         // unused for now; create POST returns id but redirect is enough.
         void id;
@@ -166,11 +220,13 @@ function EditMeetingTypeForm({
   hostSlug,
   hostCalendars,
   hostHasZoom,
+  hostHasStripe,
   initial,
 }: {
   hostSlug: string;
   hostCalendars: HostCalendar[];
   hostHasZoom: boolean;
+  hostHasStripe: boolean;
   initial: Initial;
 }) {
   const router = useRouter();
@@ -208,7 +264,10 @@ function EditMeetingTypeForm({
     if (!Number.isInteger(draft.maxInvitees) || draft.maxInvitees < 1 || draft.maxInvitees > 50) {
       return setError("Max invitees must be a whole number between 1 and 50.");
     }
+    const pricingErr = validatePricing(draft, hostHasStripe);
+    if (pricingErr) return setError(pricingErr);
     const overridePayload = serialiseOverride(draft.workingHoursOverride);
+    const pricing = pricingPayload(draft);
 
     startTransition(async () => {
       const res = await fetch(`/api/meeting-types/${initial.id}`, {
@@ -229,6 +288,8 @@ function EditMeetingTypeForm({
           conferencingProvider: draft.conferencingProvider,
           maxInvitees: draft.maxInvitees,
           workingHoursOverride: overridePayload,
+          priceCents: pricing.priceCents,
+          priceCurrency: pricing.priceCurrency,
         }),
       });
       if (!res.ok) {
@@ -358,6 +419,19 @@ function EditMeetingTypeForm({
 
       <Card>
         <CardHeader>
+          <CardTitle>Pricing</CardTitle>
+          <CardDescription>
+            Charge invitees through Stripe Checkout before the booking is confirmed. Free meetings skip
+            payment entirely.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <PricingEditor draft={draft} update={update} hostHasStripe={hostHasStripe} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Conflict calendars</CardTitle>
           <CardDescription>
             Which of your calendars block this meeting type. Default uses every conflict-source you set in
@@ -390,11 +464,13 @@ function CreateMeetingTypeForm({
   hostSlug,
   hostCalendars,
   hostHasZoom,
+  hostHasStripe,
   router,
 }: {
   hostSlug: string;
   hostCalendars: HostCalendar[];
   hostHasZoom: boolean;
+  hostHasStripe: boolean;
   onCreated: (id: string) => void;
   router: Router;
 }) {
@@ -431,7 +507,10 @@ function CreateMeetingTypeForm({
     if (!Number.isInteger(draft.maxInvitees) || draft.maxInvitees < 1 || draft.maxInvitees > 50) {
       return setError("Max invitees must be a whole number between 1 and 50.");
     }
+    const pricingErr = validatePricing(draft, hostHasStripe);
+    if (pricingErr) return setError(pricingErr);
     const overridePayload = serialiseOverride(draft.workingHoursOverride);
+    const pricing = pricingPayload(draft);
 
     startTransition(async () => {
       const res = await fetch(`/api/meeting-types`, {
@@ -452,6 +531,8 @@ function CreateMeetingTypeForm({
           conferencingProvider: draft.conferencingProvider,
           maxInvitees: draft.maxInvitees,
           workingHoursOverride: overridePayload,
+          priceCents: pricing.priceCents,
+          priceCurrency: pricing.priceCurrency,
         }),
       });
       if (!res.ok) {
@@ -552,6 +633,18 @@ function CreateMeetingTypeForm({
             fields={draft.intakeFields}
             onChange={(next) => update("intakeFields", next)}
           />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Pricing</CardTitle>
+          <CardDescription>
+            Charge invitees through Stripe Checkout before the booking is confirmed.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <PricingEditor draft={draft} update={update} hostHasStripe={hostHasStripe} />
         </CardContent>
       </Card>
 
@@ -881,6 +974,77 @@ function ConferencingEditor({
         </option>
         <option value="NONE">None (no conferencing link)</option>
       </Select>
+    </div>
+  );
+}
+
+function PricingEditor({
+  draft,
+  update,
+  hostHasStripe,
+}: {
+  draft: DraftValues;
+  update: <K extends keyof DraftValues>(key: K, value: DraftValues[K]) => void;
+  hostHasStripe: boolean;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="space-y-2 text-sm">
+        <label className="flex items-center gap-2">
+          <input
+            type="radio"
+            name="pricingMode"
+            checked={!draft.isPaid}
+            onChange={() => update("isPaid", false)}
+            className="h-4 w-4 border-border accent-foreground"
+          />
+          Free
+        </label>
+        <label className="flex items-center gap-2">
+          <input
+            type="radio"
+            name="pricingMode"
+            checked={draft.isPaid}
+            onChange={() => update("isPaid", true)}
+            className="h-4 w-4 border-border accent-foreground"
+          />
+          Paid (collected via Stripe Checkout)
+        </label>
+      </div>
+      {draft.isPaid && (
+        <div className="grid gap-3 sm:grid-cols-[1fr_140px]">
+          <div className="space-y-1.5">
+            <Label htmlFor="priceMajor">Amount</Label>
+            <Input
+              id="priceMajor"
+              type="number"
+              inputMode="decimal"
+              min={0}
+              step="0.01"
+              value={draft.priceMajor}
+              onChange={(e) => update("priceMajor", e.target.value)}
+              placeholder="150"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="priceCurrency">Currency</Label>
+            <Select
+              id="priceCurrency"
+              value={draft.priceCurrency}
+              onChange={(e) => update("priceCurrency", e.target.value)}
+            >
+              <option value="eur">EUR (€)</option>
+              <option value="usd">USD ($)</option>
+              <option value="gbp">GBP (£)</option>
+            </Select>
+          </div>
+        </div>
+      )}
+      {draft.isPaid && !hostHasStripe && (
+        <p className="text-xs text-destructive">
+          Connect Stripe under Settings → Payments first.
+        </p>
+      )}
     </div>
   );
 }

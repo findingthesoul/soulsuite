@@ -34,6 +34,32 @@ model Workspace {
   members  WorkspaceMember[]
   projects Project[]
   invites  Invite[]
+  contacts Contact[]
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Contacts — workspace-scoped directory, auto-built from booking history.
+// On every booking creation we upsert a Contact row keyed by (workspaceId, email).
+// Manually-edited fields are never overwritten by the upsert (see src/lib/contacts.ts).
+// ────────────────────────────────────────────────────────────────────────────
+
+model Contact {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  email       String
+  name        String?
+  phone       String?
+  company     String?
+  jobTitle    String?
+  linkedinUrl String?
+  location    String?
+  timeZone    String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([workspaceId, email])
+  @@index([workspaceId])
 }
 
 enum WorkspaceRole {

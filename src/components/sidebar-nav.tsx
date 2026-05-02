@@ -21,8 +21,10 @@ const NAV_ITEMS: {
   { href: "/dashboard/projects", label: "Teams", icon: FolderOpen, exact: false, tour: "sidebar-teams" },
 ];
 
-const SETTINGS_NAV_ITEMS = [
+const PERSONAL_SETTINGS_ITEMS = [
   { href: "/settings/availability", label: "Availability", icon: Clock, exact: false },
+];
+const WORKSPACE_SETTINGS_ITEMS = [
   { href: "/settings/members", label: "Internal", icon: Users, exact: false },
 ];
 
@@ -73,6 +75,18 @@ export function SidebarNav({ compact = false, overlay = false, hasWorkspace = fa
           </Link>
         ))}
 
+        <div className="pt-4 pb-1">
+          <p className={`px-3 text-xs font-medium text-subtle-foreground uppercase tracking-wide ${sectionLabelClass()}`}>
+            You
+          </p>
+        </div>
+        {PERSONAL_SETTINGS_ITEMS.map(({ href, label, icon: Icon, exact }) => (
+          <Link key={href} href={href} className={navItemClass(href, exact)} title={label}>
+            <Icon className="h-4 w-4 shrink-0" />
+            <span className={labelClass()}>{label}</span>
+          </Link>
+        ))}
+
         {hasWorkspace && (
           <>
             <div className="pt-4 pb-1">
@@ -80,8 +94,7 @@ export function SidebarNav({ compact = false, overlay = false, hasWorkspace = fa
                 Workspace
               </p>
             </div>
-
-            {SETTINGS_NAV_ITEMS.map(({ href, label, icon: Icon, exact }) => (
+            {WORKSPACE_SETTINGS_ITEMS.map(({ href, label, icon: Icon, exact }) => (
               <Link key={href} href={href} className={navItemClass(href, exact)} title={label}>
                 <Icon className="h-4 w-4 shrink-0" />
                 <span className={labelClass()}>{label}</span>

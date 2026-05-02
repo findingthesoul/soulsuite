@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useDirtyState } from "@/lib/use-dirty-state";
 import { PageHeader, SaveBar } from "@/components/save-bar";
 import { DirtyNavGuard } from "@/components/dirty-nav-guard";
@@ -167,6 +168,65 @@ function validatePricing(draft: DraftValues, hostHasStripe: boolean): string | n
   return null;
 }
 
+// ────────────────────────────────────────────────────────────
+// Tab-aware validation (personal MT)
+// ────────────────────────────────────────────────────────────
+
+type PersonalTabKey = "basics" | "availability" | "conferencing" | "pricing" | "intake";
+
+const PERSONAL_TAB_ORDER: PersonalTabKey[] = [
+  "basics",
+  "availability",
+  "conferencing",
+  "pricing",
+  "intake",
+];
+
+interface TabError {
+  tabKey: PersonalTabKey;
+  message: string;
+}
+
+function validatePersonalDraft(
+  draft: DraftValues,
+  hostHasZoom: boolean,
+  hostHasStripe: boolean,
+): TabError[] {
+  const errors: TabError[] = [];
+  if (draft.name.trim().length < 2) {
+    errors.push({ tabKey: "basics", message: "Name is required." });
+  }
+  if (!SLUG_RE.test(draft.slug)) {
+    errors.push({
+      tabKey: "basics",
+      message: "Slug must be 2–40 chars, lowercase letters/digits/hyphens.",
+    });
+  }
+  if (![15, 30, 45, 60, 90, 120].includes(draft.durationMinutes)) {
+    errors.push({
+      tabKey: "basics",
+      message: "Duration must be 15, 30, 45, 60, 90, or 120 minutes.",
+    });
+  }
+  if (!Number.isInteger(draft.maxInvitees) || draft.maxInvitees < 1 || draft.maxInvitees > 50) {
+    errors.push({
+      tabKey: "basics",
+      message: "Max invitees must be a whole number between 1 and 50.",
+    });
+  }
+  if (draft.conferencingProvider === "ZOOM" && !hostHasZoom) {
+    errors.push({
+      tabKey: "conferencing",
+      message: "Connect Zoom in Settings → Connections before picking it.",
+    });
+  }
+  const pricingErr = validatePricing(draft, hostHasStripe);
+  if (pricingErr) {
+    errors.push({ tabKey: "pricing", message: pricingErr });
+  }
+  return errors;
+}
+
 export function MeetingTypeForm({
   hostSlug,
   hostCalendars,
@@ -233,6 +293,8 @@ function EditMeetingTypeForm({
   const { draft, setDraft, dirty, reset, commit } = useDirtyState<DraftValues>(initialToDraft(initial));
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<PersonalTabKey>("basics");
+  const [tabErrors, setTabErrors] = useState<TabError[]>([]);
 
   function update<K extends keyof DraftValues>(key: K, value: DraftValues[K]) {
     setDraft({ ...draft, [key]: value });
@@ -246,26 +308,22 @@ function EditMeetingTypeForm({
 
   function discard() {
     setError(null);
+    setTabErrors([]);
     reset();
   }
 
   function save() {
     setError(null);
-    if (draft.name.trim().length < 2) return setError("Name is required.");
-    if (!SLUG_RE.test(draft.slug)) {
-      return setError("Slug must be 2–40 chars, lowercase letters/digits/hyphens.");
+    const errors = validatePersonalDraft(draft, hostHasZoom, hostHasStripe);
+    if (errors.length > 0) {
+      setTabErrors(errors);
+      // Auto-switch to first tab with an error.
+      const firstWithError = PERSONAL_TAB_ORDER.find((t) => errors.some((e) => e.tabKey === t));
+      if (firstWithError) setActiveTab(firstWithError);
+      setError(errors[0].message);
+      return;
     }
-    if (![15, 30, 45, 60, 90, 120].includes(draft.durationMinutes)) {
-      return setError("Duration must be 15, 30, 45, 60, 90, or 120 minutes.");
-    }
-    if (draft.conferencingProvider === "ZOOM" && !hostHasZoom) {
-      return setError("Connect Zoom in Settings → Connections before picking it.");
-    }
-    if (!Number.isInteger(draft.maxInvitees) || draft.maxInvitees < 1 || draft.maxInvitees > 50) {
-      return setError("Max invitees must be a whole number between 1 and 50.");
-    }
-    const pricingErr = validatePricing(draft, hostHasStripe);
-    if (pricingErr) return setError(pricingErr);
+    setTabErrors([]);
     const overridePayload = serialiseOverride(draft.workingHoursOverride);
     const pricing = pricingPayload(draft);
 
@@ -318,6 +376,8 @@ function EditMeetingTypeForm({
     });
   }
 
+  const errorCount = (key: PersonalTabKey) => tabErrors.filter((e) => e.tabKey === key).length;
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -327,121 +387,151 @@ function EditMeetingTypeForm({
       />
       <DirtyNavGuard dirty={dirty} onSave={save} />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Details</CardTitle>
-          <CardDescription>Name, slug, and duration are the essentials.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <DetailsEditor
-            draft={draft}
-            update={update}
-            hostSlug={hostSlug}
-            isEdit
-            onNameChange={handleNameChange}
-            onSlugChange={(v) => update("slug", v.toLowerCase())}
-          />
-        </CardContent>
-      </Card>
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as PersonalTabKey)}>
+        <TabsList>
+          <TabsTrigger value="basics" errorCount={errorCount("basics")}>
+            Basics
+          </TabsTrigger>
+          <TabsTrigger value="availability" errorCount={errorCount("availability")}>
+            Availability
+          </TabsTrigger>
+          <TabsTrigger value="conferencing" errorCount={errorCount("conferencing")}>
+            Conferencing
+          </TabsTrigger>
+          <TabsTrigger value="pricing" errorCount={errorCount("pricing")}>
+            Pricing
+          </TabsTrigger>
+          <TabsTrigger value="intake" errorCount={errorCount("intake")}>
+            Intake
+          </TabsTrigger>
+        </TabsList>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Scheduling rules</CardTitle>
-          <CardDescription>Buffers, how soon people can book, and how far ahead.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <SchedulingEditor draft={draft} update={update} />
-        </CardContent>
-      </Card>
+        <TabsContent value="basics">
+          <Card>
+            <CardHeader>
+              <CardTitle>Details</CardTitle>
+              <CardDescription>Name, slug, and duration are the essentials.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <DetailsEditor
+                draft={draft}
+                update={update}
+                hostSlug={hostSlug}
+                isEdit
+                onNameChange={handleNameChange}
+                onSlugChange={(v) => update("slug", v.toLowerCase())}
+              />
+            </CardContent>
+          </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Availability</CardTitle>
-          <CardDescription>
-            Defaults to your overall <Link href="/settings/availability" className="underline">working hours</Link>.
-            Override here when this meeting type only happens at specific times.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <AvailabilityEditor draft={draft} update={update} />
-        </CardContent>
-      </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Group bookings</CardTitle>
+              <CardDescription>How many invitees can claim the same time slot. 1 keeps it 1:1.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-1.5">
+                <Label htmlFor="maxInvitees">Max invitees per slot</Label>
+                <Input
+                  id="maxInvitees"
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={draft.maxInvitees}
+                  onChange={(e) =>
+                    update("maxInvitees", Math.max(1, Math.min(50, Number(e.target.value) || 1)))
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  When &gt;1 the same slot accepts multiple bookings on a single calendar event.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Group bookings</CardTitle>
-          <CardDescription>How many invitees can claim the same time slot. 1 keeps it 1:1.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-1.5">
-            <Label htmlFor="maxInvitees">Max invitees per slot</Label>
-            <Input
-              id="maxInvitees"
-              type="number"
-              min={1}
-              max={50}
-              value={draft.maxInvitees}
-              onChange={(e) =>
-                update("maxInvitees", Math.max(1, Math.min(50, Number(e.target.value) || 1)))
-              }
-            />
-            <p className="text-xs text-muted-foreground">
-              When &gt;1 the same slot accepts multiple bookings on a single calendar event.
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+        <TabsContent value="availability">
+          <Card>
+            <CardHeader>
+              <CardTitle>Availability</CardTitle>
+              <CardDescription>
+                Defaults to your overall <Link href="/settings/availability" className="underline">working hours</Link>.
+                Override here when this meeting type only happens at specific times.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <AvailabilityEditor draft={draft} update={update} />
+            </CardContent>
+          </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Conferencing</CardTitle>
-          <CardDescription>Where the meeting happens. Zoom requires you to connect it in Settings.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ConferencingEditor draft={draft} update={update} hostHasZoom={hostHasZoom} />
-        </CardContent>
-      </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Scheduling rules</CardTitle>
+              <CardDescription>Buffers, how soon people can book, and how far ahead.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <SchedulingEditor draft={draft} update={update} />
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Intake questions</CardTitle>
-          <CardDescription>
-            Optional questions shown after the slot is picked. Answers are stored on the booking.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <IntakeFieldsEditor
-            fields={draft.intakeFields}
-            onChange={(next) => update("intakeFields", next)}
-          />
-        </CardContent>
-      </Card>
+        <TabsContent value="conferencing">
+          <Card>
+            <CardHeader>
+              <CardTitle>Conferencing</CardTitle>
+              <CardDescription>Where the meeting happens. Zoom requires you to connect it in Settings.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ConferencingEditor draft={draft} update={update} hostHasZoom={hostHasZoom} />
+            </CardContent>
+          </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Pricing</CardTitle>
-          <CardDescription>
-            Charge invitees through Stripe Checkout before the booking is confirmed. Free meetings skip
-            payment entirely.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <PricingEditor draft={draft} update={update} hostHasStripe={hostHasStripe} />
-        </CardContent>
-      </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Conflict calendars</CardTitle>
+              <CardDescription>
+                Which of your calendars block this meeting type. Default uses every conflict-source you set in
+                <Link href="/settings/calendars" className="underline ml-1">Settings → Calendars</Link>.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ConflictCalendarsEditor draft={draft} update={update} hostCalendars={hostCalendars} />
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Conflict calendars</CardTitle>
-          <CardDescription>
-            Which of your calendars block this meeting type. Default uses every conflict-source you set in
-            <Link href="/settings/calendars" className="underline ml-1">Settings → Calendars</Link>.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ConflictCalendarsEditor draft={draft} update={update} hostCalendars={hostCalendars} />
-        </CardContent>
-      </Card>
+        <TabsContent value="pricing">
+          <Card>
+            <CardHeader>
+              <CardTitle>Pricing</CardTitle>
+              <CardDescription>
+                Charge invitees through Stripe Checkout before the booking is confirmed. Free meetings skip
+                payment entirely.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <PricingEditor draft={draft} update={update} hostHasStripe={hostHasStripe} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="intake">
+          <Card>
+            <CardHeader>
+              <CardTitle>Intake questions</CardTitle>
+              <CardDescription>
+                Optional questions shown after the slot is picked. Answers are stored on the booking.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <IntakeFieldsEditor
+                fields={draft.intakeFields}
+                onChange={(next) => update("intakeFields", next)}
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 

@@ -13,6 +13,7 @@ import { sendEmail, bookingConfirmationTemplate, appUrl } from "@/lib/email";
 import { getEmailLogoUrl } from "@/lib/branding";
 import { getZoomAccessTokenForHost } from "@/lib/zoom/host";
 import { createZoomMeeting } from "@/lib/zoom/client";
+import { upsertContactFromBooking, workspaceIdForMeetingType } from "@/lib/contacts";
 
 const bodySchema = z.object({
   meetingTypeId: z.string().min(1),
@@ -351,6 +352,20 @@ export async function POST(request: NextRequest) {
       fromName: host.name,
       replyTo: host.email,
     });
+    // Auto-build the workspace contact directory. Failures must not fail the booking.
+    try {
+      const wsId = await workspaceIdForMeetingType(meetingType.id);
+      if (wsId) {
+        await upsertContactFromBooking({
+          workspaceId: wsId,
+          email: body.inviteeEmail,
+          name: body.inviteeName,
+          timeZone: body.inviteeTimezone,
+        });
+      }
+    } catch (err) {
+      console.error("[booking] contact upsert failed (group)", err);
+    }
     bustFreebusyCacheForHost(host.id);
     return NextResponse.json({ id: bookingId });
   }
@@ -483,6 +498,22 @@ export async function POST(request: NextRequest) {
   // the new event; co-hosts are attendees and their freebusy will reflect the invite once
   // Google syncs, which is fast enough that the 60s TTL is acceptable.)
   bustFreebusyCacheForHost(host.id);
+
+  // Auto-build the workspace contact directory. Wrapped so a contact write never fails the
+  // booking — the row is already persisted at this point.
+  try {
+    const wsId = await workspaceIdForMeetingType(meetingType.id);
+    if (wsId) {
+      await upsertContactFromBooking({
+        workspaceId: wsId,
+        email: body.inviteeEmail,
+        name: body.inviteeName,
+        timeZone: body.inviteeTimezone,
+      });
+    }
+  } catch (err) {
+    console.error("[booking] contact upsert failed", err);
+  }
 
   return NextResponse.json({ id: bookingId });
 }

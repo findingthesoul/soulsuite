@@ -84,7 +84,14 @@ export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResul
     try {
       const accessToken = await getZoomAccessTokenForHost(host.id);
       if (!accessToken) {
+        if (booking.paymentStatus === "PAID") {
+        // Paid: keep the row so /confirmed renders a useful error and we have an audit trail.
+        await prisma.booking
+          .update({ where: { id: booking.id }, data: { status: "CANCELLED" } })
+          .catch(() => undefined);
+      } else {
         await prisma.booking.delete({ where: { id: booking.id } }).catch(() => undefined);
+      }
         return {
           ok: false,
           status: 502,
@@ -118,7 +125,14 @@ export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResul
       }
     } catch (err) {
       console.error("[booking] zoom create failed", err);
-      await prisma.booking.delete({ where: { id: booking.id } }).catch(() => undefined);
+      if (booking.paymentStatus === "PAID") {
+        // Paid: keep the row so /confirmed renders a useful error and we have an audit trail.
+        await prisma.booking
+          .update({ where: { id: booking.id }, data: { status: "CANCELLED" } })
+          .catch(() => undefined);
+      } else {
+        await prisma.booking.delete({ where: { id: booking.id } }).catch(() => undefined);
+      }
       return {
         ok: false,
         status: 502,
@@ -192,7 +206,14 @@ export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResul
         .update({ where: { id: host.id }, data: { googleRefreshToken: null } })
         .catch(() => undefined);
     }
-    await prisma.booking.delete({ where: { id: booking.id } }).catch(() => undefined);
+    if (booking.paymentStatus === "PAID") {
+        // Paid: keep the row so /confirmed renders a useful error and we have an audit trail.
+        await prisma.booking
+          .update({ where: { id: booking.id }, data: { status: "CANCELLED" } })
+          .catch(() => undefined);
+      } else {
+        await prisma.booking.delete({ where: { id: booking.id } }).catch(() => undefined);
+      }
     return {
       ok: false,
       status: 502,

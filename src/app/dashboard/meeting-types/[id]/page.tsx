@@ -1,8 +1,10 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getPageContextOrRedirect, shellProps } from "@/lib/page-context";
 import { prisma } from "@/lib/prisma";
 import { AppShell } from "@/components/app-shell";
 import { MeetingTypeForm } from "../form";
+import { CopyLinkButton, OpenBookingLink } from "@/components/copy-link-button";
 import type { IntakeField } from "@/lib/intake";
 
 export default async function EditMeetingTypePage({
@@ -26,6 +28,17 @@ export default async function EditMeetingTypePage({
   return (
     <AppShell {...shellProps(ctx)}>
       <div className="mx-auto w-full max-w-2xl space-y-6">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm text-muted-foreground">
+            <Link href="/dashboard/meeting-types" className="hover:text-foreground">Personal</Link>
+            {" › "}
+            <span className="text-foreground">{mt.name}</span>
+          </p>
+          <div className="flex items-center gap-1 shrink-0">
+            <CopyLinkButton url={`/${ctx.host.slug}/${mt.slug}`} />
+            <OpenBookingLink href={`/${ctx.host.slug}/${mt.slug}`} label="Open ↗" />
+          </div>
+        </div>
         <MeetingTypeForm
           hostSlug={ctx.host.slug}
           hostHasZoom={!!ctx.host.zoomRefreshToken}

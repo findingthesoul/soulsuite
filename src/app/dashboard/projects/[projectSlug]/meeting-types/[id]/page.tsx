@@ -1,9 +1,11 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getPageContextOrRedirect, shellProps } from "@/lib/page-context";
 import { getProjectMembership, canManageProject } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { AppShell } from "@/components/app-shell";
 import { ProjectMeetingTypeForm } from "../form";
+import { CopyLinkButton, OpenBookingLink } from "@/components/copy-link-button";
 import type { IntakeField } from "@/lib/intake";
 
 export default async function EditProjectMeetingTypePage({
@@ -33,6 +35,19 @@ export default async function EditProjectMeetingTypePage({
   return (
     <AppShell {...shellProps(ctx)}>
       <div className="mx-auto w-full max-w-2xl space-y-6">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm text-muted-foreground">
+            <Link href="/dashboard/projects" className="hover:text-foreground">Teams</Link>
+            {" › "}
+            <Link href={`/dashboard/projects/${project.slug}`} className="hover:text-foreground">{project.name}</Link>
+            {" › "}
+            <span className="text-foreground">{mt.name}</span>
+          </p>
+          <div className="flex items-center gap-1 shrink-0">
+            <CopyLinkButton url={`/${project.slug}/${mt.slug}`} />
+            <OpenBookingLink href={`/${project.slug}/${mt.slug}`} label="Open ↗" />
+          </div>
+        </div>
         <ProjectMeetingTypeForm
           projectId={project.id}
           projectSlug={project.slug}

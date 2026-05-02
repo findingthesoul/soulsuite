@@ -14,7 +14,7 @@ export default async function PollDetailPage({ params }: { params: Promise<{ id:
 
   const poll = await prisma.poll.findUnique({
     where: { id },
-    include: { responses: true },
+    include: { responses: true, project: { select: { name: true } } },
   });
   if (!poll) notFound();
   if (poll.ownerHostId !== ctx.host.id) notFound();
@@ -37,7 +37,14 @@ export default async function PollDetailPage({ params }: { params: Promise<{ id:
               Polls
             </Link>
           </p>
-          <h1 className="text-2xl font-semibold tracking-tight">{poll.name}</h1>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-2xl font-semibold tracking-tight">{poll.name}</h1>
+            {poll.scope === "PROJECT" && poll.project && (
+              <span className="rounded-full bg-surface-muted px-2 py-0.5 text-[10px] uppercase tracking-wide font-medium text-foreground">
+                Team: {poll.project.name}
+              </span>
+            )}
+          </div>
           <p className="text-sm text-muted-foreground">
             {poll.durationMinutes} min · {poll.inviteeEmails.length} invitees · {poll.status.toLowerCase()}
           </p>

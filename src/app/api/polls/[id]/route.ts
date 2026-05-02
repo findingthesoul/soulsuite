@@ -118,10 +118,15 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   // We use the poll owner's email as the invitee on the booking row so the row is well-formed.
   // Multi-attendee rendering on the booking page comes later.
   await prisma.$transaction(async (tx) => {
+    // Project-scoped polls produce a project-scoped ephemeral MeetingType + a Booking with
+    // projectId set, so the team-bookings filter picks them up. Routing stays SINGLE for v1
+    // (round-robin / collective on poll finalize is a future iteration).
+    const isProjectPoll = poll.scope === "PROJECT" && poll.projectId !== null;
     const mt = await tx.meetingType.create({
       data: {
-        scope: "PERSONAL",
-        hostId: host.id,
+        scope: isProjectPoll ? "PROJECT" : "PERSONAL",
+        hostId: isProjectPoll ? null : host.id,
+        projectId: isProjectPoll ? poll.projectId : null,
         slug: pollMtSlug,
         name: poll.name,
         durationMinutes: poll.durationMinutes,
@@ -134,6 +139,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       data: {
         meetingTypeId: mt.id,
         hostId: host.id,
+        projectId: isProjectPoll ? poll.projectId : null,
         inviteeEmail: inviteeEmails[0],
         inviteeName: inviteeNamesByEmail[inviteeEmails[0]] ?? inviteeEmails[0],
         startsAt,

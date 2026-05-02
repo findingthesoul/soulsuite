@@ -1,9 +1,23 @@
 import { getPageContextOrRedirect, shellProps } from "@/lib/page-context";
+import { prisma } from "@/lib/prisma";
 import { AppShell } from "@/components/app-shell";
 import { NewPollForm } from "./form";
 
 export default async function NewPollPage() {
   const ctx = await getPageContextOrRedirect();
+
+  // Project-scoped polls require LEAD on the chosen project. Hand the form a list of
+  // projects this host leads so the picker can offer them; an empty list disables the
+  // "Team" scope option in the UI.
+  const leadMemberships = await prisma.projectMember.findMany({
+    where: { hostId: ctx.host.id, role: "LEAD" },
+    include: { project: { select: { id: true, name: true, isActive: true } } },
+    orderBy: { addedAt: "asc" },
+  });
+  const leadProjects = leadMemberships
+    .filter((m) => m.project.isActive)
+    .map((m) => ({ id: m.project.id, name: m.project.name }));
+
   return (
     <AppShell {...shellProps(ctx)}>
       <div className="mx-auto w-full max-w-2xl space-y-6">
@@ -13,7 +27,7 @@ export default async function NewPollPage() {
             Propose a few times, send each invitee a magic link, finalize once everyone&apos;s voted.
           </p>
         </header>
-        <NewPollForm />
+        <NewPollForm leadProjects={leadProjects} />
       </div>
     </AppShell>
   );

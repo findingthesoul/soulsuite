@@ -31,7 +31,10 @@ export default function SignInPage() {
         queryParams: {
           // Forces Google to issue a refresh token even on subsequent sign-ins.
           access_type: "offline",
-          prompt: "consent",
+          // `select_account` forces Google to show the account chooser every sign-in, so users
+          // can switch Google accounts after sign-out instead of being silently re-signed in as
+          // the same identity. `consent` keeps the refresh-token grant fresh.
+          prompt: "select_account consent",
         },
       },
     });

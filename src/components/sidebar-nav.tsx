@@ -23,10 +23,10 @@ const NAV_ITEMS: {
 
 const PERSONAL_SETTINGS_ITEMS = [
   { href: "/settings/availability", label: "Availability", icon: Clock, exact: false },
+  { href: "/dashboard/payments", label: "Payments", icon: CreditCard, exact: false },
 ];
 const WORKSPACE_SETTINGS_ITEMS = [
   { href: "/settings/members", label: "Internal", icon: Users, exact: false },
-  { href: "/dashboard/payments", label: "Payments", icon: CreditCard, exact: false },
   { href: "/dashboard/contacts", label: "Contacts", icon: BookUser, exact: false },
 ];
 

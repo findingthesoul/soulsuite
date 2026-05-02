@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { useDirtyState } from "@/lib/use-dirty-state";
 import { PageHeader, SaveBar } from "@/components/save-bar";
+import { DirtyNavGuard } from "@/components/dirty-nav-guard";
 import {
   BUFFER_MINUTES,
   MIN_NOTICE_MINUTES,
@@ -263,6 +264,7 @@ function EditMeetingTypeForm({
         description={`Booking link: /${hostSlug}/${draft.slug || initial.slug}`}
         actions={<SaveBar dirty={dirty} pending={pending} onSave={save} onDiscard={discard} />}
       />
+      <DirtyNavGuard dirty={dirty} onSave={save} />
 
       <Card>
         <CardHeader>

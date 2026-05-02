@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useDirtyState } from "@/lib/use-dirty-state";
 import { PageHeader, SaveBar } from "@/components/save-bar";
+import { DirtyNavGuard } from "@/components/dirty-nav-guard";
 
 interface Initial {
   name: string;
@@ -57,6 +58,7 @@ export function WorkspaceSettingsForm({ initial }: { initial: Initial }) {
 
   return (
     <div className="space-y-6">
+      <DirtyNavGuard dirty={dirty} onSave={save} />
       <PageHeader
         title="Workspace"
         description="Identity and the email domain that defines who can join."

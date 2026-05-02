@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useDirtyState } from "@/lib/use-dirty-state";
 import { SaveBar } from "@/components/save-bar";
+import { DirtyNavGuard } from "@/components/dirty-nav-guard";
 
 interface Initial {
   name: string;
@@ -82,6 +83,7 @@ export function ProjectDetailsForm({
 
   return (
     <div className="space-y-4">
+      {canEdit && <DirtyNavGuard dirty={dirty} onSave={save} />}
       <Card>
         <CardHeader>
           <div className="flex items-start justify-between gap-3">

@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useDirtyState } from "@/lib/use-dirty-state";
 import { PageHeader, SaveBar } from "@/components/save-bar";
+import { DirtyNavGuard } from "@/components/dirty-nav-guard";
 
 type Day = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
 type Range = { start: string; end: string };
@@ -230,6 +231,7 @@ export function WorkingHoursForm({
   if (isEdit) {
     return (
       <div className="space-y-6">
+        <DirtyNavGuard dirty={dirty} onSave={submit} />
         <PageHeader
           title="Availability"
           description="Timezone and weekly working hours."

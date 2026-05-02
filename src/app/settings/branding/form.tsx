@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SaveBar } from "@/components/save-bar";
+import { DirtyNavGuard } from "@/components/dirty-nav-guard";
 import { useDirtyState } from "@/lib/use-dirty-state";
 
 interface Initial {
@@ -72,6 +73,7 @@ export function BrandingForm({ initial }: { initial: Initial }) {
         </div>
         <SaveBar dirty={dirty} pending={pending} onSave={save} onDiscard={discard} />
       </header>
+      <DirtyNavGuard dirty={dirty} onSave={save} />
 
       <Card>
         <CardHeader>

@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Select } from "@/components/ui/select";
 import { useDirtyState } from "@/lib/use-dirty-state";
 import { PageHeader, SaveBar } from "@/components/save-bar";
+import { DirtyNavGuard } from "@/components/dirty-nav-guard";
 
 type GoogleCalendar = { id: string; summary: string; primary: boolean; accessRole: string | null };
 type SavedCalendar = { googleCalendarId: string; role: "PRIMARY" | "CONFLICT_CHECK" | "WRITE_TARGET" };
@@ -132,6 +133,7 @@ export function CalendarPickerForm({
   if (isEdit) {
     return (
       <div className="space-y-4">
+        <DirtyNavGuard dirty={dirty && writeCount === 1} onSave={submit} />
         <PageHeader
           title="Calendars"
           description="Pick which Google calendars block availability and where new bookings get created."

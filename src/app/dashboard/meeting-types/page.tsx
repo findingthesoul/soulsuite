@@ -42,15 +42,7 @@ export default async function MeetingTypesPage() {
               .
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <Link
-              href="/dashboard/meeting-types/one-off/new"
-              className={buttonVariants({ variant: "secondary", size: "sm" })}
-            >
-              New one-off
-            </Link>
-            <NewSchedulingMenu context="personal" />
-          </div>
+          <NewSchedulingMenu context="personal" />
         </header>
 
         {hasNothing ? (

@@ -11,6 +11,7 @@ import { Card } from "@/components/ui/card";
 import { SkeletonRow } from "@/components/skeletons";
 import { BookingDateTime } from "./bookings/client";
 import { PrefetchLink } from "@/components/prefetch-link";
+import { CopyLinkButton, OpenBookingLink } from "@/components/copy-link-button";
 
 export default async function DashboardPage() {
   const ctx = await getPageContextOrRedirect();
@@ -30,6 +31,10 @@ export default async function DashboardPage() {
           <h1 className="text-3xl font-semibold tracking-tight">Welcome, {firstName}</h1>
           <p className="text-sm text-muted-foreground">{niceDateLong(now)}</p>
         </header>
+
+        <Suspense fallback={null}>
+          <QuickLinksSection host={ctx.host} />
+        </Suspense>
 
         <Suspense fallback={<SectionSkeleton title="Today" />}>
           <TodaySection host={ctx.host} />
@@ -150,6 +155,112 @@ async function OpenPollsSection({ host }: { host: Host }) {
               </Link>
             </li>
           ))}
+        </ul>
+      </Card>
+    </section>
+  );
+}
+
+async function QuickLinksSection({ host }: { host: Host }) {
+  // "Most-booked" = bookings (any status) created in the last 90 days, grouped by
+  // meetingTypeId. Group first to keep the working set small, then load metadata
+  // for just the top 3 IDs in a single follow-up query — avoids N+1.
+  const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+  const grouped = await prisma.booking.groupBy({
+    by: ["meetingTypeId"],
+    where: {
+      createdAt: { gte: cutoff },
+      meetingType: {
+        isActive: true,
+        isOneOff: false,
+        OR: [
+          { scope: "PERSONAL", hostId: host.id },
+          { scope: "PROJECT", assignedHostIds: { has: host.id } },
+        ],
+      },
+    },
+    _count: { _all: true },
+    _max: { createdAt: true },
+  });
+
+  if (grouped.length === 0) return null;
+
+  // Sort: count desc, then most-recent booking desc (tie-break by recency); name comes
+  // later once we've loaded MT rows. Take a slightly-larger window so we can do the
+  // alphabetical tie-break with full metadata, then trim to 3.
+  grouped.sort((a, b) => {
+    if (b._count._all !== a._count._all) return b._count._all - a._count._all;
+    const aT = a._max.createdAt?.getTime() ?? 0;
+    const bT = b._max.createdAt?.getTime() ?? 0;
+    return bT - aT;
+  });
+
+  const topIds = grouped.slice(0, 6).map((g) => g.meetingTypeId);
+  const meetingTypes = await prisma.meetingType.findMany({
+    where: { id: { in: topIds } },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      durationMinutes: true,
+      scope: true,
+      hostId: true,
+      project: { select: { slug: true, name: true } },
+    },
+  });
+  const mtById = new Map(meetingTypes.map((mt) => [mt.id, mt]));
+
+  // Re-rank by the original sort order, applying alphabetical tie-break for equal
+  // (count, recency) pairs once we know the names.
+  const ranked = grouped
+    .map((g) => ({ g, mt: mtById.get(g.meetingTypeId) }))
+    .filter((x): x is { g: (typeof grouped)[number]; mt: NonNullable<ReturnType<typeof mtById.get>> } => Boolean(x.mt))
+    .sort((a, b) => {
+      if (b.g._count._all !== a.g._count._all) return b.g._count._all - a.g._count._all;
+      const aT = a.g._max.createdAt?.getTime() ?? 0;
+      const bT = b.g._max.createdAt?.getTime() ?? 0;
+      if (aT !== bT) return bT - aT;
+      return a.mt.name.localeCompare(b.mt.name);
+    })
+    .slice(0, 3);
+
+  if (ranked.length === 0) return null;
+
+  return (
+    <section className="space-y-3">
+      <div className="space-y-0.5">
+        <h2 className="text-xs uppercase tracking-wide text-subtle-foreground">Quick links</h2>
+        <p className="text-xs text-muted-foreground">
+          Your most-booked meeting types — copy and paste.
+        </p>
+      </div>
+      <Card>
+        <ul className="divide-y divide-border">
+          {ranked.map(({ mt }) => {
+            const ownerSlug = mt.project ? mt.project.slug : host.slug;
+            const path = `/${ownerSlug}/${mt.slug}`;
+            return (
+              <li key={mt.id} className="flex items-center justify-between gap-4 p-4">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground flex items-center gap-2 flex-wrap">
+                    <span>{mt.name}</span>
+                    {mt.project && (
+                      <span className="text-xs uppercase tracking-wide text-subtle-foreground border border-border rounded-md px-1.5 py-0.5">
+                        {mt.project.name}
+                      </span>
+                    )}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {mt.durationMinutes} min · {path}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <CopyLinkButton url={path} />
+                  <OpenBookingLink href={path} label="Open ↗" />
+                </div>
+              </li>
+            );
+          })}
         </ul>
       </Card>
     </section>

@@ -42,7 +42,7 @@ export function TabsList({ className, children, ...props }: TabsListProps) {
     <div
       role="tablist"
       className={cn(
-        "flex flex-wrap items-center gap-1 border-b border-border",
+        "inline-flex flex-wrap items-center gap-1 rounded-lg bg-surface-muted p-1",
         className,
       )}
       {...props}
@@ -75,10 +75,10 @@ export function TabsTrigger({
       data-state={active ? "active" : "inactive"}
       onClick={() => ctx.onValueChange(value)}
       className={cn(
-        "relative -mb-px inline-flex items-center gap-2 px-3 py-2 text-sm font-medium transition-colors border-b-2",
+        "relative inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition-all",
         active
-          ? "border-foreground text-foreground"
-          : "border-transparent text-muted-foreground hover:text-foreground",
+          ? "bg-surface text-foreground shadow-sm ring-1 ring-border"
+          : "text-muted-foreground hover:text-foreground hover:bg-surface/60",
         className,
       )}
       {...props}

@@ -1,0 +1,257 @@
+// Booking finalisation — the side-effecty bit that runs *after* the Booking row exists and
+// (for paid MTs) Stripe has confirmed payment. Extracted from /api/bookings/route.ts so the
+// Stripe webhook can call exactly the same path on `checkout.session.completed`.
+//
+// What this does (in order):
+//   1. Create the Zoom meeting (when conferencingProvider === ZOOM).
+//   2. Create the Google Calendar event on the host's write-target calendar.
+//   3. Update the Booking row with googleEventId / meetUrl / providerMeetingId.
+//   4. Stamp ProjectMember.lastAssignedAt for round-robin fairness.
+//   5. Send the confirmation email.
+//   6. Bust the per-host freebusy cache.
+//   7. Upsert the Contact row.
+//
+// On any failure of step 1 or 2 the Booking row is deleted (caller convention from the original
+// inline flow). Returns `{ ok: true }` on success or `{ ok: false, status, message }` so both
+// the bookings API (which renders an HTTP response) and the webhook (which logs) can react.
+
+import { randomUUID } from "node:crypto";
+import { prisma } from "@/lib/prisma";
+import { calendarFor, isGoogleAuthError } from "@/lib/google/client";
+import { bustFreebusyCacheForHost } from "@/lib/availability/freebusy";
+import { sendEmail, bookingConfirmationTemplate, appUrl } from "@/lib/email";
+import { getEmailLogoUrl } from "@/lib/branding";
+import { getZoomAccessTokenForHost } from "@/lib/zoom/host";
+import { createZoomMeeting, ZoomAlternativeHostsError } from "@/lib/zoom/client";
+import { upsertContactFromBooking, workspaceIdForMeetingType } from "@/lib/contacts";
+
+export type FinalizeResult =
+  | { ok: true; meetUrl: string | null; googleEventId: string | null }
+  | { ok: false; status: number; message: string };
+
+interface FinalizeArgs {
+  bookingId: string;
+  // Caller passes the resolved host + co-hosts so we don't re-run round-robin / availability.
+  // For SINGLE / ROUND_ROBIN: host = the picked booker, collectiveCoHosts = []. For COLLECTIVE:
+  // host = the conferencing host, collectiveCoHosts = the other assigned hosts.
+  hostId: string;
+  collectiveCoHostIds: string[];
+  inviteeTimezone: string;
+}
+
+export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResult> {
+  const booking = await prisma.booking.findUnique({
+    where: { id: args.bookingId },
+    include: {
+      meetingType: true,
+    },
+  });
+  if (!booking) return { ok: false, status: 404, message: "Booking not found" };
+
+  // Idempotent: if we've already finalised this booking (e.g. duplicate webhook delivery), bail.
+  if (booking.googleEventId) {
+    return { ok: true, meetUrl: booking.meetUrl, googleEventId: booking.googleEventId };
+  }
+
+  const meetingType = booking.meetingType;
+  const [host, coHosts] = await Promise.all([
+    prisma.host.findUnique({
+      where: { id: args.hostId },
+      include: { calendars: true },
+    }),
+    args.collectiveCoHostIds.length > 0
+      ? prisma.host.findMany({
+          where: { id: { in: args.collectiveCoHostIds } },
+          select: { id: true, email: true, name: true },
+        })
+      : Promise.resolve([] as { id: string; email: string; name: string }[]),
+  ]);
+  if (!host) return { ok: false, status: 404, message: "Host not found" };
+  if (!host.googleRefreshToken) {
+    return { ok: false, status: 503, message: "Host has no Google credentials" };
+  }
+  const writeTarget = host.calendars.find((c) => c.role === "WRITE_TARGET");
+  if (!writeTarget) {
+    return { ok: false, status: 404, message: "Host has no write-target calendar" };
+  }
+
+  const startsAt = booking.startsAt;
+  const endsAt = booking.endsAt;
+
+  // ── Zoom ──
+  let zoomMeeting: { meetingId: string; joinUrl: string; passcode: string | null } | null = null;
+  if (meetingType.conferencingProvider === "ZOOM") {
+    try {
+      const accessToken = await getZoomAccessTokenForHost(host.id);
+      if (!accessToken) {
+        await prisma.booking.delete({ where: { id: booking.id } }).catch(() => undefined);
+        return {
+          ok: false,
+          status: 502,
+          message: "The host hasn't connected Zoom — please pick another time or contact them.",
+        };
+      }
+      const altHosts =
+        meetingType.routingMode === "COLLECTIVE" ? coHosts.map((h) => h.email) : [];
+      const zoomArgs = {
+        topic: `${meetingType.name} — ${booking.inviteeName}`,
+        startsAtIso: startsAt.toISOString(),
+        durationMinutes: meetingType.durationMinutes,
+        timezone: "UTC",
+        agenda: meetingType.description ?? undefined,
+      };
+      try {
+        zoomMeeting = await createZoomMeeting(accessToken, {
+          ...zoomArgs,
+          alternativeHosts: altHosts,
+        });
+      } catch (err) {
+        if (err instanceof ZoomAlternativeHostsError) {
+          console.warn(
+            "[booking] zoom alternative_hosts rejected (cross-org); retrying without",
+            err.underlying,
+          );
+          zoomMeeting = await createZoomMeeting(accessToken, zoomArgs);
+        } else {
+          throw err;
+        }
+      }
+    } catch (err) {
+      console.error("[booking] zoom create failed", err);
+      await prisma.booking.delete({ where: { id: booking.id } }).catch(() => undefined);
+      return {
+        ok: false,
+        status: 502,
+        message: "Couldn't create the Zoom meeting — please try again.",
+      };
+    }
+  }
+
+  // ── Google Calendar event ──
+  let bookingMeetUrl: string | null = zoomMeeting?.joinUrl ?? null;
+  let googleEventId: string | null = null;
+  try {
+    const cal = calendarFor(host.googleRefreshToken);
+    const useGoogleMeet = meetingType.conferencingProvider === "GOOGLE_MEET";
+    const description =
+      `Booked via Soul Suite.\n` +
+      `Invitee: ${booking.inviteeName} <${booking.inviteeEmail}>\n` +
+      (meetingType.description ? `\n${meetingType.description}\n` : "") +
+      (zoomMeeting
+        ? `\nJoin Zoom: ${zoomMeeting.joinUrl}` +
+          (zoomMeeting.passcode ? `\nPasscode: ${zoomMeeting.passcode}` : "") +
+          "\n"
+        : "");
+    const ev = await cal.events.insert({
+      calendarId: writeTarget.googleCalendarId,
+      conferenceDataVersion: useGoogleMeet ? 1 : 0,
+      sendUpdates: "all",
+      requestBody: {
+        summary: `${meetingType.name} — ${booking.inviteeName}`,
+        description,
+        location: bookingMeetUrl ?? undefined,
+        start: { dateTime: startsAt.toISOString(), timeZone: "UTC" },
+        end: { dateTime: endsAt.toISOString(), timeZone: "UTC" },
+        attendees: [
+          { email: booking.inviteeEmail, displayName: booking.inviteeName },
+          { email: host.email, displayName: host.name, organizer: true },
+          ...coHosts.map((h) => ({ email: h.email, displayName: h.name })),
+        ],
+        conferenceData: useGoogleMeet
+          ? {
+              createRequest: {
+                requestId: randomUUID(),
+                conferenceSolutionKey: { type: "hangoutsMeet" },
+              },
+            }
+          : undefined,
+      },
+    });
+    if (!bookingMeetUrl && useGoogleMeet) bookingMeetUrl = ev.data.hangoutLink ?? null;
+    googleEventId = ev.data.id ?? null;
+    await prisma.booking.update({
+      where: { id: booking.id },
+      data: {
+        googleEventId,
+        conferencingProvider: meetingType.conferencingProvider,
+        meetUrl: bookingMeetUrl,
+        providerMeetingId: zoomMeeting?.meetingId ?? null,
+      },
+    });
+    if (meetingType.scope === "PROJECT" && meetingType.routingMode === "ROUND_ROBIN") {
+      await prisma.projectMember.update({
+        where: {
+          projectId_hostId: { projectId: meetingType.projectId!, hostId: host.id },
+        },
+        data: { lastAssignedAt: new Date() },
+      });
+    }
+  } catch (err) {
+    if (isGoogleAuthError(err)) {
+      await prisma.host
+        .update({ where: { id: host.id }, data: { googleRefreshToken: null } })
+        .catch(() => undefined);
+    }
+    await prisma.booking.delete({ where: { id: booking.id } }).catch(() => undefined);
+    return {
+      ok: false,
+      status: 502,
+      message: "We couldn't create the calendar event. Please try again or pick a different time.",
+    };
+  }
+
+  // ── Confirmation email ──
+  const publicSlug = meetingType.scope === "PROJECT" ? undefined : host.slug;
+  const slugForUrl =
+    publicSlug ??
+    (
+      await prisma.project.findUnique({
+        where: { id: meetingType.projectId! },
+        select: { slug: true },
+      })
+    )?.slug ??
+    host.slug;
+  const logoUrl = await getEmailLogoUrl();
+  const tmpl = bookingConfirmationTemplate({
+    hostName: host.name,
+    meetingTypeName: meetingType.name,
+    startsAtIso: startsAt.toISOString(),
+    endsAtIso: endsAt.toISOString(),
+    inviteeName: booking.inviteeName,
+    inviteeEmail: booking.inviteeEmail,
+    cancelUrl: appUrl(`/${slugForUrl}/${meetingType.slug}/confirmed/${booking.id}/cancel`),
+    rescheduleUrl: appUrl(
+      `/${slugForUrl}/${meetingType.slug}/confirmed/${booking.id}/reschedule`,
+    ),
+    meetUrl: bookingMeetUrl,
+    icalUrl: appUrl(`/${slugForUrl}/${meetingType.slug}/confirmed/${booking.id}/calendar.ics`),
+    logoUrl,
+  });
+  void sendEmail({
+    to: booking.inviteeEmail,
+    subject: tmpl.subject,
+    html: tmpl.html,
+    text: tmpl.text,
+    fromName: host.name,
+    replyTo: host.email,
+  });
+
+  bustFreebusyCacheForHost(host.id);
+
+  // Contact upsert — never blocks. Failures logged.
+  try {
+    const wsId = await workspaceIdForMeetingType(meetingType.id);
+    if (wsId) {
+      await upsertContactFromBooking({
+        workspaceId: wsId,
+        email: booking.inviteeEmail,
+        name: booking.inviteeName,
+        timeZone: args.inviteeTimezone,
+      });
+    }
+  } catch (err) {
+    console.error("[booking] contact upsert failed", err);
+  }
+
+  return { ok: true, meetUrl: bookingMeetUrl, googleEventId };
+}

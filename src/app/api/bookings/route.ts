@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { calendarFor, isGoogleAuthError } from "@/lib/google/client";
@@ -10,10 +10,10 @@ import { fetchHostBusy, bustFreebusyCacheForHost } from "@/lib/availability/free
 import { type IntakeField, validateAnswers, pruneHiddenAnswers } from "@/lib/intake";
 import { pickRoundRobinHost } from "@/lib/round-robin";
 import { sendEmail, bookingConfirmationTemplate, appUrl } from "@/lib/email";
-import { getEmailLogoUrl } from "@/lib/branding";
-import { getZoomAccessTokenForHost } from "@/lib/zoom/host";
-import { createZoomMeeting, ZoomAlternativeHostsError } from "@/lib/zoom/client";
 import { upsertContactFromBooking, workspaceIdForMeetingType } from "@/lib/contacts";
+import { finalizeBooking } from "@/lib/bookings/finalize";
+import { stripeClient, isStripeConfigured } from "@/lib/stripe/client";
+import { publicEnv } from "@/lib/env";
 
 const bodySchema = z.object({
   meetingTypeId: z.string().min(1),
@@ -214,6 +214,7 @@ export async function POST(request: NextRequest) {
     const winnerId = await pickRoundRobinHost(
       meetingType.projectId!,
       freeHosts.map((h) => h.id),
+      { meetingTypeId: meetingType.id, assignedHostIds: meetingType.assignedHostIds },
     );
     host = freeHosts.find((h) => h.id === winnerId) ?? freeHosts[0];
   } else if (meetingType.routingMode === "COLLECTIVE") {
@@ -250,6 +251,130 @@ export async function POST(request: NextRequest) {
     .digest("hex")
     .slice(0, 32);
   const requestId = `bk-${deterministic}`;
+
+  // ── Paid meeting types: Stripe Checkout branch ──
+  // For paid MTs we create the Booking row in PENDING state and a Stripe Checkout Session
+  // tied to the host's connected Stripe account. The webhook (/api/stripe/webhook) flips
+  // PAID and runs finalizeBooking() to create the Google event + emails. Group meetings and
+  // one-off slots use the same idempotent Booking row so duplicate clicks collide on requestId.
+  const isPaid = (meetingType.priceCents ?? 0) > 0;
+  if (isPaid) {
+    if (!isStripeConfigured()) {
+      return new NextResponse("Payments are not configured on this server.", { status: 503 });
+    }
+    if (!meetingType.priceCurrency) {
+      return new NextResponse("Meeting type has no priceCurrency set.", { status: 500 });
+    }
+    if (!host.stripeAccountId) {
+      return new NextResponse(
+        "This meeting host hasn't connected Stripe yet. Please contact them.",
+        { status: 502 },
+      );
+    }
+
+    // Create the PENDING booking row first (idempotent via requestId).
+    let pendingId: string;
+    try {
+      const created = await prisma.booking.create({
+        data: {
+          meetingTypeId: meetingType.id,
+          hostId: host.id,
+          projectId: meetingType.projectId,
+          inviteeEmail: body.inviteeEmail,
+          inviteeName: body.inviteeName,
+          inviteeAnswers:
+            Object.keys(cleanedAnswers).length > 0
+              ? (cleanedAnswers as Prisma.InputJsonValue)
+              : undefined,
+          startsAt,
+          endsAt,
+          requestId,
+          status: "CONFIRMED",
+          paymentStatus: "PENDING",
+        },
+      });
+      pendingId = created.id;
+    } catch (err) {
+      if (err && typeof err === "object" && (err as { code?: string }).code === "P2002") {
+        const existing = await prisma.booking.findUnique({ where: { requestId } });
+        if (existing) {
+          // If we already have a Checkout session for this booking, return that URL —
+          // otherwise create a fresh session (e.g. previous Stripe call failed). The session
+          // ID is overwritten on the booking row so the webhook always finds the latest.
+          if (existing.paymentStatus === "PAID") {
+            return NextResponse.json({ id: existing.id });
+          }
+          pendingId = existing.id;
+        } else {
+          throw err;
+        }
+      } else {
+        throw err;
+      }
+    }
+
+    const baseUrl = publicEnv.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
+    const slugForUrl =
+      meetingType.scope === "PROJECT"
+        ? (
+            await prisma.project.findUnique({
+              where: { id: meetingType.projectId! },
+              select: { slug: true },
+            })
+          )?.slug ?? host.slug
+        : host.slug;
+
+    let checkoutUrl: string;
+    let sessionId: string;
+    try {
+      const session = await stripeClient().checkout.sessions.create(
+        {
+          mode: "payment",
+          line_items: [
+            {
+              price_data: {
+                currency: meetingType.priceCurrency,
+                unit_amount: meetingType.priceCents!,
+                product_data: {
+                  name: meetingType.name,
+                  description: meetingType.description ?? undefined,
+                },
+              },
+              quantity: 1,
+            },
+          ],
+          customer_email: body.inviteeEmail,
+          client_reference_id: pendingId,
+          metadata: {
+            bookingId: pendingId,
+            meetingTypeId: meetingType.id,
+            inviteeTimezone: body.inviteeTimezone,
+            collectiveCoHostIds: collectiveCoHosts.map((h) => h.id).join(","),
+          },
+          success_url: `${baseUrl}/${slugForUrl}/${meetingType.slug}/confirmed/${pendingId}?paid=1`,
+          cancel_url: `${baseUrl}/${slugForUrl}/${meetingType.slug}?canceled=1`,
+        },
+        { stripeAccount: host.stripeAccountId },
+      );
+      if (!session.url) throw new Error("Stripe session has no url");
+      checkoutUrl = session.url;
+      sessionId = session.id;
+    } catch (err) {
+      console.error("[booking] stripe checkout create failed", err);
+      // Roll back the PENDING booking — they can retry with a fresh requestId only if we delete it.
+      await prisma.booking.delete({ where: { id: pendingId } }).catch(() => undefined);
+      return new NextResponse("Couldn't start the payment session — please try again.", {
+        status: 502,
+      });
+    }
+
+    await prisma.booking.update({
+      where: { id: pendingId },
+      data: { stripeSessionId: sessionId },
+    });
+
+    return NextResponse.json({ id: pendingId, checkoutUrl });
+  }
 
   // Create the Booking row first (with idempotency), then create the Google event. If Google
   // fails, we keep the row but leave googleEventId null — the host can retry from the dashboard
@@ -392,174 +517,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ id: bookingId });
   }
 
-  // For ZOOM: create the meeting first, then attach the join link to the Google event
-  // description + location. We do Zoom first so a Zoom failure doesn't leave a dangling
-  // calendar event behind.
-  let zoomMeeting: { meetingId: string; joinUrl: string; passcode: string | null } | null = null;
-  if (meetingType.conferencingProvider === "ZOOM") {
-    try {
-      const accessToken = await getZoomAccessTokenForHost(host.id);
-      if (!accessToken) {
-        await prisma.booking.delete({ where: { id: bookingId } }).catch(() => undefined);
-        return new NextResponse(
-          "The host hasn't connected Zoom — please pick another time or contact them.",
-          { status: 502 },
-        );
-      }
-      // For COLLECTIVE: try to add the other assigned hosts as Zoom alternative hosts. If their
-      // emails aren't in the same Zoom org, Zoom rejects the entire create call — we catch
-      // ZoomAlternativeHostsError and retry without the list (they'll join as guests via the
-      // calendar invite instead).
-      const altHosts =
-        meetingType.routingMode === "COLLECTIVE"
-          ? collectiveCoHosts.map((h) => h.email)
-          : [];
-      const zoomArgs = {
-        topic: `${meetingType.name} — ${body.inviteeName}`,
-        startsAtIso: startsAt.toISOString(),
-        durationMinutes: meetingType.durationMinutes,
-        timezone: "UTC",
-        agenda: meetingType.description ?? undefined,
-      };
-      try {
-        zoomMeeting = await createZoomMeeting(accessToken, {
-          ...zoomArgs,
-          alternativeHosts: altHosts,
-        });
-      } catch (err) {
-        if (err instanceof ZoomAlternativeHostsError) {
-          console.warn(
-            "[booking] zoom alternative_hosts rejected (cross-org); retrying without",
-            err.underlying,
-          );
-          zoomMeeting = await createZoomMeeting(accessToken, zoomArgs);
-        } else {
-          throw err;
-        }
-      }
-    } catch (err) {
-      console.error("[booking] zoom create failed", err);
-      await prisma.booking.delete({ where: { id: bookingId } }).catch(() => undefined);
-      return new NextResponse("Couldn't create the Zoom meeting — please try again.", { status: 502 });
-    }
-  }
-
-  let bookingMeetUrl: string | null = zoomMeeting?.joinUrl ?? null;
-  try {
-    const cal = calendarFor(host.googleRefreshToken!);
-    const useGoogleMeet = meetingType.conferencingProvider === "GOOGLE_MEET";
-    const description =
-      `Booked via Soul Suite.\n` +
-      `Invitee: ${body.inviteeName} <${body.inviteeEmail}>\n` +
-      (meetingType.description ? `\n${meetingType.description}\n` : "") +
-      (zoomMeeting
-        ? `\nJoin Zoom: ${zoomMeeting.joinUrl}` +
-          (zoomMeeting.passcode ? `\nPasscode: ${zoomMeeting.passcode}` : "") +
-          "\n"
-        : "");
-    const ev = await cal.events.insert({
-      calendarId: writeTarget.googleCalendarId,
-      conferenceDataVersion: useGoogleMeet ? 1 : 0,
-      sendUpdates: "all",
-      requestBody: {
-        summary: `${meetingType.name} — ${body.inviteeName}`,
-        description,
-        location: bookingMeetUrl ?? undefined,
-        start: { dateTime: startsAt.toISOString(), timeZone: "UTC" },
-        end: { dateTime: endsAt.toISOString(), timeZone: "UTC" },
-        attendees: [
-          { email: body.inviteeEmail, displayName: body.inviteeName },
-          { email: host.email, displayName: host.name, organizer: true },
-          ...collectiveCoHosts.map((h) => ({ email: h.email, displayName: h.name })),
-        ],
-        conferenceData: useGoogleMeet
-          ? { createRequest: { requestId: randomUUID(), conferenceSolutionKey: { type: "hangoutsMeet" } } }
-          : undefined,
-      },
-    });
-    if (!bookingMeetUrl && useGoogleMeet) bookingMeetUrl = ev.data.hangoutLink ?? null;
-    await prisma.booking.update({
-      where: { id: bookingId },
-      data: {
-        googleEventId: ev.data.id ?? null,
-        conferencingProvider: meetingType.conferencingProvider,
-        meetUrl: bookingMeetUrl,
-        providerMeetingId: zoomMeeting?.meetingId ?? null,
-      },
-    });
-    // Round-robin fairness: stamp the picked host so the next ROUND_ROBIN booking on this
-    // project considers them most-recently-assigned (i.e. ranks them last).
-    if (meetingType.scope === "PROJECT" && meetingType.routingMode === "ROUND_ROBIN") {
-      await prisma.projectMember.update({
-        where: { projectId_hostId: { projectId: meetingType.projectId!, hostId: host.id } },
-        data: { lastAssignedAt: new Date() },
-      });
-    }
-  } catch (err) {
-    if (isGoogleAuthError(err)) {
-      await prisma.host.update({ where: { id: host.id }, data: { googleRefreshToken: null } });
-    }
-    // Roll back the booking row so the user can retry — otherwise they'd see "already booked"
-    // on the next attempt thanks to the deterministic requestId.
-    await prisma.booking.delete({ where: { id: bookingId } }).catch(() => undefined);
-    return new NextResponse(
-      "We couldn't create the calendar event. Please try again or pick a different time.",
-      { status: 502 },
-    );
-  }
-
-  // Confirmation email — fire-and-forget. Failures are logged inside sendEmail; we don't
-  // block the booking on email delivery.
-  const publicSlug = meetingType.scope === "PROJECT" ? undefined : host.slug;
-  // For PROJECT bookings the URL uses the project slug; for PERSONAL it uses the host's.
-  const slugForUrl = publicSlug ?? (await prisma.project.findUnique({
-    where: { id: meetingType.projectId! },
-    select: { slug: true },
-  }))?.slug ?? host.slug;
-  const logoUrl = await getEmailLogoUrl();
-  const tmpl = bookingConfirmationTemplate({
-    hostName: host.name,
-    meetingTypeName: meetingType.name,
-    startsAtIso: startsAt.toISOString(),
-    endsAtIso: endsAt.toISOString(),
-    inviteeName: body.inviteeName,
-    inviteeEmail: body.inviteeEmail,
-    cancelUrl: appUrl(`/${slugForUrl}/${meetingType.slug}/confirmed/${bookingId}/cancel`),
-    rescheduleUrl: appUrl(`/${slugForUrl}/${meetingType.slug}/confirmed/${bookingId}/reschedule`),
-    meetUrl: bookingMeetUrl,
-    icalUrl: appUrl(`/${slugForUrl}/${meetingType.slug}/confirmed/${bookingId}/calendar.ics`),
-    logoUrl,
+  // ── Free meeting types: finalise immediately ──
+  // Paid MTs returned earlier with a Checkout URL; the webhook handles their finalisation. Free
+  // MTs go through the same finalize() path the webhook uses, so behaviour stays identical.
+  const result = await finalizeBooking({
+    bookingId,
+    hostId: host.id,
+    collectiveCoHostIds: collectiveCoHosts.map((h) => h.id),
+    inviteeTimezone: body.inviteeTimezone,
   });
-  void sendEmail({
-    to: body.inviteeEmail,
-    subject: tmpl.subject,
-    html: tmpl.html,
-    text: tmpl.text,
-    fromName: host.name,
-    replyTo: host.email,
-  });
-
-  // The host's freebusy is now stale — bust the in-memory cache so the next public-page
-  // render fetches fresh slots. (Collective books on multiple calendars but only `host` owns
-  // the new event; co-hosts are attendees and their freebusy will reflect the invite once
-  // Google syncs, which is fast enough that the 60s TTL is acceptable.)
-  bustFreebusyCacheForHost(host.id);
-
-  // Auto-build the workspace contact directory. Wrapped so a contact write never fails the
-  // booking — the row is already persisted at this point.
-  try {
-    const wsId = await workspaceIdForMeetingType(meetingType.id);
-    if (wsId) {
-      await upsertContactFromBooking({
-        workspaceId: wsId,
-        email: body.inviteeEmail,
-        name: body.inviteeName,
-        timeZone: body.inviteeTimezone,
-      });
-    }
-  } catch (err) {
-    console.error("[booking] contact upsert failed", err);
+  if (!result.ok) {
+    return new NextResponse(result.message, { status: result.status });
   }
-
   return NextResponse.json({ id: bookingId });
 }

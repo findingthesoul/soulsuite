@@ -36,16 +36,6 @@ export async function GET(req: Request) {
   try {
     const tokens = await exchangeCodeForTokens(code);
     const zoomUser = await fetchZoomUser(tokens.accessToken);
-    console.log(
-      "[zoom oauth] storing fresh refresh token for host",
-      host.id,
-      "tokenPrefix",
-      tokens.refreshToken.slice(0, 12),
-      "tokenLength",
-      tokens.refreshToken.length,
-      "email",
-      zoomUser.email,
-    );
     await prisma.host.update({
       where: { id: host.id },
       data: {

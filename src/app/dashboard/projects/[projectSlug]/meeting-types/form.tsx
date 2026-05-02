@@ -172,7 +172,7 @@ function EditProjectMeetingTypeForm({
     setDraft({
       ...draft,
       assignedHostIds: [hostId],
-      conflictCalendarIds: draft.conflictCalendarIds.filter((id) => validIds.has(id)),
+      conflictCalendarIds: draft.conflictCalendarIds.filter((id: string) => validIds.has(id)),
     });
   }
 

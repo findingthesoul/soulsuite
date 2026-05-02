@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { Scope, RoutingMode } from "@prisma/client";
+import { Scope, RoutingMode, Prisma } from "@prisma/client";
 import { getCurrentHost } from "@/lib/auth";
 import { canManageProject, getProjectMembership } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
@@ -140,7 +140,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           conflictCalendarIds: data.conflictCalendarIds,
           conferencingProvider: data.conferencingProvider,
           maxInvitees: data.maxInvitees,
-          workingHoursOverride: data.workingHoursOverride ?? null,
+          workingHoursOverride: data.workingHoursOverride ?? Prisma.JsonNull,
         },
       });
       const intakeFormId = await syncIntakeForm({

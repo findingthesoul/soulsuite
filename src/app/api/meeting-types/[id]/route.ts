@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { getCurrentHost } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { BUFFER_MINUTES, MIN_NOTICE_MINUTES, MAX_ADVANCE_DAYS } from "@/lib/scheduling-rules";
@@ -98,7 +99,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
           isActive: parsed.data.isActive,
           conferencingProvider: parsed.data.conferencingProvider,
           maxInvitees: parsed.data.maxInvitees,
-          workingHoursOverride: parsed.data.workingHoursOverride ?? null,
+          workingHoursOverride: parsed.data.workingHoursOverride ?? Prisma.JsonNull,
         },
       });
       const newFormId = await syncIntakeForm({

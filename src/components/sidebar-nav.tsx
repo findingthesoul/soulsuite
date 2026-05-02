@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, FolderOpen, CalendarDays, Inbox, Clock, Users, HelpCircle } from "lucide-react";
+import { LayoutDashboard, FolderOpen, CalendarDays, Inbox, Clock, Users, BookUser, HelpCircle } from "lucide-react";
 import { version as APP_VERSION } from "../../package.json";
 
 const NAV_ITEMS: {
@@ -26,6 +26,7 @@ const PERSONAL_SETTINGS_ITEMS = [
 ];
 const WORKSPACE_SETTINGS_ITEMS = [
   { href: "/settings/members", label: "Internal", icon: Users, exact: false },
+  { href: "/dashboard/contacts", label: "Contacts", icon: BookUser, exact: false },
 ];
 
 interface Props {

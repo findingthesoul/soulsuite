@@ -13,6 +13,7 @@ import { sendEmail, bookingConfirmationTemplate, appUrl } from "@/lib/email";
 import { getEmailLogoUrl } from "@/lib/branding";
 import { getZoomAccessTokenForHost } from "@/lib/zoom/host";
 import { createZoomMeeting } from "@/lib/zoom/client";
+import { upsertContactFromBooking, workspaceIdForMeetingType } from "@/lib/contacts";
 
 const bodySchema = z.object({
   meetingTypeId: z.string().min(1),
@@ -125,6 +126,19 @@ export async function POST(request: NextRequest) {
     include: { calendars: true },
   });
 
+  // For project-scoped MTs, surface each candidate host's per-project working-hours override so
+  // the freebusy re-validation respects it (mirrors the engine's resolution order).
+  const projectMemberOverrideByHostId = new Map<string, unknown>();
+  if (meetingType.scope === "PROJECT" && meetingType.projectId) {
+    const members = await prisma.projectMember.findMany({
+      where: { projectId: meetingType.projectId, hostId: { in: candidateHostIds } },
+      select: { hostId: true, workingHoursOverride: true },
+    });
+    for (const m of members) {
+      projectMemberOverrideByHostId.set(m.hostId, m.workingHoursOverride);
+    }
+  }
+
   // Run freebusy in parallel — for ROUND_ROBIN / COLLECTIVE this used to be sequential, one
   // Google round-trip per host before the page could move on. Each host's check is independent.
   type Cand = (typeof candidateHosts)[number];
@@ -139,7 +153,14 @@ export async function POST(request: NextRequest) {
       try {
         const busy = await fetchHostBusy(cand, range, meetingType);
         const slots = computeAvailableSlots({
-          host: { timezone: cand.timezone, workingHours: effectiveWorkingHours(meetingType, cand) },
+          host: {
+            timezone: cand.timezone,
+            workingHours: effectiveWorkingHours(
+              meetingType,
+              cand,
+              projectMemberOverrideByHostId.get(cand.id),
+            ),
+          },
           meetingType: {
             durationMinutes: meetingType.durationMinutes,
             bufferBeforeMinutes: meetingType.bufferBeforeMinutes,
@@ -351,6 +372,20 @@ export async function POST(request: NextRequest) {
       fromName: host.name,
       replyTo: host.email,
     });
+    // Auto-build the workspace contact directory. Failures must not fail the booking.
+    try {
+      const wsId = await workspaceIdForMeetingType(meetingType.id);
+      if (wsId) {
+        await upsertContactFromBooking({
+          workspaceId: wsId,
+          email: body.inviteeEmail,
+          name: body.inviteeName,
+          timeZone: body.inviteeTimezone,
+        });
+      }
+    } catch (err) {
+      console.error("[booking] contact upsert failed (group)", err);
+    }
     bustFreebusyCacheForHost(host.id);
     return NextResponse.json({ id: bookingId });
   }
@@ -483,6 +518,22 @@ export async function POST(request: NextRequest) {
   // the new event; co-hosts are attendees and their freebusy will reflect the invite once
   // Google syncs, which is fast enough that the 60s TTL is acceptable.)
   bustFreebusyCacheForHost(host.id);
+
+  // Auto-build the workspace contact directory. Wrapped so a contact write never fails the
+  // booking — the row is already persisted at this point.
+  try {
+    const wsId = await workspaceIdForMeetingType(meetingType.id);
+    if (wsId) {
+      await upsertContactFromBooking({
+        workspaceId: wsId,
+        email: body.inviteeEmail,
+        name: body.inviteeName,
+        timeZone: body.inviteeTimezone,
+      });
+    }
+  } catch (err) {
+    console.error("[booking] contact upsert failed", err);
+  }
 
   return NextResponse.json({ id: bookingId });
 }

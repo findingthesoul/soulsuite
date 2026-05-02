@@ -7,6 +7,7 @@ import { getCurrentHost } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { calendarFor, isGoogleAuthError } from "@/lib/google/client";
 import type { ProposedSlot } from "@/lib/polls";
+import { upsertContactFromBooking } from "@/lib/contacts";
 
 const patchSchema = z.union([
   z.object({ action: z.literal("cancel") }),
@@ -161,6 +162,33 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       },
     });
   });
+
+  // Auto-build the workspace contact directory from poll attendees. Wrapped so contact
+  // failures never fail the finalization — the booking + Google event are already persisted.
+  try {
+    const wsId =
+      poll.scope === "PROJECT" && poll.projectId
+        ? (await prisma.project.findUnique({
+            where: { id: poll.projectId },
+            select: { workspaceId: true },
+          }))?.workspaceId ?? null
+        : (await prisma.workspaceMember.findFirst({
+            where: { hostId: host.id },
+            select: { workspaceId: true },
+          }))?.workspaceId ?? null;
+    if (wsId) {
+      for (const email of inviteeEmails) {
+        await upsertContactFromBooking({
+          workspaceId: wsId,
+          email,
+          name: inviteeNamesByEmail[email] ?? null,
+          timeZone: null,
+        });
+      }
+    }
+  } catch (err) {
+    console.error("[poll] contact upsert failed", err);
+  }
 
   return NextResponse.json({ ok: true });
 }

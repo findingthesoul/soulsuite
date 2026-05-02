@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getPageContextOrRedirect, shellProps } from "@/lib/page-context";
 import { getProjectMembership, canManageProject } from "@/lib/permissions";
@@ -27,6 +28,13 @@ export default async function NewProjectMeetingTypePage({
   return (
     <AppShell {...shellProps(ctx)}>
       <div className="mx-auto w-full max-w-2xl space-y-6">
+        <p className="text-sm text-muted-foreground">
+          <Link href="/dashboard/projects" className="hover:text-foreground">Teams</Link>
+          {" › "}
+          <Link href={`/dashboard/projects/${project.slug}`} className="hover:text-foreground">{project.name}</Link>
+          {" › "}
+          <span className="text-foreground">New meeting type</span>
+        </p>
         <header className="space-y-1">
           <h1 className="text-2xl font-semibold tracking-tight">New meeting type</h1>
           <p className="text-sm text-muted-foreground">

@@ -19,11 +19,12 @@ interface ItemSpec {
   invitees: string;
   blurb: string;
   icon: React.ComponentType<{ className?: string }>;
-  href?: string;            // enabled if set
-  comingSoon?: boolean;
+  href: string;
+  enabledIn: ("personal" | "team")[];
+  disabledHint?: string;
 }
 
-const ITEMS: ItemSpec[] = [
+const PRIMARY_ITEMS: ItemSpec[] = [
   {
     key: "one-on-one",
     title: "One-on-one",
@@ -32,33 +33,41 @@ const ITEMS: ItemSpec[] = [
     blurb: "Coffee chats, intro calls, 1:1 reviews.",
     icon: User,
     href: "/dashboard/meeting-types/new",
+    enabledIn: ["personal"],
+    disabledHint: "Personal — create from the Personal screen.",
   },
   {
     key: "group",
     title: "Group",
     hosts: "1 host",
     invitees: "Multiple invitees",
-    blurb: "Webinars, office hours, classes. Set max invitees on the meeting type.",
+    blurb: "Webinars, office hours, classes.",
     icon: GroupIcon,
-    href: "/dashboard/meeting-types/new",
+    href: "/dashboard/meeting-types/new?kind=group",
+    enabledIn: ["personal"],
+    disabledHint: "Personal — create from the Personal screen.",
   },
   {
     key: "round-robin",
     title: "Round robin",
     hosts: "Rotating hosts",
     invitees: "1 invitee",
-    blurb: "Distribute bookings across a team. Lives inside a Team — pick or create one next.",
+    blurb: "Distribute bookings across a team.",
     icon: Repeat,
-    href: "/dashboard/projects",
+    href: "__team_routing__:ROUND_ROBIN",
+    enabledIn: ["team"],
+    disabledHint: "Lives inside a Team — pick or create one.",
   },
   {
     key: "collective",
     title: "Collective",
     hosts: "Multiple hosts",
     invitees: "1 invitee",
-    blurb: "Panel interviews, group sales calls. Lives inside a Team.",
+    blurb: "Panel interviews, group sales calls.",
     icon: Users,
-    href: "/dashboard/projects",
+    href: "__team_routing__:COLLECTIVE",
+    enabledIn: ["team"],
+    disabledHint: "Lives inside a Team — pick or create one.",
   },
 ];
 
@@ -71,6 +80,8 @@ const SECONDARY_ITEMS: ItemSpec[] = [
     blurb: "Offer a single time outside your normal schedule.",
     icon: CalendarClock,
     href: "/dashboard/meeting-types/one-off/new",
+    enabledIn: ["personal"],
+    disabledHint: "One-offs are personal-only for now.",
   },
   {
     key: "poll",
@@ -80,11 +91,32 @@ const SECONDARY_ITEMS: ItemSpec[] = [
     blurb: "Let invitees vote on a time to meet.",
     icon: Vote,
     href: "/dashboard/polls/new",
+    enabledIn: ["personal", "team"],
   },
 ];
 
-export function NewSchedulingMenu() {
+interface Props {
+  context: "personal" | "team";
+  projectSlug?: string; // when context === "team"
+}
+
+export function NewSchedulingMenu({ context, projectSlug }: Props) {
   const router = useRouter();
+
+  function resolveHref(href: string): string {
+    if (href.startsWith("__team_routing__:") && context === "team" && projectSlug) {
+      const mode = href.split(":")[1];
+      return `/dashboard/projects/${projectSlug}/meeting-types/new?routing=${mode}`;
+    }
+    if (href.startsWith("__team_routing__:")) {
+      return "/dashboard/projects";
+    }
+    if (href === "/dashboard/polls/new" && context === "team" && projectSlug) {
+      return `/dashboard/polls/new?team=${projectSlug}`;
+    }
+    return href;
+  }
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger className={buttonVariants()} data-tour="new-button">
@@ -93,23 +125,39 @@ export function NewSchedulingMenu() {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80 p-2">
         <DropdownMenuLabel className="px-2">Event type</DropdownMenuLabel>
-        {ITEMS.map((item) => (
-          <PickerItem key={item.key} item={item} onPick={(href) => router.push(href)} />
+        {PRIMARY_ITEMS.map((item) => (
+          <PickerItem
+            key={item.key}
+            item={item}
+            disabled={!item.enabledIn.includes(context)}
+            onPick={() => router.push(resolveHref(item.href))}
+          />
         ))}
         <DropdownMenuSeparator />
         <DropdownMenuLabel className="px-2">More ways to meet</DropdownMenuLabel>
         {SECONDARY_ITEMS.map((item) => (
-          <PickerItem key={item.key} item={item} onPick={(href) => router.push(href)} />
+          <PickerItem
+            key={item.key}
+            item={item}
+            disabled={!item.enabledIn.includes(context)}
+            onPick={() => router.push(resolveHref(item.href))}
+          />
         ))}
       </DropdownMenuContent>
     </DropdownMenu>
   );
 }
 
-function PickerItem({ item, onPick }: { item: ItemSpec; onPick: (href: string) => void }) {
+function PickerItem({
+  item,
+  disabled,
+  onPick,
+}: {
+  item: ItemSpec;
+  disabled: boolean;
+  onPick: () => void;
+}) {
   const Icon = item.icon;
-  const disabled = !item.href || item.comingSoon;
-
   return (
     <DropdownMenuItem
       disabled={disabled}
@@ -118,20 +166,13 @@ function PickerItem({ item, onPick }: { item: ItemSpec; onPick: (href: string) =
           e.preventDefault();
           return;
         }
-        onPick(item.href!);
+        onPick();
       }}
-      className="flex items-start gap-3 px-2 py-2.5 cursor-pointer"
+      className={`flex items-start gap-3 px-2 py-2.5 ${disabled ? "opacity-40" : "cursor-pointer"}`}
     >
       <Icon className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <p className="text-sm font-medium text-foreground">{item.title}</p>
-          {item.comingSoon && (
-            <span className="text-[10px] uppercase tracking-wide text-subtle-foreground border border-border rounded px-1 py-0.5">
-              Soon
-            </span>
-          )}
-        </div>
+        <p className="text-sm font-medium text-foreground">{item.title}</p>
         {(item.hosts || item.invitees) && (
           <p className="text-xs text-muted-foreground mt-0.5">
             {item.hosts}
@@ -143,7 +184,9 @@ function PickerItem({ item, onPick }: { item: ItemSpec; onPick: (href: string) =
             )}
           </p>
         )}
-        <p className="text-xs text-muted-foreground mt-0.5">{item.blurb}</p>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          {disabled && item.disabledHint ? item.disabledHint : item.blurb}
+        </p>
       </div>
     </DropdownMenuItem>
   );

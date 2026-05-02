@@ -9,6 +9,7 @@ import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { CopyLinkButton, OpenBookingLink } from "@/components/copy-link-button";
+import { NewSchedulingMenu } from "@/components/new-scheduling-menu";
 import { ProjectDetailsForm } from "./form";
 
 export default async function ProjectDashboardPage({
@@ -104,15 +105,7 @@ export default async function ProjectDashboardPage({
             <h2 className="text-xs uppercase tracking-wide text-subtle-foreground">
               Meeting types ({meetingTypes.length})
             </h2>
-            {isLead && (
-              <Link
-                href={`/dashboard/projects/${project.slug}/meeting-types/new`}
-                className={buttonVariants({ variant: "secondary", size: "sm" })}
-              >
-                <Plus className="h-3.5 w-3.5" />
-                New
-              </Link>
-            )}
+            {isLead && <NewSchedulingMenu context="team" projectSlug={project.slug} />}
           </div>
           {meetingTypes.length === 0 ? (
             <Card className="border-dashed">

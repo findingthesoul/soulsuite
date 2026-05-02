@@ -49,7 +49,7 @@ export default async function MeetingTypesPage() {
             >
               New one-off
             </Link>
-            <NewSchedulingMenu />
+            <NewSchedulingMenu context="personal" />
           </div>
         </header>
 

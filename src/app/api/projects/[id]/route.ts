@@ -10,6 +10,9 @@ const patchSchema = z.object({
   slug: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/),
   description: z.string().nullable().optional(),
   isActive: z.boolean(),
+  roundRobinFairness: z
+    .enum(["LEAST_RECENTLY_ASSIGNED", "LEAST_LOADED", "STRICT_ROTATION", "RANDOM"])
+    .optional(),
 });
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -48,6 +51,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       slug,
       description: parsed.data.description ?? null,
       isActive: parsed.data.isActive,
+      ...(parsed.data.roundRobinFairness ? { roundRobinFairness: parsed.data.roundRobinFairness } : {}),
     },
   });
   return NextResponse.json({ ok: true });

@@ -32,9 +32,8 @@ const PRIMARY_ITEMS: ItemSpec[] = [
     invitees: "1 invitee",
     blurb: "Coffee chats, intro calls, 1:1 reviews.",
     icon: User,
-    href: "/dashboard/meeting-types/new",
-    enabledIn: ["personal"],
-    disabledHint: "Personal — create from the Personal screen.",
+    href: "__one_on_one__",
+    enabledIn: ["personal", "team"],
   },
   {
     key: "group",
@@ -43,9 +42,8 @@ const PRIMARY_ITEMS: ItemSpec[] = [
     invitees: "Multiple invitees",
     blurb: "Webinars, office hours, classes.",
     icon: GroupIcon,
-    href: "/dashboard/meeting-types/new?kind=group",
-    enabledIn: ["personal"],
-    disabledHint: "Personal — create from the Personal screen.",
+    href: "__group__",
+    enabledIn: ["personal", "team"],
   },
   {
     key: "round-robin",
@@ -104,6 +102,16 @@ export function NewSchedulingMenu({ context, projectSlug }: Props) {
   const router = useRouter();
 
   function resolveHref(href: string): string {
+    if (href === "__one_on_one__") {
+      return context === "team" && projectSlug
+        ? `/dashboard/projects/${projectSlug}/meeting-types/new?routing=SINGLE`
+        : "/dashboard/meeting-types/new";
+    }
+    if (href === "__group__") {
+      return context === "team" && projectSlug
+        ? `/dashboard/projects/${projectSlug}/meeting-types/new?routing=SINGLE&kind=group`
+        : "/dashboard/meeting-types/new?kind=group";
+    }
     if (href.startsWith("__team_routing__:") && context === "team" && projectSlug) {
       const mode = href.split(":")[1];
       return `/dashboard/projects/${projectSlug}/meeting-types/new?routing=${mode}`;

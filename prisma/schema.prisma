@@ -34,6 +34,32 @@ model Workspace {
   members  WorkspaceMember[]
   projects Project[]
   invites  Invite[]
+  contacts Contact[]
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Contacts — workspace-scoped directory, auto-built from booking history.
+// On every booking creation we upsert a Contact row keyed by (workspaceId, email).
+// Manually-edited fields are never overwritten by the upsert (see src/lib/contacts.ts).
+// ────────────────────────────────────────────────────────────────────────────
+
+model Contact {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  email       String
+  name        String?
+  phone       String?
+  company     String?
+  jobTitle    String?
+  linkedinUrl String?
+  location    String?
+  timeZone    String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([workspaceId, email])
+  @@index([workspaceId])
 }
 
 enum WorkspaceRole {
@@ -155,6 +181,12 @@ model ProjectMember {
   // Round-robin fairness: tracks when this member was last assigned a booking via
   // ROUND_ROBIN. Null means "never been assigned yet" → ranks first (oldest first).
   lastAssignedAt DateTime?
+  // Optional per-project override of this host's default working hours when scheduling for
+  // this team. Same JSON shape as Host.workingHours (Record<DayKey, { start, end }[]>).
+  // Resolution order in the availability engine: meetingType.workingHoursOverride →
+  // projectMember.workingHoursOverride (project-scoped MTs only) → host.workingHours.
+  // Null/empty = fall back to the next layer.
+  workingHoursOverride Json?
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   host    Host    @relation(fields: [hostId], references: [id], onDelete: Cascade)

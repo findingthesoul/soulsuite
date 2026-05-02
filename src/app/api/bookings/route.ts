@@ -4,7 +4,8 @@ import { createHash, randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { calendarFor, isGoogleAuthError } from "@/lib/google/client";
-import { computeAvailableSlots, type WorkingHours } from "@/lib/availability/engine";
+import { computeAvailableSlots } from "@/lib/availability/engine";
+import { effectiveWorkingHours } from "@/lib/availability";
 import { fetchHostBusy, bustFreebusyCacheForHost } from "@/lib/availability/freebusy";
 import { type IntakeField, validateAnswers, pruneHiddenAnswers } from "@/lib/intake";
 import { pickRoundRobinHost } from "@/lib/round-robin";
@@ -138,7 +139,7 @@ export async function POST(request: NextRequest) {
       try {
         const busy = await fetchHostBusy(cand, range, meetingType);
         const slots = computeAvailableSlots({
-          host: { timezone: cand.timezone, workingHours: (cand.workingHours as WorkingHours | null) ?? {} },
+          host: { timezone: cand.timezone, workingHours: effectiveWorkingHours(meetingType, cand) },
           meetingType: {
             durationMinutes: meetingType.durationMinutes,
             bufferBeforeMinutes: meetingType.bufferBeforeMinutes,

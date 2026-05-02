@@ -33,12 +33,6 @@ export default async function EditProjectMeetingTypePage({
   return (
     <AppShell {...shellProps(ctx)}>
       <div className="mx-auto w-full max-w-2xl space-y-6">
-        <header className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Edit meeting type</h1>
-          <p className="text-sm text-muted-foreground">
-            Booking link: <code className="text-xs">/{project.slug}/{mt.slug}</code>
-          </p>
-        </header>
         <ProjectMeetingTypeForm
           projectId={project.id}
           projectSlug={project.slug}
@@ -65,12 +59,13 @@ export default async function EditProjectMeetingTypePage({
             minNoticeMinutes: mt.minNoticeMinutes,
             maxAdvanceDays: mt.maxAdvanceDays,
             conflictCalendarIds: mt.conflictCalendarIds,
-            routingMode: mt.routingMode === "COLLECTIVE" ? "ROUND_ROBIN" : mt.routingMode,
+            routingMode: mt.routingMode,
             assignedHostIds: mt.assignedHostIds,
             intakeFields,
             isActive: mt.isActive,
             conferencingProvider: mt.conferencingProvider,
             maxInvitees: mt.maxInvitees,
+            workingHoursOverride: mt.workingHoursOverride as never,
           }}
         />
       </div>

@@ -1,10 +1,18 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { getCurrentHost } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { BUFFER_MINUTES, MIN_NOTICE_MINUTES, MAX_ADVANCE_DAYS } from "@/lib/scheduling-rules";
 import { intakeFieldsSchema } from "@/lib/intake";
 import { syncIntakeForm } from "@/lib/intake-server";
+
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+const rangeSchema = z
+  .object({ start: z.string().regex(TIME_RE), end: z.string().regex(TIME_RE) })
+  .refine((r) => r.start < r.end, { message: "Start must be before end." });
+const dayKey = z.enum(["mon", "tue", "wed", "thu", "fri", "sat", "sun"]);
+const workingHoursSchema = z.record(dayKey, z.array(rangeSchema));
 
 const patchSchema = z.object({
   name: z.string().trim().min(2).max(80),
@@ -32,6 +40,7 @@ const patchSchema = z.object({
   isActive: z.boolean(),
   conferencingProvider: z.enum(["GOOGLE_MEET", "ZOOM", "TEAMS", "NONE"]),
   maxInvitees: z.number().int().min(1).max(50).default(1),
+  workingHoursOverride: workingHoursSchema.nullable().optional(),
 });
 
 async function findOwnedMeetingType(id: string, hostId: string) {
@@ -90,6 +99,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
           isActive: parsed.data.isActive,
           conferencingProvider: parsed.data.conferencingProvider,
           maxInvitees: parsed.data.maxInvitees,
+          workingHoursOverride: parsed.data.workingHoursOverride ?? Prisma.JsonNull,
         },
       });
       const newFormId = await syncIntakeForm({

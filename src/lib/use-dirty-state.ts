@@ -2,39 +2,53 @@
 
 import { useCallback, useState } from "react";
 
-// Tracks form draft vs. last-committed snapshot. `dirty` is true when they differ
-// (shallow JSON-compare — fine for the small flat-ish forms we have).
-//
-// Pattern: forms render inputs bound to `draft`. Save handler calls `commit(newSnapshot)`
-// to mark the new server state as the "clean" baseline. Discard calls `discard()` to
-// reset the draft back to the snapshot.
-export function useDirtyState<T>(initial: T) {
-  const [snapshot, setSnapshot] = useState<T>(initial);
+/**
+ * Direct-edit form state. Tracks the persisted snapshot and the working draft separately
+ * so the UI can:
+ *   - render `draft` into always-editable inputs
+ *   - flip a top-right Save button to primary as soon as `dirty === true`
+ *   - revert to the persisted snapshot via `reset()`
+ *   - update the snapshot after a successful save via `commit(next)`
+ *
+ * Dirty detection is a shallow JSON compare — fine for the simple object shapes our settings
+ * forms use. If you ever need it for trees with non-serialisable values (Dates, functions),
+ * pass a custom comparator.
+ */
+export function useDirtyState<T>(initial: T, isEqual: (a: T, b: T) => boolean = jsonEqual) {
+  const [committed, setCommitted] = useState<T>(initial);
   const [draft, setDraft] = useState<T>(initial);
 
-  const update = useCallback((patch: Partial<T> | ((prev: T) => T)) => {
-    setDraft((prev) => (typeof patch === "function" ? (patch as (p: T) => T)(prev) : { ...prev, ...patch }));
-  }, []);
-
-  const discard = useCallback(() => setDraft(snapshot), [snapshot]);
+  const reset = useCallback(() => setDraft(committed), [committed]);
   const commit = useCallback((next: T) => {
-    setSnapshot(next);
+    setCommitted(next);
     setDraft(next);
   }, []);
+  // `update` accepts either a partial patch (for object drafts) or an updater fn — convenient
+  // alternative to `setDraft({ ...prev, foo: 1 })` at call sites. `discard` is an alias for
+  // `reset` to match the earlier pilot API; both names are stable.
+  const update = useCallback((patch: Partial<T> | ((prev: T) => T)) => {
+    setDraft((prev) =>
+      typeof patch === "function"
+        ? (patch as (p: T) => T)(prev)
+        : ({ ...(prev as object), ...(patch as object) } as T),
+    );
+  }, []);
 
-  const dirty = !shallowEqual(draft, snapshot);
+  const dirty = !isEqual(committed, draft);
 
-  return { draft, snapshot, dirty, update, discard, commit, setDraft };
+  return {
+    draft,
+    setDraft,
+    committed,
+    snapshot: committed,
+    dirty,
+    reset,
+    discard: reset,
+    update,
+    commit,
+  } as const;
 }
 
-function shallowEqual<T>(a: T, b: T): boolean {
-  if (Object.is(a, b)) return true;
-  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
-  const ak = Object.keys(a as object);
-  const bk = Object.keys(b as object);
-  if (ak.length !== bk.length) return false;
-  for (const k of ak) {
-    if (!Object.is((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k])) return false;
-  }
-  return true;
+function jsonEqual<T>(a: T, b: T): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
 }

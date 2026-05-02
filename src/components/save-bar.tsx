@@ -2,12 +2,12 @@
 
 import { Button } from "@/components/ui/button";
 
-// Top-right Save / Discard pair for direct-edit forms. Hidden when the form is clean
-// (no dirty changes). Renders nothing when not needed — caller can drop it next to a
-// page header without worrying about empty space.
-//
-// Pattern matches the new "no view-mode toggle" form interaction: the form's inputs
-// are always editable, and this bar surfaces only when the user has unsaved changes.
+/**
+ * Page-header save bar for direct-edit forms. Sits to the right of the page heading.
+ * Hidden when the form is clean — keeps the page calm.
+ *
+ * Pair with `useDirtyState` from `@/lib/use-dirty-state`.
+ */
 export function SaveBar({
   dirty,
   pending,
@@ -21,15 +21,38 @@ export function SaveBar({
   onDiscard: () => void;
   saveLabel?: string;
 }) {
-  if (!dirty && !pending) return null;
+  if (!dirty) return null;
   return (
     <div className="flex items-center gap-2">
       <Button variant="secondary" size="sm" onClick={onDiscard} disabled={pending}>
         Discard
       </Button>
-      <Button size="sm" onClick={onSave} disabled={pending || !dirty}>
+      <Button size="sm" onClick={onSave} disabled={pending}>
         {pending ? "Saving…" : saveLabel}
       </Button>
     </div>
+  );
+}
+
+/**
+ * Standard page heading + SaveBar layout. Heading on the left, action on the right.
+ */
+export function PageHeader({
+  title,
+  description,
+  actions,
+}: {
+  title: string;
+  description?: string;
+  actions?: React.ReactNode;
+}) {
+  return (
+    <header className="flex items-start justify-between gap-4">
+      <div className="space-y-1">
+        <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+        {description && <p className="text-sm text-muted-foreground">{description}</p>}
+      </div>
+      {actions && <div className="shrink-0 pt-1">{actions}</div>}
+    </header>
   );
 }

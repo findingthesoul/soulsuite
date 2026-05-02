@@ -1,12 +1,19 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { Scope, RoutingMode } from "@prisma/client";
+import { Scope, RoutingMode, Prisma } from "@prisma/client";
 import { getCurrentHost } from "@/lib/auth";
 import { canManageProject, getProjectMembership } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { BUFFER_MINUTES, MIN_NOTICE_MINUTES, MAX_ADVANCE_DAYS } from "@/lib/scheduling-rules";
 import { intakeFieldsSchema } from "@/lib/intake";
 import { syncIntakeForm } from "@/lib/intake-server";
+
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+const rangeSchema = z
+  .object({ start: z.string().regex(TIME_RE), end: z.string().regex(TIME_RE) })
+  .refine((r) => r.start < r.end, { message: "Start must be before end." });
+const dayKey = z.enum(["mon", "tue", "wed", "thu", "fri", "sat", "sun"]);
+const workingHoursSchema = z.record(dayKey, z.array(rangeSchema));
 
 const bodySchema = z.object({
   name: z.string().trim().min(2).max(80),
@@ -24,6 +31,7 @@ const bodySchema = z.object({
   intakeFields: intakeFieldsSchema.default([]),
   conferencingProvider: z.enum(["GOOGLE_MEET", "ZOOM", "TEAMS", "NONE"]).default("GOOGLE_MEET"),
   maxInvitees: z.number().int().min(1).max(50).default(1),
+  workingHoursOverride: workingHoursSchema.nullable().optional(),
 });
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -132,6 +140,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           conflictCalendarIds: data.conflictCalendarIds,
           conferencingProvider: data.conferencingProvider,
           maxInvitees: data.maxInvitees,
+          workingHoursOverride: data.workingHoursOverride ?? Prisma.JsonNull,
         },
       });
       const intakeFormId = await syncIntakeForm({

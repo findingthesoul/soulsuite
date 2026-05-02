@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useDirtyState } from "@/lib/use-dirty-state";
 import { PageHeader, SaveBar } from "@/components/save-bar";
 import { DirtyNavGuard } from "@/components/dirty-nav-guard";
@@ -192,6 +193,8 @@ function EditProjectMeetingTypeForm({
   const { draft, setDraft, dirty, reset, commit } = useDirtyState<DraftValues>(initialToDraft(initial));
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<ProjectTabKey>("basics");
+  const [tabErrors, setTabErrors] = useState<ProjectTabError[]>([]);
 
   function update<K extends keyof DraftValues>(key: K, value: DraftValues[K]) {
     setDraft({ ...draft, [key]: value });
@@ -250,13 +253,23 @@ function EditProjectMeetingTypeForm({
 
   function discard() {
     setError(null);
+    setTabErrors([]);
     reset();
   }
 
   function save() {
     setError(null);
-    const validation = validateDraft(draft, members);
-    if (validation) return setError(validation);
+    const errors = validateProjectDraft(draft, members);
+    if (errors.length > 0) {
+      setTabErrors(errors);
+      const firstWithError = PROJECT_TAB_ORDER.find((t) =>
+        errors.some((e) => e.tabKey === t),
+      );
+      if (firstWithError) setActiveTab(firstWithError);
+      setError(errors[0].message);
+      return;
+    }
+    setTabErrors([]);
     const overridePayload = serialiseOverride(draft.workingHoursOverride);
     const pricing = pricingPayload(draft);
 
@@ -308,6 +321,9 @@ function EditProjectMeetingTypeForm({
     });
   }
 
+  const errorCount = (key: ProjectTabKey) =>
+    tabErrors.filter((e) => e.tabKey === key).length;
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -317,133 +333,190 @@ function EditProjectMeetingTypeForm({
       />
       <DirtyNavGuard dirty={dirty} onSave={save} />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Details</CardTitle>
-          <CardDescription>Name, slug, duration, and assigned host.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <DetailsEditor
-            draft={draft}
-            update={update}
-            onNameChange={(v) => update("name", v)}
-            onSlugChange={(v) => update("slug", v.toLowerCase())}
-            setSingleAssignedHost={setSingleAssignedHost}
-            toggleAssignedHost={toggleAssignedHost}
-            setRoutingMode={setRoutingMode}
-            members={members}
-            projectSlug={projectSlug}
-            isEdit
-          />
-        </CardContent>
-      </Card>
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as ProjectTabKey)}>
+        <TabsList>
+          <TabsTrigger value="basics" errorCount={errorCount("basics")}>
+            Basics
+          </TabsTrigger>
+          <TabsTrigger value="routing" errorCount={errorCount("routing")}>
+            Routing
+          </TabsTrigger>
+          <TabsTrigger value="availability" errorCount={errorCount("availability")}>
+            Availability
+          </TabsTrigger>
+          <TabsTrigger value="conferencing" errorCount={errorCount("conferencing")}>
+            Conferencing
+          </TabsTrigger>
+          <TabsTrigger value="pricing" errorCount={errorCount("pricing")}>
+            Pricing
+          </TabsTrigger>
+          <TabsTrigger value="intake" errorCount={errorCount("intake")}>
+            Intake
+          </TabsTrigger>
+        </TabsList>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Scheduling rules</CardTitle>
-          <CardDescription>Buffers, how soon people can book, and how far ahead.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <SchedulingEditor draft={draft} update={update} />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Availability</CardTitle>
-          <CardDescription>
-            Defaults to each assigned host&apos;s working hours. Override here when this meeting type
-            only happens at specific times — applies to every assigned host.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <AvailabilityEditor draft={draft} update={update} />
-        </CardContent>
-      </Card>
-
-      {draft.routingMode === "SINGLE" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Group bookings</CardTitle>
-            <CardDescription>
-              How many invitees can claim the same time slot. 1 keeps it 1:1.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-1.5">
-              <Label htmlFor="maxInvitees">Max invitees per slot</Label>
-              <Input
-                id="maxInvitees"
-                type="number"
-                min={1}
-                max={50}
-                value={draft.maxInvitees}
-                onChange={(e) =>
-                  update("maxInvitees", Math.max(1, Math.min(50, Number(e.target.value) || 1)))
-                }
+        <TabsContent value="basics">
+          <Card>
+            <CardHeader>
+              <CardTitle>Details</CardTitle>
+              <CardDescription>Name, slug, duration, and description.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <ProjectBasicsEditor
+                draft={draft}
+                update={update}
+                onNameChange={(v) => update("name", v)}
+                onSlugChange={(v) => update("slug", v.toLowerCase())}
+                projectSlug={projectSlug}
+                isEdit
               />
-              <p className="text-xs text-muted-foreground">
-                When &gt;1 the same slot accepts multiple bookings on a single calendar event.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Conferencing</CardTitle>
-          <CardDescription>
-            Where the meeting happens. Zoom requires every assigned host to have connected it.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ProjectConferencingEditor draft={draft} update={update} members={members} />
-        </CardContent>
-      </Card>
+        <TabsContent value="routing">
+          <Card>
+            <CardHeader>
+              <CardTitle>Routing</CardTitle>
+              <CardDescription>How bookings are assigned across project members.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <ProjectRoutingEditor
+                draft={draft}
+                update={update}
+                setSingleAssignedHost={setSingleAssignedHost}
+                toggleAssignedHost={toggleAssignedHost}
+                setRoutingMode={setRoutingMode}
+                members={members}
+              />
+            </CardContent>
+          </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Intake questions</CardTitle>
-          <CardDescription>
-            Optional questions shown after the slot is picked. Answers are stored on the booking.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <IntakeFieldsEditor
-            fields={draft.intakeFields}
-            onChange={(next) => update("intakeFields", next)}
-          />
-        </CardContent>
-      </Card>
+          {draft.routingMode === "SINGLE" && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Group bookings</CardTitle>
+                <CardDescription>
+                  How many invitees can claim the same time slot. 1 keeps it 1:1.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-1.5">
+                  <Label htmlFor="maxInvitees">Max invitees per slot</Label>
+                  <Input
+                    id="maxInvitees"
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={draft.maxInvitees}
+                    onChange={(e) =>
+                      update("maxInvitees", Math.max(1, Math.min(50, Number(e.target.value) || 1)))
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    When &gt;1 the same slot accepts multiple bookings on a single calendar event.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Pricing</CardTitle>
-          <CardDescription>
-            Charge invitees through Stripe Checkout before the booking is confirmed. Each booking host
-            must have Stripe connected under their own Settings → Payments.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ProjectPricingEditor draft={draft} update={update} members={members} />
-        </CardContent>
-      </Card>
+        <TabsContent value="availability">
+          <Card>
+            <CardHeader>
+              <CardTitle>Availability</CardTitle>
+              <CardDescription>
+                Defaults to each assigned host&apos;s working hours. Override here when this meeting type
+                only happens at specific times — applies to every assigned host.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <AvailabilityEditor draft={draft} update={update} />
+            </CardContent>
+          </Card>
 
-      {draft.routingMode === "SINGLE" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Conflict calendars</CardTitle>
-            <CardDescription>
-              Which of the assigned host&apos;s calendars block this meeting type. Default uses every
-              conflict-source they configured.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ConflictCalendarsEditor draft={draft} update={update} hostCalendars={activeHostCalendars} />
-          </CardContent>
-        </Card>
-      )}
+          <Card>
+            <CardHeader>
+              <CardTitle>Scheduling rules</CardTitle>
+              <CardDescription>Buffers, how soon people can book, and how far ahead.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <SchedulingEditor draft={draft} update={update} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="conferencing">
+          <Card>
+            <CardHeader>
+              <CardTitle>Conferencing</CardTitle>
+              <CardDescription>
+                Where the meeting happens. Zoom requires every assigned host to have connected it.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ProjectConferencingEditor
+                draft={draft}
+                update={update}
+                members={members}
+                hideHostPicker
+              />
+            </CardContent>
+          </Card>
+
+          {draft.routingMode === "SINGLE" && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Conflict calendars</CardTitle>
+                <CardDescription>
+                  Which of the assigned host&apos;s calendars block this meeting type. Default uses every
+                  conflict-source they configured.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ConflictCalendarsEditor
+                  draft={draft}
+                  update={update}
+                  hostCalendars={activeHostCalendars}
+                />
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        <TabsContent value="pricing">
+          <Card>
+            <CardHeader>
+              <CardTitle>Pricing</CardTitle>
+              <CardDescription>
+                Charge invitees through Stripe Checkout before the booking is confirmed. Each booking host
+                must have Stripe connected under their own Settings → Payments.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ProjectPricingEditor draft={draft} update={update} members={members} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="intake">
+          <Card>
+            <CardHeader>
+              <CardTitle>Intake questions</CardTitle>
+              <CardDescription>
+                Optional questions shown after the slot is picked. Answers are stored on the booking.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <IntakeFieldsEditor
+                fields={draft.intakeFields}
+                onChange={(next) => update("intakeFields", next)}
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 
@@ -759,6 +832,171 @@ function CreateProjectMeetingTypeForm({
 // Validation
 // ────────────────────────────────────────────────────────────
 
+// ────────────────────────────────────────────────────────────
+// Tab-aware validation (project MT)
+// ────────────────────────────────────────────────────────────
+
+type ProjectTabKey =
+  | "basics"
+  | "routing"
+  | "availability"
+  | "conferencing"
+  | "pricing"
+  | "intake";
+
+const PROJECT_TAB_ORDER: ProjectTabKey[] = [
+  "basics",
+  "routing",
+  "availability",
+  "conferencing",
+  "pricing",
+  "intake",
+];
+
+interface ProjectTabError {
+  tabKey: ProjectTabKey;
+  message: string;
+}
+
+function validateProjectDraft(
+  draft: DraftValues,
+  members: ProjectMember[],
+): ProjectTabError[] {
+  const errors: ProjectTabError[] = [];
+  if (draft.name.trim().length < 2) {
+    errors.push({ tabKey: "basics", message: "Name is required." });
+  }
+  if (!SLUG_RE.test(draft.slug)) {
+    errors.push({
+      tabKey: "basics",
+      message: "Slug must be 2–40 chars, lowercase letters/digits/hyphens.",
+    });
+  }
+  if (![15, 30, 45, 60, 90, 120].includes(draft.durationMinutes)) {
+    errors.push({
+      tabKey: "basics",
+      message: "Duration must be 15, 30, 45, 60, 90, or 120 minutes.",
+    });
+  }
+  if (draft.routingMode === "SINGLE") {
+    const id = draft.assignedHostIds[0];
+    if (!id || !members.some((m) => m.hostId === id)) {
+      errors.push({
+        tabKey: "routing",
+        message: "Pick an assigned host from the project members.",
+      });
+    }
+  } else {
+    const label = draft.routingMode === "COLLECTIVE" ? "Collective" : "Round-robin";
+    if (draft.assignedHostIds.length < 2) {
+      errors.push({
+        tabKey: "routing",
+        message: `${label} needs at least two assigned hosts.`,
+      });
+    }
+    const allValid = draft.assignedHostIds.every((id) =>
+      members.some((m) => m.hostId === id),
+    );
+    if (!allValid) {
+      errors.push({
+        tabKey: "routing",
+        message: "All assigned hosts must be project members.",
+      });
+    }
+  }
+  if (
+    !Number.isInteger(draft.maxInvitees) ||
+    draft.maxInvitees < 1 ||
+    draft.maxInvitees > 50
+  ) {
+    errors.push({
+      tabKey: "routing",
+      message: "Max invitees must be a whole number between 1 and 50.",
+    });
+  }
+  if (draft.maxInvitees > 1 && draft.routingMode !== "SINGLE") {
+    errors.push({
+      tabKey: "routing",
+      message: "Group meetings (max invitees > 1) only work with single-host routing.",
+    });
+  }
+  if (draft.conferencingProvider === "ZOOM") {
+    if (draft.routingMode === "COLLECTIVE") {
+      const confId = draft.conferencingHostId;
+      if (!confId || !draft.assignedHostIds.includes(confId)) {
+        errors.push({
+          tabKey: "routing",
+          message: "Pick a conferencing host from the assigned hosts.",
+        });
+      } else {
+        const confMember = members.find((m) => m.hostId === confId);
+        if (!confMember?.hasZoom) {
+          errors.push({
+            tabKey: "conferencing",
+            message: `${confMember?.name ?? "The conferencing host"} hasn't connected Zoom yet.`,
+          });
+        }
+      }
+    } else {
+      const missing = draft.assignedHostIds
+        .map((id) => members.find((m) => m.hostId === id))
+        .filter((m): m is ProjectMember => Boolean(m && !m.hasZoom));
+      if (missing.length > 0) {
+        errors.push({
+          tabKey: "conferencing",
+          message: `These assigned hosts haven't connected Zoom: ${missing
+            .map((m) => m.name)
+            .join(", ")}. They need to connect in Settings → Connections first.`,
+        });
+      }
+    }
+  }
+  if (
+    draft.routingMode === "COLLECTIVE" &&
+    draft.conferencingProvider !== "NONE" &&
+    !draft.conferencingHostId
+  ) {
+    errors.push({
+      tabKey: "routing",
+      message: "Pick a conferencing host from the assigned hosts.",
+    });
+  }
+  if (draft.isPaid) {
+    const major = Number(draft.priceMajor);
+    if (!Number.isFinite(major) || major <= 0) {
+      errors.push({ tabKey: "pricing", message: "Enter a price greater than 0." });
+    } else if (Math.round(major * 100) < 50) {
+      errors.push({
+        tabKey: "pricing",
+        message: "Stripe requires a minimum charge of 0.50.",
+      });
+    }
+    if (!(SUPPORTED_CURRENCIES as readonly string[]).includes(draft.priceCurrency)) {
+      errors.push({ tabKey: "pricing", message: "Pick a currency." });
+    }
+    if (draft.routingMode === "COLLECTIVE") {
+      const confHost = members.find((m) => m.hostId === draft.conferencingHostId);
+      if (!confHost?.hasStripe) {
+        errors.push({
+          tabKey: "pricing",
+          message: `${confHost?.name ?? "The conferencing host"} hasn't connected Stripe under Settings → Payments.`,
+        });
+      }
+    } else {
+      const missing = draft.assignedHostIds
+        .map((id) => members.find((m) => m.hostId === id))
+        .filter((m): m is ProjectMember => Boolean(m && !m.hasStripe));
+      if (missing.length > 0) {
+        errors.push({
+          tabKey: "pricing",
+          message: `These assigned hosts haven't connected Stripe: ${missing.map((m) => m.name).join(", ")}. Connect under Settings → Payments first.`,
+        });
+      }
+    }
+  }
+  return errors;
+}
+
 function validateDraft(draft: DraftValues, members: ProjectMember[]): string | null {
   if (draft.name.trim().length < 2) return "Name is required.";
   if (!SLUG_RE.test(draft.slug)) return "Slug must be 2–40 chars, lowercase letters/digits/hyphens.";
@@ -990,6 +1228,211 @@ function DetailsEditor({
   );
 }
 
+function ProjectBasicsEditor({
+  draft,
+  update,
+  onNameChange,
+  onSlugChange,
+  projectSlug,
+  isEdit,
+}: {
+  draft: DraftValues;
+  update: <K extends keyof DraftValues>(key: K, value: DraftValues[K]) => void;
+  onNameChange: (v: string) => void;
+  onSlugChange: (v: string) => void;
+  projectSlug: string;
+  isEdit: boolean;
+}) {
+  return (
+    <>
+      <div className="space-y-1.5">
+        <Label htmlFor="name">Name</Label>
+        <Input
+          id="name"
+          value={draft.name}
+          onChange={(e) => onNameChange(e.target.value)}
+          placeholder="Project kickoff"
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="slug">Slug</Label>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">/{projectSlug}/</span>
+          <Input
+            id="slug"
+            value={draft.slug}
+            onChange={(e) => onSlugChange(e.target.value)}
+            placeholder="kickoff"
+          />
+        </div>
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="duration">Duration</Label>
+        <Select
+          id="duration"
+          value={String(draft.durationMinutes)}
+          onChange={(e) => update("durationMinutes", Number(e.target.value))}
+        >
+          <option value="15">15 minutes</option>
+          <option value="30">30 minutes</option>
+          <option value="45">45 minutes</option>
+          <option value="60">60 minutes</option>
+          <option value="90">90 minutes</option>
+          <option value="120">120 minutes</option>
+        </Select>
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="description">Description (optional)</Label>
+        <textarea
+          id="description"
+          value={draft.description}
+          onChange={(e) => update("description", e.target.value)}
+          rows={3}
+          placeholder="Shown on the booking page."
+          className="flex w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        />
+      </div>
+      {isEdit && (
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={draft.isActive}
+            onChange={(e) => update("isActive", e.target.checked)}
+            className="h-4 w-4 rounded border-border accent-foreground"
+          />
+          Active — accept new bookings
+        </label>
+      )}
+    </>
+  );
+}
+
+function ProjectRoutingEditor({
+  draft,
+  update,
+  setSingleAssignedHost,
+  toggleAssignedHost,
+  setRoutingMode,
+  members,
+}: {
+  draft: DraftValues;
+  update: <K extends keyof DraftValues>(key: K, value: DraftValues[K]) => void;
+  setSingleAssignedHost: (hostId: string) => void;
+  toggleAssignedHost: (hostId: string, on: boolean) => void;
+  setRoutingMode: (mode: RoutingMode) => void;
+  members: ProjectMember[];
+}) {
+  const isCollective = draft.routingMode === "COLLECTIVE";
+  const showConfHostPicker = isCollective && draft.conferencingProvider !== "NONE";
+  const assigned = draft.assignedHostIds
+    .map((id) => members.find((m) => m.hostId === id))
+    .filter((m): m is ProjectMember => Boolean(m));
+  return (
+    <>
+      <div className="space-y-1.5">
+        <Label htmlFor="routingMode">Routing</Label>
+        <Select
+          id="routingMode"
+          value={draft.routingMode}
+          onChange={(e) => setRoutingMode(e.target.value as RoutingMode)}
+        >
+          <option value="SINGLE">Single host — one specific person</option>
+          <option value="ROUND_ROBIN">Round-robin — least-recently-booked host gets the slot</option>
+          <option value="COLLECTIVE">Collective — all assigned hosts attend together</option>
+        </Select>
+      </div>
+
+      {draft.routingMode === "SINGLE" ? (
+        <div className="space-y-1.5">
+          <Label htmlFor="assignedHost">Assigned host</Label>
+          <Select
+            id="assignedHost"
+            value={draft.assignedHostIds[0] ?? ""}
+            onChange={(e) => setSingleAssignedHost(e.target.value)}
+          >
+            {members.map((m) => (
+              <option key={m.hostId} value={m.hostId}>
+                {m.name} — {m.email}
+                {m.isExternal ? " (external)" : ""}
+              </option>
+            ))}
+          </Select>
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          <Label>
+            Assigned hosts (pick at least 2)
+            {isCollective && (
+              <span className="ml-1 text-xs text-muted-foreground">— all attend every meeting</span>
+            )}
+          </Label>
+          <ul className="rounded-md border border-border divide-y divide-border">
+            {members.map((m) => {
+              const checked = draft.assignedHostIds.includes(m.hostId);
+              return (
+                <li key={m.hostId} className="flex items-center justify-between gap-3 p-3">
+                  <label className="flex items-center gap-2 text-sm flex-1 min-w-0">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => toggleAssignedHost(m.hostId, e.target.checked)}
+                      className="h-4 w-4 rounded border-border accent-foreground shrink-0"
+                    />
+                    <span className="truncate text-foreground">
+                      {m.name} <span className="text-muted-foreground">— {m.email}</span>
+                      {m.isExternal && (
+                        <span className="ml-1 text-xs uppercase tracking-wide text-subtle-foreground">
+                          external
+                        </span>
+                      )}
+                    </span>
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+          <p className="text-xs text-muted-foreground">
+            {isCollective
+              ? "A slot is offered only when every selected host is free; the booking adds all of them as attendees."
+              : "A slot is offered when any selected host is free; we assign the least-recently-booked one."}
+          </p>
+        </div>
+      )}
+
+      {showConfHostPicker && (
+        <div className="space-y-1.5">
+          <Label htmlFor="conferencingHost">Conferencing host</Label>
+          <Select
+            id="conferencingHost"
+            value={draft.conferencingHostId ?? ""}
+            onChange={(e) => update("conferencingHostId", e.target.value || null)}
+          >
+            {assigned.length === 0 && <option value="">— pick assigned hosts first —</option>}
+            {assigned.map((m) => (
+              <option key={m.hostId} value={m.hostId}>
+                {m.name} — {m.email}
+                {draft.conferencingProvider === "ZOOM" && !m.hasZoom ? " (no Zoom)" : ""}
+              </option>
+            ))}
+          </Select>
+          {draft.conferencingProvider === "ZOOM" && (
+            <p className="text-xs text-muted-foreground">
+              Only this host needs Zoom connected. Others will be added as alternative hosts where
+              possible, otherwise as guests.
+            </p>
+          )}
+          {draft.conferencingProvider === "GOOGLE_MEET" && (
+            <p className="text-xs text-muted-foreground">
+              The Meet link is created on this host&apos;s calendar. Other assigned hosts join as
+              attendees.
+            </p>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
 function SchedulingEditor({
   draft,
   update,
@@ -1185,14 +1628,18 @@ function ProjectConferencingEditor({
   draft,
   update,
   members,
+  hideHostPicker = false,
 }: {
   draft: DraftValues;
   update: <K extends keyof DraftValues>(key: K, value: DraftValues[K]) => void;
   members: ProjectMember[];
+  // The Edit form moves the conferencing-host picker into the Routing tab; in that case
+  // this provider editor should render the provider select only.
+  hideHostPicker?: boolean;
 }) {
   const assigned = draft.assignedHostIds.map((id) => members.find((m) => m.hostId === id)).filter(Boolean) as ProjectMember[];
   const isCollective = draft.routingMode === "COLLECTIVE";
-  const showPicker = isCollective && draft.conferencingProvider !== "NONE";
+  const showPicker = isCollective && draft.conferencingProvider !== "NONE" && !hideHostPicker;
   // For COLLECTIVE only the conferencing host needs Zoom; otherwise every assigned host does.
   const confHost = isCollective
     ? assigned.find((m) => m.hostId === draft.conferencingHostId)

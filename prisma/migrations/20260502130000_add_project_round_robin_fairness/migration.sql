@@ -1,0 +1,5 @@
+-- CreateEnum
+CREATE TYPE "RoundRobinFairness" AS ENUM ('LEAST_RECENTLY_ASSIGNED', 'LEAST_LOADED', 'STRICT_ROTATION', 'RANDOM');
+
+-- AlterTable
+ALTER TABLE "Project" ADD COLUMN "roundRobinFairness" "RoundRobinFairness" NOT NULL DEFAULT 'LEAST_RECENTLY_ASSIGNED';

@@ -62,7 +62,13 @@ export default async function ProjectDashboardPage({
 
         <ProjectDetailsForm
           canEdit={isLead}
-          initial={{ name: project.name, slug: project.slug, description: project.description, isActive: project.isActive }}
+          initial={{
+            name: project.name,
+            slug: project.slug,
+            description: project.description,
+            isActive: project.isActive,
+            roundRobinFairness: project.roundRobinFairness,
+          }}
           projectId={project.id}
         />
 

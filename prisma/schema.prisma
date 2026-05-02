@@ -153,6 +153,9 @@ model Project {
   name        String
   description String?
   isActive    Boolean  @default(true)
+  // Per-team round-robin fairness rule. Default LEAST_RECENTLY_ASSIGNED matches the brief's
+  // pre-feature behaviour. See src/lib/round-robin.ts for the implementation of each rule.
+  roundRobinFairness RoundRobinFairness @default(LEAST_RECENTLY_ASSIGNED)
   createdAt   DateTime @default(now())
 
   workspace    Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -169,6 +172,18 @@ model Project {
 enum ProjectRole {
   LEAD
   MEMBER
+}
+
+// Round-robin fairness rule (per Project). LEAST_RECENTLY_ASSIGNED is the historic default
+// (oldest ProjectMember.lastAssignedAt wins, nulls first). LEAST_LOADED counts upcoming
+// confirmed bookings in the next 14 days and prefers the host with the fewest, tie-breaking
+// on least-recently-assigned. STRICT_ROTATION rotates through assignedHostIds in order using
+// the most recent Booking row to find "last assigned". RANDOM picks uniformly at random.
+enum RoundRobinFairness {
+  LEAST_RECENTLY_ASSIGNED
+  LEAST_LOADED
+  STRICT_ROTATION
+  RANDOM
 }
 
 model ProjectMember {

@@ -5,15 +5,19 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { useDirtyState } from "@/lib/use-dirty-state";
 import { SaveBar } from "@/components/save-bar";
 import { DirtyNavGuard } from "@/components/dirty-nav-guard";
+
+type Fairness = "LEAST_RECENTLY_ASSIGNED" | "LEAST_LOADED" | "STRICT_ROTATION" | "RANDOM";
 
 interface Initial {
   name: string;
   slug: string;
   description: string | null;
   isActive: boolean;
+  roundRobinFairness: Fairness;
 }
 
 interface Draft {
@@ -21,9 +25,18 @@ interface Draft {
   slug: string;
   description: string;
   isActive: boolean;
+  roundRobinFairness: Fairness;
 }
 
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
+
+const FAIRNESS_DESCRIPTIONS: Record<Fairness, string> = {
+  LEAST_RECENTLY_ASSIGNED:
+    "Whoever hasn't taken a booking longest gets the next one. Fair across vacations and schedules.",
+  LEAST_LOADED: "Host with the fewest upcoming bookings gets it.",
+  STRICT_ROTATION: "Pure A → B → C order, regardless of load.",
+  RANDOM: "Random pick from the team.",
+};
 
 export function ProjectDetailsForm({
   canEdit,
@@ -40,6 +53,7 @@ export function ProjectDetailsForm({
     slug: initial.slug,
     description: initial.description ?? "",
     isActive: initial.isActive,
+    roundRobinFairness: initial.roundRobinFairness,
   };
   const { draft, setDraft, committed, dirty, reset, commit } = useDirtyState<Draft>(start);
   const [pending, startTransition] = useTransition();
@@ -60,6 +74,7 @@ export function ProjectDetailsForm({
           slug: draft.slug,
           description: draft.description.trim() || null,
           isActive: draft.isActive,
+          roundRobinFairness: draft.roundRobinFairness,
         }),
       });
       if (!res.ok) {
@@ -76,6 +91,7 @@ export function ProjectDetailsForm({
         slug: draft.slug,
         description: draft.description.trim(),
         isActive: draft.isActive,
+        roundRobinFairness: draft.roundRobinFairness,
       });
       router.refresh();
     });
@@ -136,6 +152,28 @@ export function ProjectDetailsForm({
               rows={3}
               className="flex w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50"
             />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="roundRobinFairness">Round-robin fairness</Label>
+            <Select
+              id="roundRobinFairness"
+              value={draft.roundRobinFairness}
+              disabled={!canEdit}
+              onChange={(e) =>
+                setDraft({ ...draft, roundRobinFairness: e.target.value as Fairness })
+              }
+            >
+              <option value="LEAST_RECENTLY_ASSIGNED">Least recently assigned</option>
+              <option value="LEAST_LOADED">Least loaded</option>
+              <option value="STRICT_ROTATION">Strict rotation</option>
+              <option value="RANDOM">Random</option>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {FAIRNESS_DESCRIPTIONS[draft.roundRobinFairness]}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Applies to round-robin meeting types on this team.
+            </p>
           </div>
           <label className="flex items-center gap-2 text-sm">
             <input

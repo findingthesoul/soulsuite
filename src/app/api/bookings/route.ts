@@ -214,6 +214,7 @@ export async function POST(request: NextRequest) {
     const winnerId = await pickRoundRobinHost(
       meetingType.projectId!,
       freeHosts.map((h) => h.id),
+      { meetingTypeId: meetingType.id, assignedHostIds: meetingType.assignedHostIds },
     );
     host = freeHosts.find((h) => h.id === winnerId) ?? freeHosts[0];
   } else if (meetingType.routingMode === "COLLECTIVE") {

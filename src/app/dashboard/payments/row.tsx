@@ -31,6 +31,9 @@ interface Row {
   hasPaymentIntent: boolean;
   isInvoicePending: boolean;
   isInvoiceSent: boolean;
+  isSoulSuiteInvoice: boolean;
+  invoicePaymentLinkUrl: string | null;
+  invoiceNumber: string | null;
 }
 
 export function PaymentRow({ row, variant = "table" }: { row: Row; variant?: "table" | "card" }) {
@@ -39,8 +42,10 @@ export function PaymentRow({ row, variant = "table" }: { row: Row; variant?: "ta
   const [refundOpen, setRefundOpen] = React.useState(false);
   const [invoicedOpen, setInvoicedOpen] = React.useState(false);
   const [paidOpen, setPaidOpen] = React.useState(false);
+  const [resendOpen, setResendOpen] = React.useState(false);
   const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [copied, setCopied] = React.useState(false);
 
   async function postJson(path: string): Promise<{ ok: boolean; message?: string }> {
     setPending(true);
@@ -100,6 +105,26 @@ export function PaymentRow({ row, variant = "table" }: { row: Row; variant?: "ta
     }
   }
 
+  async function doResendInvoice() {
+    const r = await postJson(`/api/admin/bookings/${row.id}/resend-invoice`);
+    if (r.ok) {
+      setResendOpen(false);
+      router.refresh();
+    }
+  }
+
+  async function copyPaymentLink() {
+    if (!row.invoicePaymentLinkUrl) return;
+    try {
+      await navigator.clipboard.writeText(row.invoicePaymentLinkUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard API can fail under permissions or non-HTTPS — ignore silently; the link is
+      // also visible inline so users can long-press to copy as a fallback.
+    }
+  }
+
   async function doRefund() {
     setPending(true);
     setError(null);
@@ -140,7 +165,7 @@ export function PaymentRow({ row, variant = "table" }: { row: Row; variant?: "ta
           )}
         </>
       )}
-      {row.isInvoicePending && (
+      {row.isInvoicePending && !row.isSoulSuiteInvoice && (
         <>
           <Button size="sm" variant="primary" onClick={() => setInvoicedOpen(true)}>
             Mark as invoiced
@@ -150,7 +175,22 @@ export function PaymentRow({ row, variant = "table" }: { row: Row; variant?: "ta
           </Button>
         </>
       )}
-      {row.isInvoiceSent && (
+      {row.isSoulSuiteInvoice && (row.isInvoicePending || row.isInvoiceSent) && (
+        <>
+          {row.invoicePaymentLinkUrl && (
+            <Button size="sm" variant="secondary" onClick={copyPaymentLink}>
+              {copied ? "Copied" : "Copy payment link"}
+            </Button>
+          )}
+          <Button size="sm" variant="primary" onClick={() => setResendOpen(true)}>
+            {row.isInvoicePending ? "Send invoice" : "Resend invoice"}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setPaidOpen(true)}>
+            Mark as paid
+          </Button>
+        </>
+      )}
+      {row.isInvoiceSent && !row.isSoulSuiteInvoice && (
         <Button size="sm" variant="primary" onClick={() => setPaidOpen(true)}>
           Mark as paid
         </Button>
@@ -238,6 +278,36 @@ export function PaymentRow({ row, variant = "table" }: { row: Row; variant?: "ta
           </Button>
           <Button variant="primary" onClick={doMarkPaid} disabled={pending}>
             {pending ? "Saving…" : "Mark as paid"}
+          </Button>
+        </DialogFooter>
+      </Dialog>
+
+      <Dialog open={resendOpen} onOpenChange={(o) => !pending && setResendOpen(o)}>
+        <DialogHeader
+          title={row.isInvoicePending ? "Send invoice now?" : "Resend invoice?"}
+          description={
+            row.isInvoicePending
+              ? "Generates a Stripe payment link, emails the invoice to the billing address, and marks the booking as Invoice sent."
+              : "Issues a fresh Stripe payment link (the previous one is deactivated) and re-sends the invoice email. Invoice number is preserved."
+          }
+          onClose={() => !pending && setResendOpen(false)}
+        />
+        <DialogBody>
+          <p className="text-sm text-muted-foreground">
+            <span className="text-foreground font-medium">{row.inviteeName}</span> ·{" "}
+            {row.meetingTypeName} · {formatDate(row.startsAt)} · {row.priceLabel}
+          </p>
+          {row.invoiceNumber && (
+            <p className="text-xs text-muted-foreground mt-1">Invoice {row.invoiceNumber}</p>
+          )}
+          {error && <p className="text-sm text-destructive">{error}</p>}
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="secondary" onClick={() => setResendOpen(false)} disabled={pending}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={doResendInvoice} disabled={pending}>
+            {pending ? "Sending…" : row.isInvoicePending ? "Send invoice" : "Resend invoice"}
           </Button>
         </DialogFooter>
       </Dialog>

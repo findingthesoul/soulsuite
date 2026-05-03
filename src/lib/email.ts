@@ -295,6 +295,119 @@ export function memberInviteTemplate(args: {
   return { html, text, subject };
 }
 
+// Invoice email — sent when host.invoiceSource = SOUL_SUITE. Carries the Stripe payment link
+// and renders the invitee's billing block + a single line item. Replies route to the host so
+// the invitee can ask billing questions directly (handled by the caller via replyTo).
+export function invoiceEmailTemplate(args: {
+  hostName: string;
+  workspaceName: string;
+  invoiceNumber: string;
+  issuedAt: Date;
+  meetingTypeName: string;
+  startsAtIso: string;
+  endsAtIso: string;
+  inviteeName: string;
+  priceCents: number;
+  currency: string;
+  formattedPrice: string;
+  paymentLinkUrl: string;
+  billing: {
+    companyName: string;
+    billingEmail: string;
+    addressLine1: string;
+    addressLine2?: string;
+    postalCode: string;
+    city: string;
+    countryLabel: string;
+    vatId?: string;
+    reference?: string;
+  };
+  logoUrl?: string | null;
+}): { html: string; text: string; subject: string } {
+  const when = formatDateRange(args.startsAtIso, args.endsAtIso);
+  const subject = `Invoice ${args.invoiceNumber} — ${args.meetingTypeName}`;
+  const issuedStr = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "UTC",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(args.issuedAt);
+
+  const billingLines = [
+    args.billing.companyName,
+    args.billing.addressLine1,
+    args.billing.addressLine2,
+    `${args.billing.postalCode} ${args.billing.city}`,
+    args.billing.countryLabel,
+    args.billing.vatId ? `VAT: ${args.billing.vatId}` : "",
+    args.billing.reference ? `Reference: ${args.billing.reference}` : "",
+  ].filter(Boolean) as string[];
+
+  const billingHtml = billingLines.map((l) => `<div>${escapeHtml(l)}</div>`).join("");
+
+  const html = brandFrame(
+    `Invoice ${args.invoiceNumber}`,
+    `<p>Hi ${escapeHtml(args.inviteeName)},</p>
+    <p>Here is invoice <strong>${escapeHtml(args.invoiceNumber)}</strong> for your meeting with <strong>${escapeHtml(args.hostName)}</strong>. Use the button below to pay securely via Stripe.</p>
+
+    <table cellpadding="0" cellspacing="0" border="0" style="width:100%;margin:20px 0;font-size:13px;color:#0c0a09">
+      <tr>
+        <td valign="top" style="padding-right:16px;width:50%">
+          <div style="color:#a8a29e;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px">From</div>
+          <div><strong>${escapeHtml(args.hostName)}</strong></div>
+          <div>${escapeHtml(args.workspaceName)}</div>
+        </td>
+        <td valign="top" style="padding-left:16px;width:50%">
+          <div style="color:#a8a29e;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px">Bill to</div>
+          ${billingHtml}
+        </td>
+      </tr>
+    </table>
+
+    <table cellpadding="0" cellspacing="0" border="0" style="width:100%;margin:8px 0 0;font-size:13px;color:#57534e">
+      <tr>
+        <td>Invoice number</td><td align="right" style="color:#0c0a09">${escapeHtml(args.invoiceNumber)}</td>
+      </tr>
+      <tr>
+        <td>Issued</td><td align="right" style="color:#0c0a09">${escapeHtml(issuedStr)}</td>
+      </tr>
+    </table>
+
+    <table cellpadding="0" cellspacing="0" border="0" style="width:100%;margin:20px 0;border-collapse:collapse;font-size:14px">
+      <tr>
+        <td style="padding:8px 0;border-bottom:1px solid #e7e5e4;color:#57534e;font-size:12px;text-transform:uppercase;letter-spacing:0.04em">Description</td>
+        <td align="right" style="padding:8px 0;border-bottom:1px solid #e7e5e4;color:#57534e;font-size:12px;text-transform:uppercase;letter-spacing:0.04em">Amount</td>
+      </tr>
+      <tr>
+        <td style="padding:12px 0;border-bottom:1px solid #e7e5e4">
+          <div><strong>${escapeHtml(args.meetingTypeName)}</strong></div>
+          <div style="color:#57534e;font-size:13px">${escapeHtml(when)}</div>
+        </td>
+        <td align="right" style="padding:12px 0;border-bottom:1px solid #e7e5e4">${escapeHtml(args.formattedPrice)}</td>
+      </tr>
+      <tr>
+        <td style="padding:12px 0"><strong>Total</strong></td>
+        <td align="right" style="padding:12px 0;font-size:16px"><strong>${escapeHtml(args.formattedPrice)}</strong></td>
+      </tr>
+    </table>
+
+    <p style="margin:24px 0">
+      <a href="${escapeAttr(args.paymentLinkUrl)}" style="display:inline-block;padding:12px 22px;background:#1c1917;color:#fafafa;border-radius:6px;text-decoration:none;font-weight:600">Pay invoice</a>
+    </p>
+    <p style="font-size:12px;color:#a8a29e">Or paste this link into your browser: ${escapeHtml(args.paymentLinkUrl)}</p>`,
+    args.logoUrl,
+  );
+  const text =
+    `Invoice ${args.invoiceNumber}\n` +
+    `Issued: ${issuedStr}\n\n` +
+    `From: ${args.hostName} (${args.workspaceName})\n\n` +
+    `Bill to:\n${billingLines.join("\n")}\n\n` +
+    `${args.meetingTypeName}\n${when}\n` +
+    `Total: ${args.formattedPrice}\n\n` +
+    `Pay here: ${args.paymentLinkUrl}\n`;
+  return { html, text, subject };
+}
+
 // ────────────────────────────────────────────────────────────
 // Helpers
 // ────────────────────────────────────────────────────────────

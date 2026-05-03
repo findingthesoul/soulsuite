@@ -87,7 +87,9 @@ export default async function PaymentsPage({
         stripePaymentIntent: true,
         googleEventId: true,
         hostId: true,
-        host: { select: { slug: true, name: true } },
+        invoicePaymentLinkUrl: true,
+        invoiceNumber: true,
+        host: { select: { slug: true, name: true, invoiceSource: true } },
         meetingType: {
           select: {
             slug: true,
@@ -149,6 +151,9 @@ export default async function PaymentsPage({
       hasPaymentIntent: !!b.stripePaymentIntent,
       isInvoicePending: b.paymentMethod === "INVOICE" && b.paymentStatus === "INVOICE_PENDING",
       isInvoiceSent: b.paymentMethod === "INVOICE" && b.paymentStatus === "INVOICE_SENT",
+      isSoulSuiteInvoice: b.paymentMethod === "INVOICE" && b.host.invoiceSource === "SOUL_SUITE",
+      invoicePaymentLinkUrl: b.invoicePaymentLinkUrl,
+      invoiceNumber: b.invoiceNumber,
     };
   });
 

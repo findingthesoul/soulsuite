@@ -5,16 +5,21 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { SaveBar } from "@/components/save-bar";
 import { DirtyNavGuard } from "@/components/dirty-nav-guard";
 import { useDirtyState } from "@/lib/use-dirty-state";
 
+type InvoiceSource = "EXTERNAL" | "SOUL_SUITE";
+
 interface Initial {
   stripeAccountId: string | null;
+  invoiceSource: InvoiceSource;
 }
 
 interface Draft {
   stripeAccountId: string;
+  invoiceSource: InvoiceSource;
 }
 
 const ACCOUNT_ID_RE = /^acct_[A-Za-z0-9]+$/;
@@ -23,6 +28,7 @@ export function PaymentsForm({ initial }: { initial: Initial }) {
   const router = useRouter();
   const { draft, dirty, update, discard, commit } = useDirtyState<Draft>({
     stripeAccountId: initial.stripeAccountId ?? "",
+    invoiceSource: initial.invoiceSource,
   });
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -33,17 +39,20 @@ export function PaymentsForm({ initial }: { initial: Initial }) {
     if (value && !ACCOUNT_ID_RE.test(value)) {
       return setError("Stripe account IDs look like acct_xxx (letters and digits after the prefix).");
     }
+    if (draft.invoiceSource === "SOUL_SUITE" && !value) {
+      return setError("Connect a Stripe account before enabling Soul Suite invoice delivery.");
+    }
     startTransition(async () => {
       const res = await fetch("/api/settings/stripe-account", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ stripeAccountId: value || null }),
+        body: JSON.stringify({ stripeAccountId: value || null, invoiceSource: draft.invoiceSource }),
       });
       if (!res.ok) {
         setError((await res.text()) || "Failed to save");
         return;
       }
-      commit({ stripeAccountId: value });
+      commit({ stripeAccountId: value, invoiceSource: draft.invoiceSource });
       router.refresh();
     });
   }
@@ -102,6 +111,37 @@ export function PaymentsForm({ initial }: { initial: Initial }) {
             )}
           </p>
           {error && <p className="text-sm text-destructive">{error}</p>}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Invoice delivery</CardTitle>
+          <CardDescription>
+            For invoice-method bookings, choose where the invoice is generated and sent. From
+            Soul Suite means the app emails the invitee an invoice with a Stripe payment link
+            and tracks payment automatically.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="invoiceSource">Send invoices</Label>
+            <Select
+              id="invoiceSource"
+              value={draft.invoiceSource}
+              onChange={(e) => update({ invoiceSource: e.target.value as InvoiceSource })}
+            >
+              <option value="EXTERNAL">From another app (you handle invoicing)</option>
+              <option value="SOUL_SUITE" disabled={!draft.stripeAccountId.trim()}>
+                From Soul Suite (auto-generate invoice + payment link)
+              </option>
+            </Select>
+            {!draft.stripeAccountId.trim() && (
+              <p className="text-xs text-muted-foreground">
+                Connect a Stripe account above to enable Soul Suite invoice delivery.
+              </p>
+            )}
+          </div>
         </CardContent>
       </Card>
     </div>

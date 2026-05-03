@@ -16,7 +16,10 @@ export default async function PaymentsSettingsPage() {
     <AppShell {...shellProps(ctx)}>
       <div className="mx-auto w-full max-w-2xl">
         <PaymentsForm
-          initial={{ stripeAccountId: ctx.host.stripeAccountId }}
+          initial={{
+            stripeAccountId: ctx.host.stripeAccountId,
+            invoiceSource: ctx.host.invoiceSource,
+          }}
         />
       </div>
     </AppShell>

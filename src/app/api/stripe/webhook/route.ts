@@ -80,6 +80,14 @@ export async function POST(request: NextRequest) {
 }
 
 async function handleSessionCompleted(session: Stripe.Checkout.Session) {
+  // Soul-Suite-issued invoice payment links carry metadata.kind = "invoice" + bookingId. Their
+  // checkout sessions never had stripeSessionId stored on the Booking (we only know the link id),
+  // so route on metadata first.
+  if (session.metadata?.kind === "invoice" && session.metadata.bookingId) {
+    await handleInvoicePaid(session);
+    return;
+  }
+
   const sessionId = session.id;
   const booking = await prisma.booking.findFirst({
     where: { stripeSessionId: sessionId },
@@ -131,6 +139,31 @@ async function handleSessionCompleted(session: Stripe.Checkout.Session) {
       result,
     );
   }
+}
+
+// Soul-Suite invoice payment-link completion. The Booking was already finalized at creation
+// time (Google event + confirmation email), so we just flip paymentStatus to PAID and stash the
+// payment intent for the audit trail. No finalizeBooking call here.
+async function handleInvoicePaid(session: Stripe.Checkout.Session) {
+  const bookingId = session.metadata?.bookingId;
+  if (!bookingId) return;
+  const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
+  if (!booking) {
+    console.warn("[stripe webhook] no Booking for invoice payment", bookingId);
+    return;
+  }
+  if (booking.paymentStatus === "PAID") return;
+  await prisma.booking.update({
+    where: { id: booking.id },
+    data: {
+      paymentStatus: "PAID",
+      stripePaymentIntent:
+        typeof session.payment_intent === "string"
+          ? session.payment_intent
+          : session.payment_intent?.id ?? null,
+      stripeSessionId: session.id,
+    },
+  });
 }
 
 async function handleSessionFailed(sessionId: string, reason: "EXPIRED" | "PAYMENT_FAILED") {

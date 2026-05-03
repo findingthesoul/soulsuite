@@ -14,6 +14,7 @@ import { upsertContactFromBooking, workspaceIdForMeetingType } from "@/lib/conta
 import { finalizeBooking } from "@/lib/bookings/finalize";
 import { stripeClient, isStripeConfigured } from "@/lib/stripe/client";
 import { invoiceDetailsSchema } from "@/lib/bookings/invoice-details";
+import { sendSoulSuiteInvoice } from "@/lib/bookings/send-invoice";
 import { publicEnv } from "@/lib/env";
 
 const bodySchema = z.object({
@@ -331,6 +332,20 @@ export async function POST(request: NextRequest) {
     if (!result.ok) {
       return new NextResponse(result.message, { status: result.status });
     }
+
+    // Soul-Suite invoice delivery — only when the host opted in. Failures here are logged but
+    // don't reverse the booking; admin can retry from the Payments page.
+    if (host.invoiceSource === "SOUL_SUITE") {
+      const inv = await sendSoulSuiteInvoice({ bookingId: invoiceBookingId });
+      if (!inv.ok) {
+        console.warn("[booking] Soul Suite invoice send failed", {
+          bookingId: invoiceBookingId,
+          status: inv.status,
+          reason: inv.reason,
+        });
+      }
+    }
+
     return NextResponse.json({ id: invoiceBookingId });
   }
 

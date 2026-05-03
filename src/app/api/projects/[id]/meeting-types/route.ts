@@ -35,6 +35,7 @@ const bodySchema = z.object({
   workingHoursOverride: workingHoursSchema.nullable().optional(),
   priceCents: z.number().int().min(50).max(10_000_000).nullable().optional(),
   priceCurrency: z.enum(["eur", "usd", "gbp"]).nullable().optional(),
+  paymentMethod: z.enum(["STRIPE", "INVOICE", "ADYEN"]).default("STRIPE"),
 });
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -119,29 +120,36 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     conferencingHostId = data.conferencingHostId;
   }
 
-  // Pricing — paid MTs require Stripe on every host that could be the booker.
+  // Pricing — paid MTs need a currency. STRIPE rail also needs every potential booking host
+  // to have a Stripe account connected. INVOICE rail skips that check entirely. ADYEN is a
+  // placeholder; UI shouldn't post it but we reject defensively.
+  if (data.paymentMethod === "ADYEN") {
+    return new NextResponse("Adyen isn't available yet — pick Stripe or invoice.", { status: 400 });
+  }
   const isPaid = (data.priceCents ?? 0) > 0;
   if (isPaid) {
     if (!data.priceCurrency) {
       return new NextResponse("Pick a currency for paid meeting types.", { status: 400 });
     }
-    const stripeRequiredHostIds =
-      data.routingMode === "COLLECTIVE"
-        ? conferencingHostId
-          ? [conferencingHostId]
-          : []
-        : data.assignedHostIds;
-    if (stripeRequiredHostIds.length > 0) {
-      const hosts = await prisma.host.findMany({
-        where: { id: { in: stripeRequiredHostIds } },
-        select: { id: true, name: true, stripeAccountId: true },
-      });
-      const missing = hosts.filter((h) => !h.stripeAccountId);
-      if (missing.length > 0) {
-        return new NextResponse(
-          `These hosts haven't connected Stripe: ${missing.map((h) => h.name).join(", ")}. Each booking host must connect Stripe under their own Settings → Payments first.`,
-          { status: 400 },
-        );
+    if (data.paymentMethod === "STRIPE") {
+      const stripeRequiredHostIds =
+        data.routingMode === "COLLECTIVE"
+          ? conferencingHostId
+            ? [conferencingHostId]
+            : []
+          : data.assignedHostIds;
+      if (stripeRequiredHostIds.length > 0) {
+        const hosts = await prisma.host.findMany({
+          where: { id: { in: stripeRequiredHostIds } },
+          select: { id: true, name: true, stripeAccountId: true },
+        });
+        const missing = hosts.filter((h) => !h.stripeAccountId);
+        if (missing.length > 0) {
+          return new NextResponse(
+            `These hosts haven't connected Stripe: ${missing.map((h) => h.name).join(", ")}. Each booking host must connect Stripe under their own Settings → Payments first.`,
+            { status: 400 },
+          );
+        }
       }
     }
   }
@@ -203,6 +211,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           workingHoursOverride: data.workingHoursOverride ?? Prisma.JsonNull,
           priceCents: isPaid ? data.priceCents! : null,
           priceCurrency: isPaid ? data.priceCurrency! : null,
+          paymentMethod: isPaid && data.paymentMethod === "INVOICE" ? "INVOICE" : "STRIPE",
         },
       });
       const intakeFormId = await syncIntakeForm({

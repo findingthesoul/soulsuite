@@ -24,6 +24,7 @@ import { getEmailLogoUrl } from "@/lib/branding";
 import { getZoomAccessTokenForHost } from "@/lib/zoom/host";
 import { createZoomMeeting, ZoomAlternativeHostsError } from "@/lib/zoom/client";
 import { upsertContactFromBooking, workspaceIdForMeetingType } from "@/lib/contacts";
+import type { InvoiceDetails } from "@/lib/bookings/invoice-details";
 
 export type FinalizeResult =
   | { ok: true; meetUrl: string | null; googleEventId: string | null }
@@ -236,6 +237,13 @@ export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResul
     )?.slug ??
     host.slug;
   const logoUrl = await getEmailLogoUrl();
+  // Invoice path: surface the captured billing email + company in the confirmation email so
+  // the invitee knows who to expect the invoice from. Cast through unknown — the JSON column
+  // is validated on write (api/bookings POST) so reads are safe to treat as the schema shape.
+  const invoiceDetails =
+    booking.paymentMethod === "INVOICE" && booking.invoiceDetails
+      ? (booking.invoiceDetails as unknown as InvoiceDetails)
+      : null;
   const tmpl = bookingConfirmationTemplate({
     hostName: host.name,
     meetingTypeName: meetingType.name,
@@ -250,6 +258,13 @@ export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResul
     meetUrl: bookingMeetUrl,
     icalUrl: appUrl(`/${slugForUrl}/${meetingType.slug}/confirmed/${booking.id}/calendar.ics`),
     logoUrl,
+    invoice: invoiceDetails
+      ? {
+          billingEmail: invoiceDetails.billingEmail,
+          companyName: invoiceDetails.companyName,
+          reference: invoiceDetails.reference || null,
+        }
+      : null,
   });
   void sendEmail({
     to: booking.inviteeEmail,

@@ -85,6 +85,7 @@ export default async function EditProjectMeetingTypePage({
             workingHoursOverride: mt.workingHoursOverride as never,
             priceCents: mt.priceCents,
             priceCurrency: mt.priceCurrency,
+            paymentMethod: mt.paymentMethod,
           }}
         />
       </div>

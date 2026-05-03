@@ -16,19 +16,68 @@ interface Row {
   meetingTypeName: string;
   hostName: string;
   priceLabel: string;
-  paymentStatus: "PAID" | "REFUNDED" | "FAILED" | "NOT_REQUIRED" | "PENDING";
+  paymentStatus:
+    | "PAID"
+    | "REFUNDED"
+    | "FAILED"
+    | "NOT_REQUIRED"
+    | "PENDING"
+    | "INVOICE_PENDING"
+    | "INVOICE_SENT";
+  paymentMethod: "STRIPE" | "INVOICE";
   status: "CONFIRMED" | "CANCELLED" | "RESCHEDULED";
   detailHref: string;
   isFailedToFinalize: boolean;
   hasPaymentIntent: boolean;
+  isInvoicePending: boolean;
+  isInvoiceSent: boolean;
 }
 
 export function PaymentRow({ row }: { row: Row }) {
   const router = useRouter();
   const [retryOpen, setRetryOpen] = React.useState(false);
   const [refundOpen, setRefundOpen] = React.useState(false);
+  const [invoicedOpen, setInvoicedOpen] = React.useState(false);
+  const [paidOpen, setPaidOpen] = React.useState(false);
   const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+
+  async function postJson(path: string): Promise<{ ok: boolean; message?: string }> {
+    setPending(true);
+    setError(null);
+    try {
+      const res = await fetch(path, { method: "POST" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const message = json.error || `Request failed (${res.status})`;
+        setError(message);
+        return { ok: false, message };
+      }
+      return { ok: true };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Network error";
+      setError(message);
+      return { ok: false, message };
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function doMarkInvoiced() {
+    const r = await postJson(`/api/admin/bookings/${row.id}/mark-invoiced`);
+    if (r.ok) {
+      setInvoicedOpen(false);
+      router.refresh();
+    }
+  }
+
+  async function doMarkPaid() {
+    const r = await postJson(`/api/admin/bookings/${row.id}/mark-paid`);
+    if (r.ok) {
+      setPaidOpen(false);
+      router.refresh();
+    }
+  }
 
   async function doRetry() {
     setPending(true);
@@ -112,6 +161,21 @@ export function PaymentRow({ row }: { row: Row }) {
               )}
             </>
           )}
+          {row.isInvoicePending && (
+            <>
+              <Button size="sm" variant="primary" onClick={() => setInvoicedOpen(true)}>
+                Mark as invoiced
+              </Button>
+              <Button size="sm" variant="secondary" onClick={() => setPaidOpen(true)}>
+                Mark as paid
+              </Button>
+            </>
+          )}
+          {row.isInvoiceSent && (
+            <Button size="sm" variant="primary" onClick={() => setPaidOpen(true)}>
+              Mark as paid
+            </Button>
+          )}
           <Link
             href={row.detailHref}
             target="_blank"
@@ -145,6 +209,52 @@ export function PaymentRow({ row }: { row: Row }) {
             </Button>
             <Button variant="primary" onClick={doRetry} disabled={pending}>
               {pending ? "Retrying…" : "Retry finalisation"}
+            </Button>
+          </DialogFooter>
+        </Dialog>
+
+        <Dialog open={invoicedOpen} onOpenChange={(o) => !pending && setInvoicedOpen(o)}>
+          <DialogHeader
+            title="Mark this booking as invoiced?"
+            description="This is a tracking-only flag — actually sending the invoice happens in your invoicing tool."
+            onClose={() => !pending && setInvoicedOpen(false)}
+          />
+          <DialogBody>
+            <p className="text-sm text-muted-foreground">
+              <span className="text-foreground font-medium">{row.inviteeName}</span> ·{" "}
+              {row.meetingTypeName} · {formatDate(row.startsAt)}
+            </p>
+            {error && <p className="text-sm text-destructive">{error}</p>}
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setInvoicedOpen(false)} disabled={pending}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={doMarkInvoiced} disabled={pending}>
+              {pending ? "Saving…" : "Mark as invoiced"}
+            </Button>
+          </DialogFooter>
+        </Dialog>
+
+        <Dialog open={paidOpen} onOpenChange={(o) => !pending && setPaidOpen(o)}>
+          <DialogHeader
+            title="Mark this booking as paid?"
+            description="Use after the invoice has actually been paid externally. No money moves in our system — this just updates the tracking flag."
+            onClose={() => !pending && setPaidOpen(false)}
+          />
+          <DialogBody>
+            <p className="text-sm text-muted-foreground">
+              <span className="text-foreground font-medium">{row.inviteeName}</span> ·{" "}
+              {row.meetingTypeName} · {formatDate(row.startsAt)} · {row.priceLabel}
+            </p>
+            {error && <p className="text-sm text-destructive">{error}</p>}
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setPaidOpen(false)} disabled={pending}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={doMarkPaid} disabled={pending}>
+              {pending ? "Saving…" : "Mark as paid"}
             </Button>
           </DialogFooter>
         </Dialog>
@@ -186,10 +296,14 @@ function PaymentPill({ status }: { status: Row["paymentStatus"] }) {
         ? "bg-surface-muted text-foreground"
         : status === "FAILED"
           ? "bg-destructive/10 text-destructive"
-          : "bg-surface-muted text-muted-foreground";
+          : status === "INVOICE_PENDING" || status === "INVOICE_SENT"
+            ? "bg-amber-500/10 text-amber-700 dark:text-amber-400"
+            : "bg-surface-muted text-muted-foreground";
+  // Spaces read better than underscores for the new compound statuses.
+  const label = status.toLowerCase().replace(/_/g, " ");
   return (
     <span className={`rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide font-medium inline-block ${styles}`}>
-      {status.toLowerCase()}
+      {label}
     </span>
   );
 }

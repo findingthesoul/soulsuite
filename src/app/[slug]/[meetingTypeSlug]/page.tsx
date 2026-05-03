@@ -117,6 +117,7 @@ export default async function PublicBookingPage({
         conferencingProvider: meetingType.conferencingProvider,
         priceCents: meetingType.priceCents,
         priceCurrency: meetingType.priceCurrency,
+        paymentMethod: meetingType.paymentMethod,
       }}
       projectName={projectName}
       hostNames={resolved.multiHosts?.map((h) => h.name) ?? null}

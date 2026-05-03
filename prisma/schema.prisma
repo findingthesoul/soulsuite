@@ -286,6 +286,10 @@ model MeetingType {
   // no stripeAccountId.
   priceCents            Int?
   priceCurrency         String?
+  // Which payment rail to use for paid bookings on this MT. STRIPE (default) routes through
+  // Stripe Checkout. INVOICE collects billing details from the invitee and confirms the booking
+  // immediately — the host invoices manually. No-op when priceCents is null/0 (free MT).
+  paymentMethod         PaymentMethod        @default(STRIPE)
   createdAt             DateTime             @default(now())
 
   host       Host?            @relation("PersonalMeetingTypeHost", fields: [hostId], references: [id], onDelete: Cascade)
@@ -334,12 +338,27 @@ enum BookingStatus {
 // Payment lifecycle for paid meeting types. NOT_REQUIRED = free MT (default). PENDING = Stripe
 // Checkout session opened, awaiting webhook. PAID = checkout completed and the booking has been
 // finalised (Google + emails). FAILED = expired or payment intent failed. REFUNDED = manual.
+// INVOICE_PENDING / INVOICE_SENT cover the invoice-payment branch — the booking is confirmed and
+// finalised on creation, and the host transitions through these statuses manually from the
+// admin Payments page (Mark as invoiced → Mark as paid). No money moves in our system.
 enum PaymentStatus {
   NOT_REQUIRED
   PENDING
   PAID
   REFUNDED
   FAILED
+  INVOICE_PENDING
+  INVOICE_SENT
+}
+
+// Which collection rail a paid meeting type uses. STRIPE = Stripe Checkout (existing flow,
+// money moves through Stripe Connect). INVOICE = invitee fills in billing details at booking
+// time, host invoices manually outside the app. Adyen is intentionally absent from this enum —
+// the MT form surfaces it as a disabled "Coming soon" option but rejecting it on save means we
+// don't have to write a code path for an enum value with no implementation.
+enum PaymentMethod {
+  STRIPE
+  INVOICE
 }
 
 model Booking {
@@ -368,6 +387,14 @@ model Booking {
   // status stays NOT_REQUIRED and stripe* fields stay null. PENDING bookings exist but have no
   // googleEventId / meetUrl yet; the webhook flips PAID and runs finalizeBooking().
   paymentStatus        PaymentStatus        @default(NOT_REQUIRED)
+  // Mirrors MeetingType.paymentMethod at booking creation time so future MT-level changes don't
+  // mutate the historical record. Always STRIPE for free MTs (the default is harmless there).
+  paymentMethod        PaymentMethod        @default(STRIPE)
+  // Captured at booking time when paymentMethod = INVOICE. Shape:
+  //   { companyName, billingEmail, addressLine1, addressLine2?, postalCode, city,
+  //     country, countryOther?, vatId?, reference? }
+  // See src/app/[slug]/[meetingTypeSlug]/flow.tsx (BillingPanel) for the canonical form schema.
+  invoiceDetails       Json?
   stripeSessionId      String?
   stripePaymentIntent  String?
   createdAt            DateTime             @default(now())

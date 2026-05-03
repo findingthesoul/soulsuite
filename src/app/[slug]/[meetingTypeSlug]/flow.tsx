@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition, type Dispatch, type SetStateAction } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight, Clock, Globe, Video, CreditCard } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -10,6 +10,13 @@ import { Label } from "@/components/ui/label";
 import { Avatar } from "@/components/ui/avatar";
 import { type IntakeField, validateAnswers } from "@/lib/intake";
 import { IntakeFieldsRenderer } from "@/components/intake-fields-renderer";
+import { Select } from "@/components/ui/select";
+import {
+  invoiceDetailsSchema,
+  SUPPORTED_BILLING_COUNTRIES,
+  type BillingCountry,
+  type InvoiceDetails,
+} from "@/lib/bookings/invoice-details";
 
 interface Host {
   slug: string;
@@ -25,6 +32,37 @@ interface MeetingType {
   conferencingProvider: "GOOGLE_MEET" | "ZOOM" | "TEAMS" | "NONE";
   priceCents: number | null;
   priceCurrency: string | null;
+  paymentMethod: "STRIPE" | "INVOICE";
+}
+
+// Empty invoice form state — shared between initial render and "Back to billing" navigation.
+// Held in flow-level state so going Back from confirm preserves what was typed.
+function emptyInvoiceForm(initialEmail: string): InvoiceFormState {
+  return {
+    companyName: "",
+    billingEmail: initialEmail,
+    addressLine1: "",
+    addressLine2: "",
+    postalCode: "",
+    city: "",
+    country: "NL",
+    countryOther: "",
+    vatId: "",
+    reference: "",
+  };
+}
+
+interface InvoiceFormState {
+  companyName: string;
+  billingEmail: string;
+  addressLine1: string;
+  addressLine2: string;
+  postalCode: string;
+  city: string;
+  country: BillingCountry;
+  countryOther: string;
+  vatId: string;
+  reference: string;
 }
 interface SerializedSlot {
   startsAt: string;
@@ -91,7 +129,15 @@ export function BookingFlow({
   const [displayed, setDisplayed] = useState(() => parseMonth(firstDate));
   const [selectedDate, setSelectedDate] = useState<string | null>(firstDate in slotsByDate ? firstDate : null);
   const [stagedSlot, setStagedSlot] = useState<SerializedSlot | null>(null);
-  const [step, setStep] = useState<"pick" | "details">("pick");
+  // 3-step flow for invoice MTs: pick → details → billing → submit. Free + Stripe MTs use just
+  // pick → details → submit. State keeps name + email + intake answers + (for invoice) billing
+  // hoisted here so navigating back doesn't drop what the user already typed.
+  const [step, setStep] = useState<"pick" | "details" | "billing">("pick");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [answers, setAnswers] = useState<Record<string, unknown>>({});
+  const [invoiceForm, setInvoiceForm] = useState<InvoiceFormState>(() => emptyInvoiceForm(""));
+  const isInvoice = meetingType.paymentMethod === "INVOICE" && (meetingType.priceCents ?? 0) > 0;
 
   function selectDate(date: string) {
     setSelectedDate(date);
@@ -101,6 +147,16 @@ export function BookingFlow({
   function confirmSlot(slot: SerializedSlot) {
     setStagedSlot(slot);
     setStep("details");
+  }
+
+  function gotoBilling() {
+    // Default the billing email to the invitee email on first visit; preserve any user edit
+    // afterwards (we only overwrite if it's still the previously-defaulted value).
+    setInvoiceForm((prev) => ({
+      ...prev,
+      billingEmail: prev.billingEmail.length === 0 ? email : prev.billingEmail,
+    }));
+    setStep("billing");
   }
 
   return (
@@ -117,7 +173,7 @@ export function BookingFlow({
               routingMode={routingMode}
             />
             <div className="p-6 md:p-8 border-t md:border-t-0 md:border-l border-border min-h-[480px]">
-              {step === "pick" ? (
+              {step === "pick" && (
                 <PickPanel
                   tz={tz}
                   setTz={setTz}
@@ -131,14 +187,44 @@ export function BookingFlow({
                   setStagedSlot={setStagedSlot}
                   onConfirm={confirmSlot}
                 />
-              ) : (
+              )}
+              {step === "details" && (
                 <DetailsPanel
                   slot={stagedSlot}
                   tz={tz}
                   meetingType={meetingType}
                   host={host}
                   intakeFields={intakeFields}
+                  isInvoice={isInvoice}
+                  name={name}
+                  setName={setName}
+                  email={email}
+                  setEmail={setEmail}
+                  answers={answers}
+                  setAnswers={setAnswers}
                   onBack={() => setStep("pick")}
+                  onBooked={(id) => router.push(`/${host.slug}/${meetingType.slug}/confirmed/${id}`)}
+                  onContinueToBilling={gotoBilling}
+                  onSlotGone={(message) => {
+                    setStep("pick");
+                    setStagedSlot(null);
+                    router.refresh();
+                    if (message) alert(message);
+                  }}
+                />
+              )}
+              {step === "billing" && (
+                <BillingPanel
+                  slot={stagedSlot}
+                  tz={tz}
+                  meetingType={meetingType}
+                  invoiceForm={invoiceForm}
+                  setInvoiceForm={setInvoiceForm}
+                  name={name}
+                  email={email}
+                  answers={answers}
+                  inviteeTimezone={tz}
+                  onBack={() => setStep("details")}
                   onBooked={(id) => router.push(`/${host.slug}/${meetingType.slug}/confirmed/${id}`)}
                   onSlotGone={(message) => {
                     setStep("pick");
@@ -194,12 +280,17 @@ function EventPanel({
           <span>{meetingType.durationMinutes} minutes</span>
         </li>
         {meetingType.priceCents != null && meetingType.priceCents > 0 && meetingType.priceCurrency && (
-          <li className="flex items-center gap-2 font-medium text-foreground">
-            <CreditCard className="h-4 w-4 shrink-0" />
-            <span>
-              {formatPriceClient(meetingType.priceCents, meetingType.priceCurrency)} — paid via Stripe
-            </span>
-          </li>
+          <>
+            <li className="flex items-center gap-2 font-medium text-foreground">
+              <CreditCard className="h-4 w-4 shrink-0" />
+              <span>
+                {formatPriceClient(meetingType.priceCents, meetingType.priceCurrency)}
+              </span>
+            </li>
+            <li className="text-xs text-muted-foreground pl-6 -mt-1">
+              Payment: {meetingType.paymentMethod === "INVOICE" ? "Invoice" : "Stripe"}
+            </li>
+          </>
         )}
         {meetingType.conferencingProvider !== "NONE" && (
           <li className="flex items-center gap-2">
@@ -475,8 +566,16 @@ function DetailsPanel({
   meetingType,
   host,
   intakeFields,
+  isInvoice,
+  name,
+  setName,
+  email,
+  setEmail,
+  answers,
+  setAnswers,
   onBack,
   onBooked,
+  onContinueToBilling,
   onSlotGone,
 }: {
   slot: SerializedSlot | null;
@@ -484,13 +583,18 @@ function DetailsPanel({
   meetingType: MeetingType;
   host: Host;
   intakeFields: IntakeField[];
+  isInvoice: boolean;
+  name: string;
+  setName: (v: string) => void;
+  email: string;
+  setEmail: (v: string) => void;
+  answers: Record<string, unknown>;
+  setAnswers: (next: Record<string, unknown>) => void;
   onBack: () => void;
   onBooked: (id: string) => void;
+  onContinueToBilling: () => void;
   onSlotGone: (message?: string) => void;
 }) {
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [answers, setAnswers] = useState<Record<string, unknown>>({});
   const [intakeErrorKey, setIntakeErrorKey] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -506,6 +610,13 @@ function DetailsPanel({
     if (intakeErr) {
       setIntakeErrorKey(intakeErr.fieldKey);
       return setError(intakeErr.message);
+    }
+
+    // Invoice MTs route through the billing step instead of submitting here. We've already
+    // validated the basics, so jumping forward is safe.
+    if (isInvoice) {
+      onContinueToBilling();
+      return;
     }
 
     startTransition(async () => {
@@ -595,10 +706,244 @@ function DetailsPanel({
       {error && <p className="text-sm text-destructive">{error}</p>}
 
       <Button onClick={submit} disabled={pending} size="lg" className="w-full">
-        {pending ? "Booking…" : "Schedule event"}
+        {pending ? "Booking…" : isInvoice ? "Next: billing details" : "Schedule event"}
       </Button>
     </div>
   );
+}
+
+// ────────────────────────────────────────────────────────────
+// Step 3 (invoice MTs only) — billing details capture
+// ────────────────────────────────────────────────────────────
+
+function BillingPanel({
+  slot,
+  tz,
+  meetingType,
+  invoiceForm,
+  setInvoiceForm,
+  name,
+  email,
+  answers,
+  inviteeTimezone,
+  onBack,
+  onBooked,
+  onSlotGone,
+}: {
+  slot: SerializedSlot | null;
+  tz: string;
+  meetingType: MeetingType;
+  invoiceForm: InvoiceFormState;
+  setInvoiceForm: Dispatch<SetStateAction<InvoiceFormState>>;
+  name: string;
+  email: string;
+  answers: Record<string, unknown>;
+  inviteeTimezone: string;
+  onBack: () => void;
+  onBooked: (id: string) => void;
+  onSlotGone: (message?: string) => void;
+}) {
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [errorField, setErrorField] = useState<string | null>(null);
+
+  function update<K extends keyof InvoiceFormState>(key: K, value: InvoiceFormState[K]) {
+    setInvoiceForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function submit() {
+    setError(null);
+    setErrorField(null);
+    if (!slot) return setError("Pick a time first.");
+    // Re-validate via the canonical schema so client + server stay in lock-step.
+    const parsed = invoiceDetailsSchema.safeParse(invoiceForm);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      setErrorField(typeof issue?.path[0] === "string" ? issue.path[0] : null);
+      return setError(issue?.message ?? "Check the billing details.");
+    }
+    const invoiceDetails: InvoiceDetails = parsed.data;
+
+    startTransition(async () => {
+      const res = await fetch("/api/bookings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          meetingTypeId: meetingType.id,
+          startsAt: slot.startsAt,
+          endsAt: slot.endsAt,
+          inviteeName: name.trim(),
+          inviteeEmail: email.trim().toLowerCase(),
+          inviteeTimezone,
+          intakeAnswers: answers,
+          invoiceDetails,
+        }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        if (res.status === 409) {
+          onSlotGone(text || "That slot was just booked. Pick another time.");
+          return;
+        }
+        setError(text || "Failed to create booking.");
+        return;
+      }
+      const data = (await res.json()) as { id: string };
+      onBooked(data.id);
+    });
+  }
+
+  const fieldClass = (key: string) =>
+    errorField === key ? "border-destructive focus-visible:ring-destructive" : undefined;
+
+  return (
+    <div className="space-y-6 max-w-md">
+      <div>
+        <button
+          onClick={onBack}
+          className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+        >
+          <ChevronLeft className="h-4 w-4" /> Back
+        </button>
+        <h2 className="mt-3 text-base font-semibold tracking-tight">Billing details</h2>
+        {slot && (
+          <p className="mt-1 text-sm text-muted-foreground">
+            {formatLongDate(slot.startsAt.slice(0, 10), tz)} · {formatTime(slot.startsAt, tz)} —{" "}
+            {formatTime(slot.endsAt, tz)}
+          </p>
+        )}
+        <p className="mt-2 text-xs text-muted-foreground">
+          You&apos;ll receive an invoice from the host after the meeting is booked.
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        <div className="space-y-1.5">
+          <Label htmlFor="companyName">Company / organisation</Label>
+          <Input
+            id="companyName"
+            value={invoiceForm.companyName}
+            onChange={(e) => update("companyName", e.target.value)}
+            className={fieldClass("companyName")}
+            placeholder="Acme Inc."
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="billingEmail">Billing email</Label>
+          <Input
+            id="billingEmail"
+            type="email"
+            value={invoiceForm.billingEmail}
+            onChange={(e) => update("billingEmail", e.target.value)}
+            className={fieldClass("billingEmail")}
+            placeholder="ap@acme.com"
+          />
+          <p className="text-xs text-muted-foreground">Where the host will send the invoice.</p>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="addressLine1">Address line 1</Label>
+          <Input
+            id="addressLine1"
+            value={invoiceForm.addressLine1}
+            onChange={(e) => update("addressLine1", e.target.value)}
+            className={fieldClass("addressLine1")}
+            placeholder="123 Example St."
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="addressLine2">Address line 2 (optional)</Label>
+          <Input
+            id="addressLine2"
+            value={invoiceForm.addressLine2}
+            onChange={(e) => update("addressLine2", e.target.value)}
+            className={fieldClass("addressLine2")}
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="postalCode">Postal code</Label>
+            <Input
+              id="postalCode"
+              value={invoiceForm.postalCode}
+              onChange={(e) => update("postalCode", e.target.value)}
+              className={fieldClass("postalCode")}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="city">City</Label>
+            <Input
+              id="city"
+              value={invoiceForm.city}
+              onChange={(e) => update("city", e.target.value)}
+              className={fieldClass("city")}
+            />
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="country">Country</Label>
+          <Select
+            id="country"
+            value={invoiceForm.country}
+            onChange={(e) => update("country", e.target.value as BillingCountry)}
+            className={fieldClass("country")}
+          >
+            {SUPPORTED_BILLING_COUNTRIES.map((c) => (
+              <option key={c} value={c}>
+                {countryLabel(c)}
+              </option>
+            ))}
+          </Select>
+        </div>
+        {invoiceForm.country === "OTHER" && (
+          <div className="space-y-1.5">
+            <Label htmlFor="countryOther">Country name</Label>
+            <Input
+              id="countryOther"
+              value={invoiceForm.countryOther}
+              onChange={(e) => update("countryOther", e.target.value)}
+              className={fieldClass("countryOther")}
+              placeholder="Country"
+            />
+          </div>
+        )}
+        <div className="space-y-1.5">
+          <Label htmlFor="vatId">VAT / tax ID (optional)</Label>
+          <Input
+            id="vatId"
+            value={invoiceForm.vatId}
+            onChange={(e) => update("vatId", e.target.value)}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="reference">Reference / PO number (optional)</Label>
+          <Input
+            id="reference"
+            value={invoiceForm.reference}
+            onChange={(e) => update("reference", e.target.value)}
+            placeholder="PO-12345"
+          />
+        </div>
+      </div>
+
+      {error && <p className="text-sm text-destructive">{error}</p>}
+
+      <Button onClick={submit} disabled={pending} size="lg" className="w-full">
+        {pending ? "Booking…" : "Confirm booking"}
+      </Button>
+    </div>
+  );
+}
+
+function countryLabel(c: BillingCountry): string {
+  switch (c) {
+    case "NL": return "Netherlands";
+    case "DE": return "Germany";
+    case "BE": return "Belgium";
+    case "FR": return "France";
+    case "UK": return "United Kingdom";
+    case "US": return "United States";
+    case "OTHER": return "Other…";
+  }
 }
 
 // ---------- helpers ----------

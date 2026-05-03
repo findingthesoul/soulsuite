@@ -13,6 +13,7 @@ import { sendEmail, bookingConfirmationTemplate, appUrl } from "@/lib/email";
 import { upsertContactFromBooking, workspaceIdForMeetingType } from "@/lib/contacts";
 import { finalizeBooking } from "@/lib/bookings/finalize";
 import { stripeClient, isStripeConfigured } from "@/lib/stripe/client";
+import { invoiceDetailsSchema } from "@/lib/bookings/invoice-details";
 import { publicEnv } from "@/lib/env";
 
 const bodySchema = z.object({
@@ -24,6 +25,10 @@ const bodySchema = z.object({
   inviteeTimezone: z.string().min(1).max(80),
   // Free-form answers; validated against the meeting type's intake form fields below.
   intakeAnswers: z.record(z.string(), z.unknown()).optional(),
+  // Optional billing info — required (and validated against the strict schema) only when the
+  // resolved meeting type's paymentMethod === INVOICE. The client always sends the field shape
+  // it captured; we re-validate server-side because the public booking API has no auth.
+  invoiceDetails: z.unknown().optional(),
 });
 
 /**
@@ -252,12 +257,88 @@ export async function POST(request: NextRequest) {
     .slice(0, 32);
   const requestId = `bk-${deterministic}`;
 
+  // ── Paid meeting types: branch on the MT's payment method ──
+  const isPaid = (meetingType.priceCents ?? 0) > 0;
+
+  // INVOICE: capture billing details and finalise immediately like a free MT. No Stripe call.
+  // Booking.paymentStatus = INVOICE_PENDING signals the admin Payments page that the host still
+  // needs to send + collect on the invoice manually.
+  if (isPaid && meetingType.paymentMethod === "INVOICE") {
+    const invoiceParsed = invoiceDetailsSchema.safeParse(body.invoiceDetails);
+    if (!invoiceParsed.success) {
+      return new NextResponse(
+        invoiceParsed.error.issues[0]?.message ?? "Billing details are required.",
+        { status: 400 },
+      );
+    }
+    let invoiceBookingId: string;
+    try {
+      const created = await prisma.booking.create({
+        data: {
+          meetingTypeId: meetingType.id,
+          hostId: host.id,
+          projectId: meetingType.projectId,
+          inviteeEmail: body.inviteeEmail,
+          inviteeName: body.inviteeName,
+          inviteeAnswers:
+            Object.keys(cleanedAnswers).length > 0
+              ? (cleanedAnswers as Prisma.InputJsonValue)
+              : undefined,
+          startsAt,
+          endsAt,
+          requestId,
+          status: "CONFIRMED",
+          paymentMethod: "INVOICE",
+          paymentStatus: "INVOICE_PENDING",
+          invoiceDetails: invoiceParsed.data as Prisma.InputJsonValue,
+        },
+      });
+      invoiceBookingId = created.id;
+    } catch (err) {
+      if (err && typeof err === "object" && (err as { code?: string }).code === "P2002") {
+        const existing = await prisma.booking.findUnique({ where: { requestId } });
+        if (existing) return NextResponse.json({ id: existing.id });
+      }
+      throw err;
+    }
+
+    // One-off slot claim — same logic as the free path; only difference is no Stripe.
+    if (oneOffSlot) {
+      const claim = await prisma.oneOffSlot.updateMany({
+        where: { id: oneOffSlot.id, bookedBookingId: null },
+        data: { bookedBookingId: invoiceBookingId },
+      });
+      if (claim.count === 0) {
+        await prisma.booking.delete({ where: { id: invoiceBookingId } }).catch(() => undefined);
+        return new NextResponse(
+          "That slot was just claimed by someone else — please pick another.",
+          { status: 409 },
+        );
+      }
+    }
+
+    // Group-meeting "join existing" path is intentionally unreachable here: invoice MTs aren't
+    // configured as group meetings in normal flows (the form doesn't surface both at once),
+    // and existingGroupBookings would be filtered out above. If a host does configure both we
+    // fall through to finalizeBooking below, which creates a fresh event.
+
+    const result = await finalizeBooking({
+      bookingId: invoiceBookingId,
+      hostId: host.id,
+      collectiveCoHostIds: collectiveCoHosts.map((h) => h.id),
+      inviteeTimezone: body.inviteeTimezone,
+    });
+    if (!result.ok) {
+      return new NextResponse(result.message, { status: result.status });
+    }
+    return NextResponse.json({ id: invoiceBookingId });
+  }
+
   // ── Paid meeting types: Stripe Checkout branch ──
   // For paid MTs we create the Booking row in PENDING state and a Stripe Checkout Session
   // tied to the host's connected Stripe account. The webhook (/api/stripe/webhook) flips
   // PAID and runs finalizeBooking() to create the Google event + emails. Group meetings and
   // one-off slots use the same idempotent Booking row so duplicate clicks collide on requestId.
-  const isPaid = (meetingType.priceCents ?? 0) > 0;
   if (isPaid) {
     if (!isStripeConfigured()) {
       return new NextResponse("Payments are not configured on this server.", { status: 503 });

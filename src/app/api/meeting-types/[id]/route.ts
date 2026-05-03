@@ -43,6 +43,7 @@ const patchSchema = z.object({
   workingHoursOverride: workingHoursSchema.nullable().optional(),
   priceCents: z.number().int().min(50).max(10_000_000).nullable().optional(),
   priceCurrency: z.enum(["eur", "usd", "gbp"]).nullable().optional(),
+  paymentMethod: z.enum(["STRIPE", "INVOICE", "ADYEN"]).default("STRIPE"),
 });
 
 async function findOwnedMeetingType(id: string, hostId: string) {
@@ -74,10 +75,13 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
 
   const isPaid = (parsed.data.priceCents ?? 0) > 0;
+  if (parsed.data.paymentMethod === "ADYEN") {
+    return new NextResponse("Adyen isn't available yet — pick Stripe or invoice.", { status: 400 });
+  }
   if (isPaid && !parsed.data.priceCurrency) {
     return new NextResponse("Pick a currency for paid meeting types.", { status: 400 });
   }
-  if (isPaid && !host.stripeAccountId) {
+  if (isPaid && parsed.data.paymentMethod === "STRIPE" && !host.stripeAccountId) {
     return new NextResponse("Connect Stripe under Settings → Payments first.", { status: 400 });
   }
 
@@ -112,6 +116,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
           workingHoursOverride: parsed.data.workingHoursOverride ?? Prisma.JsonNull,
           priceCents: isPaid ? parsed.data.priceCents! : null,
           priceCurrency: isPaid ? parsed.data.priceCurrency! : null,
+          paymentMethod:
+            isPaid && parsed.data.paymentMethod === "INVOICE" ? "INVOICE" : "STRIPE",
         },
       });
       const newFormId = await syncIntakeForm({

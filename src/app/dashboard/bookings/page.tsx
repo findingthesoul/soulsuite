@@ -80,8 +80,10 @@ export default async function BookingsPage({
         alternativeLocation: true,
         conferencingProvider: true,
         meetUrl: true,
+        paymentMethod: true,
+        paymentStatus: true,
         meetingType: {
-          select: { slug: true, name: true, defaultLocation: true },
+          select: { slug: true, name: true, defaultLocation: true, priceCents: true, priceCurrency: true },
         },
         project: { select: { slug: true, name: true } },
       },
@@ -176,7 +178,15 @@ export default async function BookingsPage({
                           {b.project && <span className="ml-1.5">· {b.project.name}</span>}
                         </p>
                       </div>
-                      <StatusPill status={b.status} />
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <PaymentPill
+                          paymentMethod={b.paymentMethod}
+                          paymentStatus={b.paymentStatus}
+                          priceCents={b.meetingType.priceCents}
+                          priceCurrency={b.meetingType.priceCurrency}
+                        />
+                        <StatusPill status={b.status} />
+                      </div>
                     </PrefetchLink>
                     {showAlt && (
                       <div className="pr-3">
@@ -219,6 +229,73 @@ function bookingForGrid(
     status: b.status,
     href: `/${b.project ? b.project.slug : hostSlug}/${b.meetingType.slug}/confirmed/${b.id}`,
   };
+}
+
+// Payment pill — only renders when the meeting type was paid. Shows:
+//   PAID                  (Stripe payment captured)
+//   PAYMENT PENDING       (Stripe checkout in flight, not yet captured)
+//   INVOICE · PENDING     (invoice not yet sent)
+//   INVOICE · SENT        (host marked as invoiced)
+//   INVOICE · PAID        (host marked the invoice paid)
+//   FAILED / REFUNDED     (terminal payment states)
+// Free MTs and untyped non-paid bookings render nothing.
+function PaymentPill({
+  paymentMethod,
+  paymentStatus,
+  priceCents,
+  priceCurrency,
+}: {
+  paymentMethod: "STRIPE" | "INVOICE" | "ADYEN";
+  paymentStatus: "NOT_REQUIRED" | "PENDING" | "PAID" | "REFUNDED" | "FAILED" | "INVOICE_PENDING" | "INVOICE_SENT";
+  priceCents: number | null;
+  priceCurrency: string | null;
+}) {
+  if (paymentStatus === "NOT_REQUIRED") return null;
+  const amount =
+    priceCents != null && priceCurrency
+      ? new Intl.NumberFormat("en-GB", { style: "currency", currency: priceCurrency.toUpperCase() }).format(priceCents / 100)
+      : null;
+  let label: string;
+  let styles: string;
+  if (paymentMethod === "INVOICE") {
+    if (paymentStatus === "INVOICE_PENDING") {
+      label = "Invoice · pending";
+      styles = "bg-surface-muted text-muted-foreground";
+    } else if (paymentStatus === "INVOICE_SENT") {
+      label = "Invoice · sent";
+      styles = "bg-foreground/10 text-foreground";
+    } else if (paymentStatus === "PAID") {
+      label = "Invoice · paid";
+      styles = "bg-foreground text-background";
+    } else {
+      label = "Invoice";
+      styles = "bg-surface-muted text-muted-foreground";
+    }
+  } else {
+    if (paymentStatus === "PAID") {
+      label = "Paid";
+      styles = "bg-foreground text-background";
+    } else if (paymentStatus === "PENDING") {
+      label = "Payment pending";
+      styles = "bg-surface-muted text-muted-foreground";
+    } else if (paymentStatus === "REFUNDED") {
+      label = "Refunded";
+      styles = "bg-surface-muted text-muted-foreground";
+    } else if (paymentStatus === "FAILED") {
+      label = "Payment failed";
+      styles = "bg-destructive/10 text-destructive";
+    } else {
+      return null;
+    }
+  }
+  return (
+    <span
+      className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide font-medium ${styles}`}
+      title={amount ?? undefined}
+    >
+      {label}
+    </span>
+  );
 }
 
 function StatusPill({ status }: { status: "CONFIRMED" | "CANCELLED" | "RESCHEDULED" }) {

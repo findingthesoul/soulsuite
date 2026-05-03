@@ -354,20 +354,51 @@ function Filters({
         </div>
       )}
       <span className="text-subtle-foreground text-xs px-1">·</span>
-      <div className="flex flex-wrap items-center gap-1.5">
-        <Link href={build({ scope: "all" })} className={pillClass(scope === "all")}>
-          All scopes
-        </Link>
-        <Link href={build({ scope: "personal" })} className={pillClass(scope === "personal")}>
-          Personal
-        </Link>
-        {memberships.map((p) => (
-          <Link key={p.id} href={build({ scope: p.id })} className={pillClass(scope === p.id)}>
-            {p.name}
+      <ScopeDropdown scope={scope} memberships={memberships} build={build} />
+    </div>
+  );
+}
+
+// Scope picker — dropdown so the bar stays compact even with many teams. Server-rendered
+// <select> + form so a change submits a GET to the same page with the new ?scope=.
+function ScopeDropdown({
+  scope,
+  memberships,
+  build,
+}: {
+  scope: ScopeFilter;
+  memberships: { id: string; name: string; slug: string }[];
+  build: (next: { scope?: string }) => string;
+}) {
+  const options: { value: string; label: string }[] = [
+    { value: "all", label: "All scopes" },
+    { value: "personal", label: "Personal" },
+    ...memberships.map((p) => ({ value: p.id, label: p.name })),
+  ];
+  // Render every option as a <Link> in a <details> menu — accessible without JS, no client deps.
+  const currentLabel = options.find((o) => o.value === scope)?.label ?? "All scopes";
+  return (
+    <details className="relative inline-block">
+      <summary className="list-none rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground cursor-pointer flex items-center gap-1.5">
+        {currentLabel}
+        <span aria-hidden className="text-subtle-foreground">▾</span>
+      </summary>
+      <div className="absolute z-10 mt-1 min-w-[160px] rounded-md border border-border bg-surface shadow-md p-1">
+        {options.map((o) => (
+          <Link
+            key={o.value}
+            href={build({ scope: o.value })}
+            className={`block rounded-sm px-3 py-1.5 text-sm ${
+              scope === o.value
+                ? "bg-surface-muted text-foreground"
+                : "text-muted-foreground hover:bg-surface-muted hover:text-foreground"
+            }`}
+          >
+            {o.label}
           </Link>
         ))}
       </div>
-    </div>
+    </details>
   );
 }
 

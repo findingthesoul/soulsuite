@@ -2,6 +2,100 @@
 
 Notable shipped changes per version. Newest first. The version on `main` matches `package.json` at the time of merge.
 
+## 1.0.0 — Launch 🚀
+The Soul Suite v1 cut. Everything in the brief, plus the user-requested polish since.
+
+### Scheduling
+- Three-layer model: Workspace → Teams → Personal
+- Event types: One-on-one, Group, Round-robin (with per-team fairness rule), Collective, One-off, Polls
+- Per-meeting-type availability override
+- Per-host-per-project working hours override
+- In-person conferencing with default location
+- Per-booking alternative location override (paste a manual link or address; calendar event patches in place; invitee gets a brief notification email)
+
+### Conferencing
+- Google Meet (auto-generated)
+- Zoom (per-host OAuth, alternative-host fallback for cross-org Collective bookings)
+- Microsoft Teams (branch ready, awaiting Azure AD app registration)
+- Collective conferencing host (only one host needs the provider connected; others added as alternative hosts/guests)
+- None
+- Auto-clear revoked tokens + reconnect banner
+
+### Payments
+- Stripe live + test, per-host accounts via Stripe Connect direct charges
+- Pay by invoice (billing details captured at booking time, host invoices externally, mark as invoiced/paid in admin)
+- Adyen placeholder ("coming")
+- Admin retry + refund for paid bookings whose finalize step failed
+- Payment pill on every booking row (Paid / Invoice pending|sent|paid / Refunded / Failed)
+
+### UX
+- Direct-edit forms with sticky SaveBar + dirty-nav guard
+- Tabs on MT edit forms (Basics, Routing, Availability, Conferencing, Pricing, Intake)
+- Public landing pages: `/<host-slug>` and `/<project-slug>`
+- Home dashboard: Quick links section (top 3 most-booked MTs)
+- Bookings: list / week / month views, scope dropdown, payment pill
+- Contacts directory (auto-built from booking history, manually editable)
+- Help page covering every feature
+
+### Mobile / PWA
+- Installable on iOS + Android home screens
+- Service worker, manifest, offline shell
+- Bottom nav (Home / Bookings / Personal / Teams / More)
+- Stacked tables on mobile for payments
+- Safe-area-aware on iOS
+
+### Operations
+- GDPR SAR export
+- Migrations auto-applied on every Vercel build
+- Single email per booking (Resend confirmation only; Google calendar updates silently)
+
+### Open product decisions still on defaults
+- Shared dashboard (vs per-host)
+- Round-robin fairness: LEAST_RECENTLY_ASSIGNED (configurable per team)
+- Poll vote visibility: visible to other invitees
+
+---
+
+## 0.52.0 — In-person + alternative location
+- IN_PERSON conferencing with required `defaultLocation`
+- Per-booking `alternativeLocation` override (host-only)
+- Calendar event location patched in place; invitee notification email
+- Help page expanded with full feature overview
+- Bookings: scope filter as dropdown (compact for many teams)
+- Payment pill on booking rows
+
+## 0.51.0 — Mobile bottom nav
+- Fixed bottom navigation bar (mobile only) with Home / Bookings / Personal / Teams / More
+- "More" bottom-sheet for the rest
+- Payments table → stacked cards on mobile
+- Old hamburger drawer removed
+
+## 0.50.0 — PWA
+- Installable web app (manifest, service worker, icons)
+- iOS + Android install support, full-screen launch
+- Mobile responsive polish
+
+## 0.49.0 — Pay by invoice
+- New PaymentMethod enum (STRIPE / INVOICE / ADYEN-soon)
+- Multi-step booking flow with billing-details step for invoice MTs
+- INVOICE_PENDING / INVOICE_SENT / PAID lifecycle
+- Mark-as-invoiced + Mark-as-paid admin actions
+
+## 0.48.0 — Admin retry + refund
+- /dashboard/payments admin page
+- Retry button: re-run finalize on bookings whose Zoom/Google failed
+- Refund button: full Stripe refund via Connect direct charge
+
+## 0.47.0 — Tabs UI on MT forms
+- 5 tabs (personal) / 6 tabs (project): Basics, Routing, Availability, Conferencing, Pricing, Intake
+- Tab error badges that auto-switch on save failure
+
+## 0.46.0 — Round-robin fairness per-team + Stripe + leftovers
+- `Project.roundRobinFairness` enum (LEAST_RECENTLY_ASSIGNED / LEAST_LOADED / STRICT_ROTATION / RANDOM)
+- Stripe payments per host (live + test)
+- Hide Group bookings card when not Single
+- "with X / X and Y / X or Y" formatting on public booking page
+
 ## 0.42.0 — public pages + home quick links
 - Public landing page at `/<host-slug>` listing all active personal MTs (cal.com-style directory).
 - Public landing page at `/<project-slug>` for team MTs.

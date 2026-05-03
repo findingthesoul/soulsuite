@@ -10,7 +10,10 @@ const bodySchema = z.object({
   name: z.string().trim().min(2).max(80),
   slug: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/),
   description: z.string().nullable().optional(),
-  conferencingProvider: z.enum(["GOOGLE_MEET", "ZOOM", "TEAMS", "NONE"]).default("GOOGLE_MEET"),
+  conferencingProvider: z
+    .enum(["GOOGLE_MEET", "ZOOM", "TEAMS", "IN_PERSON", "NONE"])
+    .default("GOOGLE_MEET"),
+  defaultLocation: z.string().trim().max(500).nullable().optional(),
   slots: z
     .array(
       z.object({
@@ -38,6 +41,11 @@ export async function POST(request: NextRequest) {
   }
   if (data.conferencingProvider === "TEAMS") {
     return new NextResponse("Microsoft Teams is not supported yet.", { status: 400 });
+  }
+  if (data.conferencingProvider === "IN_PERSON") {
+    if (!data.defaultLocation || data.defaultLocation.trim().length === 0) {
+      return new NextResponse("Enter a default location for in-person meetings.", { status: 400 });
+    }
   }
 
   // Validate every slot has end > start, and dedupe by (startsAt) — uniqueness is enforced at DB.
@@ -75,6 +83,10 @@ export async function POST(request: NextRequest) {
           routingMode: RoutingMode.SINGLE,
           assignedHostIds: [host.id],
           conferencingProvider: data.conferencingProvider,
+          defaultLocation:
+            data.conferencingProvider === "IN_PERSON"
+              ? data.defaultLocation?.trim() || null
+              : null,
           isOneOff: true,
         },
       });

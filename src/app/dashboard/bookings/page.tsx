@@ -9,6 +9,7 @@ import { WeekGrid } from "./week-grid";
 import { MonthGrid } from "./month-grid";
 import { PersistSearchParams } from "@/components/persist-search-params";
 import { PrefetchLink } from "@/components/prefetch-link";
+import { AltLocationButton } from "./alt-location-button";
 
 type RangeFilter = "upcoming" | "past" | "all";
 type ScopeFilter = "all" | "personal" | string; // string = project id
@@ -71,11 +72,17 @@ export default async function BookingsPage({
               },
       select: {
         id: true,
+        hostId: true,
         startsAt: true,
         endsAt: true,
         inviteeName: true,
         status: true,
-        meetingType: { select: { slug: true, name: true } },
+        alternativeLocation: true,
+        conferencingProvider: true,
+        meetUrl: true,
+        meetingType: {
+          select: { slug: true, name: true, defaultLocation: true },
+        },
         project: { select: { slug: true, name: true } },
       },
       orderBy: { startsAt: range === "past" && view === "list" ? "desc" : "asc" },
@@ -142,11 +149,19 @@ export default async function BookingsPage({
               {bookings.map((b) => {
                 const publicSlug = b.project ? b.project.slug : ctx.host.slug;
                 const href = `/${publicSlug}/${b.meetingType.slug}/confirmed/${b.id}`;
+                const isHostOwn = b.hostId === ctx.host.id;
+                const isUpcoming = b.startsAt.getTime() >= now.getTime();
+                const showAlt = isHostOwn && isUpcoming && b.status !== "CANCELLED";
+                // Hint shown in the dialog: the original (non-overridden) location source.
+                const altHint =
+                  b.conferencingProvider === "IN_PERSON"
+                    ? b.meetingType.defaultLocation
+                    : b.meetUrl;
                 return (
-                  <li key={b.id}>
+                  <li key={b.id} className="flex items-center gap-3 hover:bg-surface-muted transition-colors">
                     <PrefetchLink
                       href={href}
-                      className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-surface-muted transition-colors"
+                      className="flex items-center justify-between gap-4 px-4 py-3 flex-1 min-w-0"
                     >
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium text-foreground truncate">
@@ -163,6 +178,15 @@ export default async function BookingsPage({
                       </div>
                       <StatusPill status={b.status} />
                     </PrefetchLink>
+                    {showAlt && (
+                      <div className="pr-3">
+                        <AltLocationButton
+                          bookingId={b.id}
+                          initial={b.alternativeLocation}
+                          hint={altHint}
+                        />
+                      </div>
+                    )}
                   </li>
                 );
               })}

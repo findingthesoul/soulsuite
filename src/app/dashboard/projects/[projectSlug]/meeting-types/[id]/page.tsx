@@ -81,6 +81,7 @@ export default async function EditProjectMeetingTypePage({
             isActive: mt.isActive,
             conferencingProvider: mt.conferencingProvider,
             conferencingHostId: mt.conferencingHostId,
+            defaultLocation: mt.defaultLocation,
             maxInvitees: mt.maxInvitees,
             workingHoursOverride: mt.workingHoursOverride as never,
             priceCents: mt.priceCents,

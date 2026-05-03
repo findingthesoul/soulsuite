@@ -207,8 +207,16 @@ export default async function SupportPage() {
               <p>
                 Each meeting type picks one provider: <span className="text-foreground">Google Meet</span> (free, uses your
                 Google calendar), <span className="text-foreground">Zoom</span> (per-host OAuth at{" "}
-                <code>/settings/connections</code>), <span className="text-foreground">Microsoft Teams</span> (coming), or{" "}
-                <span className="text-foreground">None</span> (no link generated).
+                <code>/settings/connections</code>), <span className="text-foreground">Microsoft Teams</span> (coming),{" "}
+                <span className="text-foreground">In person</span> — sets a fixed location on the calendar event;
+                no online link generated, or <span className="text-foreground">None</span> (no link generated).
+              </p>
+              <p id="alternative-location" className="scroll-mt-8">
+                <span className="text-foreground font-medium">Alternative location:</span> any individual booking can
+                be given a per-booking location override from <code>/dashboard/bookings</code>. Useful when an
+                auto-generated Zoom didn&apos;t happen — paste a manual Zoom link there — or to change a venue
+                last-minute. The override applies to the calendar event and the public confirmed page; the invitee
+                gets a brief notification email. Setting it back to empty reverts to the provider-generated value.
               </p>
               <p>
                 For <span className="text-foreground">Collective</span> meeting types, you pick one host&apos;s account to

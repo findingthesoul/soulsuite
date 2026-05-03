@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { Calendar, CalendarPlus, Clock, Mail, Video, X, RefreshCw } from "lucide-react";
+import { Calendar, CalendarPlus, Clock, Mail, MapPin, Video, X, RefreshCw } from "lucide-react";
 import { Avatar } from "@/components/ui/avatar";
 import { buttonVariants } from "@/components/ui/button";
 import { resolvePublicBooking } from "@/lib/booking-public";
@@ -67,18 +67,53 @@ export default async function ConfirmedPage({
                 <Clock className="h-4 w-4" />
                 <span>{booking.meetingType.durationMinutes} minutes</span>
               </li>
-              {!isCancelled && booking.conferencingProvider !== "NONE" && (
-                <li className="flex items-center gap-2">
-                  <Video className="h-4 w-4" />
-                  {booking.meetUrl ? (
-                    <a href={booking.meetUrl} target="_blank" rel="noopener noreferrer" className="underline text-foreground">
-                      {providerLabel(booking.conferencingProvider)} — join link
-                    </a>
-                  ) : (
-                    <span>{providerLabel(booking.conferencingProvider)} — link in your calendar invite</span>
-                  )}
+              {!isCancelled && booking.alternativeLocation && (
+                <li className="flex items-start gap-2">
+                  <MapPin className="h-4 w-4 mt-0.5" />
+                  <span>
+                    <span className="block text-foreground font-medium">Location</span>
+                    <span className="block text-xs whitespace-pre-line">
+                      {booking.alternativeLocation}
+                    </span>
+                  </span>
                 </li>
               )}
+              {!isCancelled &&
+                !booking.alternativeLocation &&
+                booking.conferencingProvider === "IN_PERSON" && (
+                  <li className="flex items-start gap-2">
+                    <MapPin className="h-4 w-4 mt-0.5" />
+                    <span>
+                      <span className="block text-foreground font-medium">In person</span>
+                      {booking.meetingType.defaultLocation && (
+                        <span className="block text-xs whitespace-pre-line">
+                          {booking.meetingType.defaultLocation}
+                        </span>
+                      )}
+                    </span>
+                  </li>
+                )}
+              {!isCancelled &&
+                booking.conferencingProvider !== "NONE" &&
+                booking.conferencingProvider !== "IN_PERSON" && (
+                  <li className="flex items-center gap-2">
+                    <Video className="h-4 w-4" />
+                    {booking.meetUrl ? (
+                      <a
+                        href={booking.meetUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline text-foreground"
+                      >
+                        {providerLabel(booking.conferencingProvider)} — join link
+                      </a>
+                    ) : (
+                      <span>
+                        {providerLabel(booking.conferencingProvider)} — link in your calendar invite
+                      </span>
+                    )}
+                  </li>
+                )}
               <li className="flex items-center gap-2">
                 <Mail className="h-4 w-4" />
                 <span>{booking.inviteeEmail}</span>
@@ -108,10 +143,11 @@ export default async function ConfirmedPage({
   );
 }
 
-function providerLabel(p: "GOOGLE_MEET" | "ZOOM" | "TEAMS" | "NONE"): string {
+function providerLabel(p: "GOOGLE_MEET" | "ZOOM" | "TEAMS" | "IN_PERSON" | "NONE"): string {
   switch (p) {
     case "ZOOM": return "Zoom";
     case "TEAMS": return "Microsoft Teams";
+    case "IN_PERSON": return "In person";
     case "NONE": return "No conferencing";
     default: return "Google Meet";
   }

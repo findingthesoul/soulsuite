@@ -29,8 +29,11 @@ const bodySchema = z.object({
   assignedHostIds: z.array(z.string().min(1)).min(1),
   conflictCalendarIds: z.array(z.string().min(1)).default([]),
   intakeFields: intakeFieldsSchema.default([]),
-  conferencingProvider: z.enum(["GOOGLE_MEET", "ZOOM", "TEAMS", "NONE"]).default("GOOGLE_MEET"),
+  conferencingProvider: z
+    .enum(["GOOGLE_MEET", "ZOOM", "TEAMS", "IN_PERSON", "NONE"])
+    .default("GOOGLE_MEET"),
   conferencingHostId: z.string().min(1).nullable().optional(),
+  defaultLocation: z.string().trim().max(500).nullable().optional(),
   maxInvitees: z.number().int().min(1).max(50).default(1),
   workingHoursOverride: workingHoursSchema.nullable().optional(),
   priceCents: z.number().int().min(50).max(10_000_000).nullable().optional(),
@@ -105,6 +108,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   if (data.conferencingProvider === "TEAMS") {
     return new NextResponse("Microsoft Teams is not supported yet.", { status: 400 });
+  }
+  if (data.conferencingProvider === "IN_PERSON") {
+    if (!data.defaultLocation || data.defaultLocation.trim().length === 0) {
+      return new NextResponse("Enter a default location for in-person meetings.", { status: 400 });
+    }
   }
 
   // Resolve conferencing host. SINGLE: implicit (assignedHostIds[0]). COLLECTIVE: explicit pick
@@ -207,6 +215,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           conflictCalendarIds: data.conflictCalendarIds,
           conferencingProvider: data.conferencingProvider,
           conferencingHostId,
+          defaultLocation:
+            data.conferencingProvider === "IN_PERSON"
+              ? data.defaultLocation?.trim() || null
+              : null,
           maxInvitees: data.maxInvitees,
           workingHoursOverride: data.workingHoursOverride ?? Prisma.JsonNull,
           priceCents: isPaid ? data.priceCents! : null,

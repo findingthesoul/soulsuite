@@ -115,6 +115,7 @@ export default async function PublicBookingPage({
         description: meetingType.description,
         durationMinutes: meetingType.durationMinutes,
         conferencingProvider: meetingType.conferencingProvider,
+        defaultLocation: meetingType.defaultLocation,
         priceCents: meetingType.priceCents,
         priceCurrency: meetingType.priceCurrency,
         paymentMethod: meetingType.paymentMethod,

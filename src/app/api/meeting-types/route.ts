@@ -38,7 +38,12 @@ const bodySchema = z.object({
   conflictCalendarIds: z.array(z.string().min(1)).default([]),
   intakeFields: intakeFieldsSchema.default([]),
   isActive: z.boolean().optional(),
-  conferencingProvider: z.enum(["GOOGLE_MEET", "ZOOM", "TEAMS", "NONE"]).default("GOOGLE_MEET"),
+  conferencingProvider: z
+    .enum(["GOOGLE_MEET", "ZOOM", "TEAMS", "IN_PERSON", "NONE"])
+    .default("GOOGLE_MEET"),
+  // Required when conferencingProvider === "IN_PERSON". Hint shown on the booking page and
+  // written to the calendar event location field. Trimmed; max 500 chars.
+  defaultLocation: z.string().trim().max(500).nullable().optional(),
   maxInvitees: z.number().int().min(1).max(50).default(1),
   workingHoursOverride: workingHoursSchema.nullable().optional(),
   // Pricing — paid meeting types route through Stripe Checkout or invoice. Both fields null = free.
@@ -66,6 +71,11 @@ export async function POST(request: NextRequest) {
   }
   if (data.conferencingProvider === "TEAMS") {
     return new NextResponse("Microsoft Teams is not supported yet.", { status: 400 });
+  }
+  if (data.conferencingProvider === "IN_PERSON") {
+    if (!data.defaultLocation || data.defaultLocation.trim().length === 0) {
+      return new NextResponse("Enter a default location for in-person meetings.", { status: 400 });
+    }
   }
 
   // Pricing: paid MTs need a currency, plus per-rail validation (Stripe needs a connected
@@ -109,6 +119,12 @@ export async function POST(request: NextRequest) {
           maxAdvanceDays: data.maxAdvanceDays,
           conflictCalendarIds: data.conflictCalendarIds,
           conferencingProvider: data.conferencingProvider,
+          // Only persist defaultLocation when IN_PERSON is selected on create. (For PATCH we
+          // leave the column untouched when switching away — see /api/meeting-types/[id].)
+          defaultLocation:
+            data.conferencingProvider === "IN_PERSON"
+              ? data.defaultLocation?.trim() || null
+              : null,
           maxInvitees: data.maxInvitees,
           workingHoursOverride: data.workingHoursOverride ?? Prisma.JsonNull,
           priceCents: isPaid ? data.priceCents! : null,

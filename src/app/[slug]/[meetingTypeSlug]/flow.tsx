@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition, type Dispatch, type SetStateAction } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight, Clock, Globe, Video, CreditCard } from "lucide-react";
+import { ChevronLeft, ChevronRight, Clock, Globe, Video, CreditCard, MapPin } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,7 +29,8 @@ interface MeetingType {
   name: string;
   description: string | null;
   durationMinutes: number;
-  conferencingProvider: "GOOGLE_MEET" | "ZOOM" | "TEAMS" | "NONE";
+  conferencingProvider: "GOOGLE_MEET" | "ZOOM" | "TEAMS" | "IN_PERSON" | "NONE";
+  defaultLocation: string | null;
   priceCents: number | null;
   priceCurrency: string | null;
   paymentMethod: "STRIPE" | "INVOICE";
@@ -292,12 +293,24 @@ function EventPanel({
             </li>
           </>
         )}
-        {meetingType.conferencingProvider !== "NONE" && (
+        {meetingType.conferencingProvider === "IN_PERSON" ? (
+          <li className="flex items-start gap-2">
+            <MapPin className="h-4 w-4 shrink-0 mt-0.5" />
+            <span>
+              <span className="block text-foreground font-medium">In person</span>
+              {meetingType.defaultLocation && (
+                <span className="block text-xs text-muted-foreground whitespace-pre-line">
+                  {meetingType.defaultLocation}
+                </span>
+              )}
+            </span>
+          </li>
+        ) : meetingType.conferencingProvider !== "NONE" ? (
           <li className="flex items-center gap-2">
             <Video className="h-4 w-4 shrink-0" />
             <span>{providerLabel(meetingType.conferencingProvider)} — link in invite</span>
           </li>
-        )}
+        ) : null}
         <li className="flex items-center gap-2">
           <Globe className="h-4 w-4 shrink-0" />
           <span>{tz}</span>
@@ -1021,10 +1034,11 @@ function formatPriceClient(priceCents: number, currency: string): string {
   return `${symbol}${formatted}`;
 }
 
-function providerLabel(p: "GOOGLE_MEET" | "ZOOM" | "TEAMS" | "NONE"): string {
+function providerLabel(p: "GOOGLE_MEET" | "ZOOM" | "TEAMS" | "IN_PERSON" | "NONE"): string {
   switch (p) {
     case "ZOOM": return "Zoom";
     case "TEAMS": return "Microsoft Teams";
+    case "IN_PERSON": return "In person";
     case "NONE": return "No conferencing";
     default: return "Google Meet";
   }

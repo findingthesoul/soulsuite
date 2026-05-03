@@ -191,28 +191,40 @@ export default async function PaymentsPage({
             </div>
           </Card>
         ) : (
-          <Card>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="text-xs uppercase tracking-wide text-subtle-foreground">
-                  <tr className="border-b border-border">
-                    <th className="text-left font-medium px-4 py-2.5">Date</th>
-                    <th className="text-left font-medium px-4 py-2.5">Invitee</th>
-                    <th className="text-left font-medium px-4 py-2.5">Meeting type</th>
-                    <th className="text-left font-medium px-4 py-2.5">Amount</th>
-                    <th className="text-left font-medium px-4 py-2.5">Payment</th>
-                    <th className="text-left font-medium px-4 py-2.5">Booking</th>
-                    <th className="text-right font-medium px-4 py-2.5">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {rows.map((r) => (
-                    <PaymentRow key={r.id} row={r} />
-                  ))}
-                </tbody>
-              </table>
+          <>
+            {/* Desktop: dense table view. Hidden on mobile because seven columns
+                won't fit on a 375px screen without horizontal scroll, which the
+                PWA shouldn't have. */}
+            <Card className="hidden md:block">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="text-xs uppercase tracking-wide text-subtle-foreground">
+                    <tr className="border-b border-border">
+                      <th className="text-left font-medium px-4 py-2.5">Date</th>
+                      <th className="text-left font-medium px-4 py-2.5">Invitee</th>
+                      <th className="text-left font-medium px-4 py-2.5">Meeting type</th>
+                      <th className="text-left font-medium px-4 py-2.5">Amount</th>
+                      <th className="text-left font-medium px-4 py-2.5">Payment</th>
+                      <th className="text-left font-medium px-4 py-2.5">Booking</th>
+                      <th className="text-right font-medium px-4 py-2.5">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {rows.map((r) => (
+                      <PaymentRow key={r.id} row={r} />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+
+            {/* Mobile: stacked cards, same data, vertical layout. */}
+            <div className="md:hidden space-y-2">
+              {rows.map((r) => (
+                <PaymentRow key={r.id} row={r} variant="card" />
+              ))}
             </div>
-          </Card>
+          </>
         )}
       </div>
     </AppShell>

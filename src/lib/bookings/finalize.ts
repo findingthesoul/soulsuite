@@ -79,6 +79,10 @@ export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResul
   const startsAt = booking.startsAt;
   const endsAt = booking.endsAt;
 
+  // ── In-person: skip Zoom + Meet conference creation; the calendar event's `location` is
+  // set to the meeting type's defaultLocation. The Booking row gets meetUrl=null.
+  const isInPerson = meetingType.conferencingProvider === "IN_PERSON";
+
   // ── Zoom ──
   let zoomMeeting: { meetingId: string; joinUrl: string; passcode: string | null } | null = null;
   if (meetingType.conferencingProvider === "ZOOM") {
@@ -152,11 +156,21 @@ export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResul
       `Booked via Soul Suite.\n` +
       `Invitee: ${booking.inviteeName} <${booking.inviteeEmail}>\n` +
       (meetingType.description ? `\n${meetingType.description}\n` : "") +
+      (isInPerson && meetingType.defaultLocation
+        ? `\nLocation: ${meetingType.defaultLocation}\n`
+        : "") +
       (zoomMeeting
         ? `\nJoin Zoom: ${zoomMeeting.joinUrl}` +
           (zoomMeeting.passcode ? `\nPasscode: ${zoomMeeting.passcode}` : "") +
           "\n"
         : "");
+    // location field: alternativeLocation override wins. Otherwise: in-person → defaultLocation,
+    // remote → the meet/zoom join URL.
+    const eventLocation: string | undefined =
+      booking.alternativeLocation ??
+      (isInPerson
+        ? meetingType.defaultLocation ?? undefined
+        : bookingMeetUrl ?? undefined);
     const ev = await cal.events.insert({
       calendarId: writeTarget.googleCalendarId,
       conferenceDataVersion: useGoogleMeet ? 1 : 0,
@@ -167,7 +181,7 @@ export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResul
       requestBody: {
         summary: `${meetingType.name} — ${booking.inviteeName}`,
         description,
-        location: bookingMeetUrl ?? undefined,
+        location: eventLocation,
         start: { dateTime: startsAt.toISOString(), timeZone: "UTC" },
         end: { dateTime: endsAt.toISOString(), timeZone: "UTC" },
         attendees: [
@@ -256,6 +270,11 @@ export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResul
       `/${slugForUrl}/${meetingType.slug}/confirmed/${booking.id}/reschedule`,
     ),
     meetUrl: bookingMeetUrl,
+    // Prefer the per-booking alternativeLocation if a host already set one (e.g. on retry of
+    // a previously-failed finalize). Otherwise fall back to the MT's defaultLocation for IN_PERSON.
+    location:
+      booking.alternativeLocation ??
+      (isInPerson ? meetingType.defaultLocation ?? null : null),
     icalUrl: appUrl(`/${slugForUrl}/${meetingType.slug}/confirmed/${booking.id}/calendar.ics`),
     logoUrl,
     invoice: invoiceDetails

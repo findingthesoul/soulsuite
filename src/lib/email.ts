@@ -79,6 +79,10 @@ interface BookingTemplateInput {
   cancelUrl: string;
   rescheduleUrl: string;
   meetUrl?: string | null;
+  // Physical location string. When set this is rendered in place of the meet/zoom join section
+  // (e.g. for IN_PERSON meetings) or alongside it (when an alternativeLocation override added a
+  // venue to a Zoom booking — both lines are useful then).
+  location?: string | null;
   // Public URL serving an .ics file for this booking. Linked from the email so invitees on
   // Apple/Outlook/etc. can add the meeting to their calendar in one click.
   icalUrl?: string | null;
@@ -141,6 +145,7 @@ export function bookingConfirmationTemplate(b: BookingTemplateInput): { html: st
     <table style="border-collapse:collapse;margin:16px 0;font-size:14px">
       <tr><td style="padding:4px 0;color:#57534e">When</td><td style="padding:4px 0 4px 24px">${escapeHtml(when)}</td></tr>
       <tr><td style="padding:4px 0;color:#57534e">What</td><td style="padding:4px 0 4px 24px">${escapeHtml(b.meetingTypeName)}</td></tr>
+      ${b.location ? `<tr><td style="padding:4px 0;color:#57534e">Location</td><td style="padding:4px 0 4px 24px">${escapeHtml(b.location)}</td></tr>` : ""}
       ${b.meetUrl ? `<tr><td style="padding:4px 0;color:#57534e">Join</td><td style="padding:4px 0 4px 24px"><a href="${escapeAttr(b.meetUrl)}">${escapeHtml(b.meetUrl)}</a></td></tr>` : ""}
     </table>
     ${invoiceBlockHtml}
@@ -155,6 +160,7 @@ export function bookingConfirmationTemplate(b: BookingTemplateInput): { html: st
   const text =
     `You're booked: ${b.meetingTypeName} with ${b.hostName}\n\n` +
     `When: ${when}\n` +
+    (b.location ? `Location: ${b.location}\n` : "") +
     (b.meetUrl ? `Join: ${b.meetUrl}\n` : "") +
     (b.invoice
       ? `\nPayment: An invoice will be sent to ${b.invoice.billingEmail} at ${b.invoice.companyName}.${
@@ -200,6 +206,35 @@ export function bookingRescheduleTemplate(b: BookingTemplateInput): { html: stri
     (b.meetUrl ? `Join: ${b.meetUrl}\n` : "") +
     (b.icalUrl ? `Add to calendar: ${b.icalUrl}\n` : "") +
     `\nReschedule again: ${b.rescheduleUrl}\nCancel: ${b.cancelUrl}\n`;
+  return { html, text, subject };
+}
+
+// Brief notification email when the host changes a booking's alternative location.
+// Replies route to the host so the invitee can hit reply with questions.
+export function bookingLocationUpdateTemplate(args: {
+  hostName: string;
+  meetingTypeName: string;
+  startsAtIso: string;
+  endsAtIso: string;
+  inviteeName: string;
+  newLocation: string;
+  meetUrl?: string | null;
+  logoUrl?: string | null;
+}): { html: string; text: string; subject: string } {
+  const when = formatDateRange(args.startsAtIso, args.endsAtIso);
+  const subject = `Location updated: ${args.meetingTypeName} — ${when}`;
+  const html = brandFrame(
+    "Location updated",
+    `<p>Hi ${escapeHtml(args.inviteeName)},</p>
+    <p>The location for your meeting with <strong>${escapeHtml(args.hostName)}</strong> on <strong>${escapeHtml(when)}</strong> has changed:</p>
+    <p style="margin:16px 0;padding:12px 14px;border:1px solid #e7e5e4;border-radius:8px;background:#fafaf9"><strong>${escapeHtml(args.newLocation)}</strong></p>
+    ${args.meetUrl ? `<p style="font-size:13px;color:#57534e">Your existing join link still works: <a href="${escapeAttr(args.meetUrl)}">${escapeHtml(args.meetUrl)}</a></p>` : ""}`,
+    args.logoUrl,
+  );
+  const text =
+    `Location updated for ${args.meetingTypeName} with ${args.hostName} (${when}):\n` +
+    `${args.newLocation}\n` +
+    (args.meetUrl ? `\nJoin link still works: ${args.meetUrl}\n` : "");
   return { html, text, subject };
 }
 

@@ -41,6 +41,7 @@ interface Initial {
   intakeFields: IntakeField[];
   isActive: boolean;
   conferencingProvider: ConferencingProvider;
+  defaultLocation: string | null;
   maxInvitees: number;
   workingHoursOverride: Schedule | null;
   priceCents: number | null;
@@ -55,7 +56,7 @@ export type PaymentMethod = "STRIPE" | "INVOICE" | "ADYEN";
 
 const SUPPORTED_CURRENCIES = ["eur", "usd", "gbp"] as const;
 
-export type ConferencingProvider = "GOOGLE_MEET" | "ZOOM" | "TEAMS" | "NONE";
+export type ConferencingProvider = "GOOGLE_MEET" | "ZOOM" | "TEAMS" | "IN_PERSON" | "NONE";
 
 export interface HostCalendar {
   id: string;
@@ -88,6 +89,7 @@ interface DraftValues {
   intakeFields: IntakeField[];
   isActive: boolean;
   conferencingProvider: ConferencingProvider;
+  defaultLocation: string;
   maxInvitees: number;
   workingHoursOverride: Schedule | null;
   // Pricing — paid is "on" when priceMajor (string for input control) > 0. We keep the raw
@@ -111,6 +113,7 @@ const DRAFT_DEFAULT: DraftValues = {
   intakeFields: [],
   isActive: true,
   conferencingProvider: "GOOGLE_MEET",
+  defaultLocation: "",
   maxInvitees: 1,
   workingHoursOverride: null,
   isPaid: false,
@@ -134,6 +137,7 @@ function initialToDraft(initial: Initial): DraftValues {
     intakeFields: initial.intakeFields,
     isActive: initial.isActive,
     conferencingProvider: initial.conferencingProvider,
+    defaultLocation: initial.defaultLocation ?? "",
     maxInvitees: initial.maxInvitees,
     workingHoursOverride: initial.workingHoursOverride,
     isPaid,
@@ -233,6 +237,19 @@ function validatePersonalDraft(
       tabKey: "conferencing",
       message: "Connect Zoom in Settings → Connections before picking it.",
     });
+  }
+  if (draft.conferencingProvider === "IN_PERSON") {
+    if (draft.defaultLocation.trim().length === 0) {
+      errors.push({
+        tabKey: "conferencing",
+        message: "Enter a default location for in-person meetings.",
+      });
+    } else if (draft.defaultLocation.length > 500) {
+      errors.push({
+        tabKey: "conferencing",
+        message: "Default location is too long (max 500 characters).",
+      });
+    }
   }
   const pricingErr = validatePricing(draft, hostHasStripe);
   if (pricingErr) {
@@ -358,6 +375,10 @@ function EditMeetingTypeForm({
           intakeFields: draft.intakeFields,
           isActive: draft.isActive,
           conferencingProvider: draft.conferencingProvider,
+          defaultLocation:
+            draft.conferencingProvider === "IN_PERSON"
+              ? draft.defaultLocation.trim()
+              : null,
           maxInvitees: draft.maxInvitees,
           workingHoursOverride: overridePayload,
           priceCents: pricing.priceCents,
@@ -609,6 +630,9 @@ function CreateMeetingTypeForm({
     if (draft.conferencingProvider === "ZOOM" && !hostHasZoom) {
       return setError("Connect Zoom in Settings → Connections before picking it.");
     }
+    if (draft.conferencingProvider === "IN_PERSON" && draft.defaultLocation.trim().length === 0) {
+      return setError("Enter a default location for in-person meetings.");
+    }
     if (!Number.isInteger(draft.maxInvitees) || draft.maxInvitees < 1 || draft.maxInvitees > 50) {
       return setError("Max invitees must be a whole number between 1 and 50.");
     }
@@ -634,6 +658,10 @@ function CreateMeetingTypeForm({
           intakeFields: draft.intakeFields,
           isActive: draft.isActive,
           conferencingProvider: draft.conferencingProvider,
+          defaultLocation:
+            draft.conferencingProvider === "IN_PERSON"
+              ? draft.defaultLocation.trim()
+              : null,
           maxInvitees: draft.maxInvitees,
           workingHoursOverride: overridePayload,
           priceCents: pricing.priceCents,
@@ -1064,22 +1092,40 @@ function ConferencingEditor({
   hostHasZoom: boolean;
 }) {
   return (
-    <div className="space-y-2">
-      <Label htmlFor="conferencingProvider">Provider</Label>
-      <Select
-        id="conferencingProvider"
-        value={draft.conferencingProvider}
-        onChange={(e) => update("conferencingProvider", e.target.value as ConferencingProvider)}
-      >
-        <option value="GOOGLE_MEET">Google Meet</option>
-        <option value="ZOOM" disabled={!hostHasZoom}>
-          Zoom{hostHasZoom ? "" : " — connect in Settings → Connections first"}
-        </option>
-        <option value="TEAMS" disabled>
-          Microsoft Teams — coming later
-        </option>
-        <option value="NONE">None (no conferencing link)</option>
-      </Select>
+    <div className="space-y-3">
+      <div className="space-y-2">
+        <Label htmlFor="conferencingProvider">Provider</Label>
+        <Select
+          id="conferencingProvider"
+          value={draft.conferencingProvider}
+          onChange={(e) => update("conferencingProvider", e.target.value as ConferencingProvider)}
+        >
+          <option value="GOOGLE_MEET">Google Meet</option>
+          <option value="ZOOM" disabled={!hostHasZoom}>
+            Zoom{hostHasZoom ? "" : " — connect in Settings → Connections first"}
+          </option>
+          <option value="TEAMS" disabled>
+            Microsoft Teams — coming later
+          </option>
+          <option value="IN_PERSON">In person</option>
+          <option value="NONE">None (no conferencing link)</option>
+        </Select>
+      </div>
+      {draft.conferencingProvider === "IN_PERSON" && (
+        <div className="space-y-1.5">
+          <Label htmlFor="defaultLocation">Default location</Label>
+          <Input
+            id="defaultLocation"
+            value={draft.defaultLocation}
+            onChange={(e) => update("defaultLocation", e.target.value)}
+            placeholder="e.g. Soul Studio, Herengracht 1, Amsterdam — entrance via the canal side"
+            maxLength={500}
+          />
+          <p className="text-xs text-muted-foreground">
+            Shown on the booking page and added to the calendar event. No online link is generated.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

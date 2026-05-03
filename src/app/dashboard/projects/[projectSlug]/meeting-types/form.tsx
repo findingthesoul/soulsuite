@@ -28,7 +28,7 @@ import {
 
 import { PaymentMethodPicker, type PaymentMethod } from "@/app/dashboard/meeting-types/form";
 
-type ConferencingProvider = "GOOGLE_MEET" | "ZOOM" | "TEAMS" | "NONE";
+type ConferencingProvider = "GOOGLE_MEET" | "ZOOM" | "TEAMS" | "IN_PERSON" | "NONE";
 type RoutingMode = "SINGLE" | "ROUND_ROBIN" | "COLLECTIVE";
 
 interface ProjectMember {
@@ -60,6 +60,7 @@ interface Initial {
   isActive: boolean;
   conferencingProvider: ConferencingProvider;
   conferencingHostId: string | null;
+  defaultLocation: string | null;
   maxInvitees: number;
   workingHoursOverride: Schedule | null;
   priceCents: number | null;
@@ -95,6 +96,7 @@ interface DraftValues {
   isActive: boolean;
   conferencingProvider: ConferencingProvider;
   conferencingHostId: string | null;
+  defaultLocation: string;
   maxInvitees: number;
   workingHoursOverride: Schedule | null;
   isPaid: boolean;
@@ -127,6 +129,7 @@ function initialToDraft(initial: Initial): DraftValues {
       (initial.routingMode === "COLLECTIVE" && initial.conferencingProvider !== "NONE"
         ? initial.assignedHostIds[0] ?? null
         : null),
+    defaultLocation: initial.defaultLocation ?? "",
     maxInvitees: initial.maxInvitees,
     workingHoursOverride: initial.workingHoursOverride,
     isPaid,
@@ -298,6 +301,10 @@ function EditProjectMeetingTypeForm({
           isActive: draft.isActive,
           conferencingProvider: draft.conferencingProvider,
           conferencingHostId: draft.routingMode === "COLLECTIVE" ? draft.conferencingHostId : null,
+          defaultLocation:
+            draft.conferencingProvider === "IN_PERSON"
+              ? draft.defaultLocation.trim()
+              : null,
           maxInvitees: draft.maxInvitees,
           workingHoursOverride: overridePayload,
           priceCents: pricing.priceCents,
@@ -565,6 +572,7 @@ function CreateProjectMeetingTypeForm({
     isActive: true,
     conferencingProvider: "GOOGLE_MEET",
     conferencingHostId: null,
+    defaultLocation: "",
     maxInvitees: 1,
     workingHoursOverride: null,
     isPaid: false,
@@ -673,6 +681,10 @@ function CreateProjectMeetingTypeForm({
           isActive: draft.isActive,
           conferencingProvider: draft.conferencingProvider,
           conferencingHostId: draft.routingMode === "COLLECTIVE" ? draft.conferencingHostId : null,
+          defaultLocation:
+            draft.conferencingProvider === "IN_PERSON"
+              ? draft.defaultLocation.trim()
+              : null,
           maxInvitees: draft.maxInvitees,
           workingHoursOverride: overridePayload,
           priceCents: pricing.priceCents,
@@ -928,6 +940,19 @@ function validateProjectDraft(
       message: "Group meetings (max invitees > 1) only work with single-host routing.",
     });
   }
+  if (draft.conferencingProvider === "IN_PERSON") {
+    if (draft.defaultLocation.trim().length === 0) {
+      errors.push({
+        tabKey: "conferencing",
+        message: "Enter a default location for in-person meetings.",
+      });
+    } else if (draft.defaultLocation.length > 500) {
+      errors.push({
+        tabKey: "conferencing",
+        message: "Default location is too long (max 500 characters).",
+      });
+    }
+  }
   if (draft.conferencingProvider === "ZOOM") {
     if (draft.routingMode === "COLLECTIVE") {
       const confId = draft.conferencingHostId;
@@ -962,6 +987,7 @@ function validateProjectDraft(
   if (
     draft.routingMode === "COLLECTIVE" &&
     draft.conferencingProvider !== "NONE" &&
+    draft.conferencingProvider !== "IN_PERSON" &&
     !draft.conferencingHostId
   ) {
     errors.push({
@@ -1062,9 +1088,13 @@ function validateDraft(draft: DraftValues, members: ProjectMember[]): string | n
   if (
     draft.routingMode === "COLLECTIVE" &&
     draft.conferencingProvider !== "NONE" &&
+    draft.conferencingProvider !== "IN_PERSON" &&
     !draft.conferencingHostId
   ) {
     return "Pick a conferencing host from the assigned hosts.";
+  }
+  if (draft.conferencingProvider === "IN_PERSON" && draft.defaultLocation.trim().length === 0) {
+    return "Enter a default location for in-person meetings.";
   }
 
   // Pricing — every host that could be the booking host needs Stripe connected:
@@ -1659,7 +1689,13 @@ function ProjectConferencingEditor({
 }) {
   const assigned = draft.assignedHostIds.map((id) => members.find((m) => m.hostId === id)).filter(Boolean) as ProjectMember[];
   const isCollective = draft.routingMode === "COLLECTIVE";
-  const showPicker = isCollective && draft.conferencingProvider !== "NONE" && !hideHostPicker;
+  // IN_PERSON makes the conferencing host irrelevant — no online meeting is created so there's
+  // no host account to pick. Hide the picker for IN_PERSON the same way we do for NONE.
+  const showPicker =
+    isCollective &&
+    draft.conferencingProvider !== "NONE" &&
+    draft.conferencingProvider !== "IN_PERSON" &&
+    !hideHostPicker;
   // For COLLECTIVE only the conferencing host needs Zoom; otherwise every assigned host does.
   const confHost = isCollective
     ? assigned.find((m) => m.hostId === draft.conferencingHostId)
@@ -1698,9 +1734,27 @@ function ProjectConferencingEditor({
           <option value="TEAMS" disabled>
             Microsoft Teams — coming later
           </option>
+          <option value="IN_PERSON">In person</option>
           <option value="NONE">None (no conferencing link)</option>
         </Select>
       </div>
+
+      {draft.conferencingProvider === "IN_PERSON" && (
+        <div className="space-y-1.5">
+          <Label htmlFor="projectDefaultLocation">Default location</Label>
+          <Input
+            id="projectDefaultLocation"
+            value={draft.defaultLocation}
+            onChange={(e) => update("defaultLocation", e.target.value)}
+            placeholder="e.g. Soul Studio, Herengracht 1, Amsterdam — entrance via the canal side"
+            maxLength={500}
+          />
+          <p className="text-xs text-muted-foreground">
+            Shown on the booking page and added to the calendar event. No online link is generated.
+            All assigned hosts attend at this location.
+          </p>
+        </div>
+      )}
 
       {showPicker && (
         <div className="space-y-1.5">

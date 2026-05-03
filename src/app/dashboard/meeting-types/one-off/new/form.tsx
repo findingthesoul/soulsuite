@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 
-type ConferencingProvider = "GOOGLE_MEET" | "ZOOM" | "TEAMS" | "NONE";
+type ConferencingProvider = "GOOGLE_MEET" | "ZOOM" | "TEAMS" | "IN_PERSON" | "NONE";
 
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
 
@@ -42,6 +42,7 @@ export function OneOffMeetingTypeForm({
   const [slugTouched, setSlugTouched] = useState(false);
   const [description, setDescription] = useState("");
   const [conferencingProvider, setConferencingProvider] = useState<ConferencingProvider>("GOOGLE_MEET");
+  const [defaultLocation, setDefaultLocation] = useState("");
   const [slots, setSlots] = useState<SlotDraft[]>([{ start: "", end: "" }]);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -70,6 +71,9 @@ export function OneOffMeetingTypeForm({
     if (conferencingProvider === "ZOOM" && !hostHasZoom) {
       return setError("Connect Zoom in Settings → Connections before picking it.");
     }
+    if (conferencingProvider === "IN_PERSON" && defaultLocation.trim().length === 0) {
+      return setError("Enter a default location for in-person meetings.");
+    }
     if (slots.length < 1) return setError("Add at least one slot.");
 
     const toSend: { startsAt: string; endsAt: string }[] = [];
@@ -94,6 +98,8 @@ export function OneOffMeetingTypeForm({
           slug,
           description: description.trim() || null,
           conferencingProvider,
+          defaultLocation:
+            conferencingProvider === "IN_PERSON" ? defaultLocation.trim() : null,
           slots: toSend,
         }),
       });
@@ -171,8 +177,24 @@ export function OneOffMeetingTypeForm({
             <option value="TEAMS" disabled>
               Microsoft Teams — coming later
             </option>
+            <option value="IN_PERSON">In person</option>
             <option value="NONE">None (no conferencing link)</option>
           </Select>
+          {conferencingProvider === "IN_PERSON" && (
+            <div className="space-y-1.5 pt-2">
+              <Label htmlFor="defaultLocation">Default location</Label>
+              <Input
+                id="defaultLocation"
+                value={defaultLocation}
+                onChange={(e) => setDefaultLocation(e.target.value)}
+                placeholder="e.g. Soul Studio, Herengracht 1, Amsterdam — entrance via the canal side"
+                maxLength={500}
+              />
+              <p className="text-xs text-muted-foreground">
+                Shown on the booking page and added to the calendar event. No online link is generated.
+              </p>
+            </div>
+          )}
         </CardContent>
       </Card>
 

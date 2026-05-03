@@ -221,6 +221,7 @@ enum ConferencingProvider {
   GOOGLE_MEET
   ZOOM
   TEAMS
+  IN_PERSON
   NONE
 }
 
@@ -269,6 +270,11 @@ model MeetingType {
   // Which conferencing system to attach to the booking. GOOGLE_MEET is the legacy default;
   // ZOOM/TEAMS require the host to have connected the corresponding provider in /settings/connections.
   conferencingProvider  ConferencingProvider @default(GOOGLE_MEET)
+  // For IN_PERSON conferencing: the address/room/hint shown on the booking page and written to
+  // the Google calendar event's `location` field. Required when conferencingProvider=IN_PERSON.
+  // Other providers ignore this field; the value is preserved on switch-away (no destructive
+  // clear) so flipping back to IN_PERSON keeps the previous location.
+  defaultLocation       String?
   // For COLLECTIVE routing: which assigned host's account creates the conferencing meeting (Zoom
   // meeting / Google Meet event owner). Other assigned hosts are added as alternative hosts (Zoom)
   // or attendees (Google Meet). Null for SINGLE / ROUND_ROBIN — those modes derive the host from
@@ -380,6 +386,11 @@ model Booking {
   // Provider-specific meeting id (Zoom meeting id, Teams onlineMeeting id). Null for GOOGLE_MEET
   // since the link lives on the Google event itself and is recreated by Google.
   providerMeetingId    String?
+  // Host-editable per-booking location override. When set, it wins over whatever the
+  // conferencing provider produced — written to the Google event's `location` field and shown
+  // on the public confirmed page. Useful when an auto-Zoom failed (paste a manual link) or to
+  // change a venue last-minute. Setting back to null reverts to the provider-generated value.
+  alternativeLocation  String?
   // Idempotency key for Google event creation (brief §Idempotency).
   requestId            String               @unique
   status               BookingStatus        @default(CONFIRMED)

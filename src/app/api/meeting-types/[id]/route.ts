@@ -38,7 +38,8 @@ const patchSchema = z.object({
   conflictCalendarIds: z.array(z.string().min(1)).default([]),
   intakeFields: intakeFieldsSchema.default([]),
   isActive: z.boolean(),
-  conferencingProvider: z.enum(["GOOGLE_MEET", "ZOOM", "TEAMS", "NONE"]),
+  conferencingProvider: z.enum(["GOOGLE_MEET", "ZOOM", "TEAMS", "IN_PERSON", "NONE"]),
+  defaultLocation: z.string().trim().max(500).nullable().optional(),
   maxInvitees: z.number().int().min(1).max(50).default(1),
   workingHoursOverride: workingHoursSchema.nullable().optional(),
   priceCents: z.number().int().min(50).max(10_000_000).nullable().optional(),
@@ -72,6 +73,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
   if (parsed.data.conferencingProvider === "TEAMS") {
     return new NextResponse("Microsoft Teams is not supported yet.", { status: 400 });
+  }
+  if (parsed.data.conferencingProvider === "IN_PERSON") {
+    const loc = (parsed.data.defaultLocation ?? existing.defaultLocation ?? "").trim();
+    if (loc.length === 0) {
+      return new NextResponse("Enter a default location for in-person meetings.", { status: 400 });
+    }
   }
 
   const isPaid = (parsed.data.priceCents ?? 0) > 0;
@@ -112,6 +119,16 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
           conflictCalendarIds: parsed.data.conflictCalendarIds,
           isActive: parsed.data.isActive,
           conferencingProvider: parsed.data.conferencingProvider,
+          // Only update defaultLocation when IN_PERSON is selected; otherwise leave the existing
+          // column value alone so a host who flips IN_PERSON → Zoom keeps the previous address.
+          ...(parsed.data.conferencingProvider === "IN_PERSON"
+            ? {
+                defaultLocation:
+                  parsed.data.defaultLocation?.trim() ||
+                  existing.defaultLocation ||
+                  null,
+              }
+            : {}),
           maxInvitees: parsed.data.maxInvitees,
           workingHoursOverride: parsed.data.workingHoursOverride ?? Prisma.JsonNull,
           priceCents: isPaid ? parsed.data.priceCents! : null,

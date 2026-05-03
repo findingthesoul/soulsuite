@@ -29,8 +29,9 @@ const patchSchema = z.object({
   conflictCalendarIds: z.array(z.string().min(1)).default([]),
   intakeFields: intakeFieldsSchema.default([]),
   isActive: z.boolean(),
-  conferencingProvider: z.enum(["GOOGLE_MEET", "ZOOM", "TEAMS", "NONE"]),
+  conferencingProvider: z.enum(["GOOGLE_MEET", "ZOOM", "TEAMS", "IN_PERSON", "NONE"]),
   conferencingHostId: z.string().min(1).nullable().optional(),
+  defaultLocation: z.string().trim().max(500).nullable().optional(),
   maxInvitees: z.number().int().min(1).max(50).default(1),
   workingHoursOverride: workingHoursSchema.nullable().optional(),
   priceCents: z.number().int().min(50).max(10_000_000).nullable().optional(),
@@ -112,6 +113,12 @@ export async function PATCH(
 
   if (data.conferencingProvider === "TEAMS") {
     return new NextResponse("Microsoft Teams is not supported yet.", { status: 400 });
+  }
+  if (data.conferencingProvider === "IN_PERSON") {
+    const loc = (data.defaultLocation ?? auth.mt.defaultLocation ?? "").trim();
+    if (loc.length === 0) {
+      return new NextResponse("Enter a default location for in-person meetings.", { status: 400 });
+    }
   }
 
   let conferencingHostId: string | null = null;
@@ -202,6 +209,12 @@ export async function PATCH(
           isActive: data.isActive,
           conferencingProvider: data.conferencingProvider,
           conferencingHostId,
+          ...(data.conferencingProvider === "IN_PERSON"
+            ? {
+                defaultLocation:
+                  data.defaultLocation?.trim() || auth.mt.defaultLocation || null,
+              }
+            : {}),
           maxInvitees: data.maxInvitees,
           workingHoursOverride: data.workingHoursOverride ?? Prisma.JsonNull,
           priceCents: isPaid ? data.priceCents! : null,

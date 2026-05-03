@@ -111,6 +111,10 @@ model Host {
   location           String?
   bio                String?
   photoUrl           String?
+  // Persistent personal meeting URL — host's Zoom Personal Meeting Room, Google Meet permanent
+  // room, Whereby room, etc. Used by meeting types with conferencingProvider=PERSONAL_ROOM:
+  // every booking simply hands this URL to the invitee instead of generating a fresh meeting.
+  personalRoomUrl    String?
   createdAt          DateTime  @default(now())
 
   calendars            Calendar[]
@@ -222,6 +226,7 @@ enum ConferencingProvider {
   ZOOM
   TEAMS
   IN_PERSON
+  PERSONAL_ROOM
   NONE
 }
 

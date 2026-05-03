@@ -16,6 +16,10 @@ interface Initial {
   location: string | null;
   bio: string | null;
   photoUrl: string | null;
+  personalRoomUrl: string | null;
+  // Number of meeting types currently using PERSONAL_ROOM, so we can warn the host before they
+  // clear their stored URL (which would break new bookings on those MTs at finalize time).
+  personalRoomMtCount: number;
 }
 
 interface Draft {
@@ -24,6 +28,7 @@ interface Draft {
   location: string;
   bio: string;
   photoUrl: string;
+  personalRoomUrl: string;
 }
 
 export function ProfileForm({ initial }: { initial: Initial }) {
@@ -34,6 +39,7 @@ export function ProfileForm({ initial }: { initial: Initial }) {
     location: initial.location ?? "",
     bio: initial.bio ?? "",
     photoUrl: initial.photoUrl ?? "",
+    personalRoomUrl: initial.personalRoomUrl ?? "",
   });
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -45,6 +51,27 @@ export function ProfileForm({ initial }: { initial: Initial }) {
     if (draft.photoUrl.trim() && !draft.photoUrl.startsWith("https://")) {
       return setError("Photo URL must start with https://");
     }
+    if (draft.personalRoomUrl.trim() && !draft.personalRoomUrl.trim().startsWith("https://")) {
+      return setError("Personal room URL must start with https://");
+    }
+    if (draft.personalRoomUrl.length > 300) {
+      return setError("Personal room URL is too long (max 300 characters).");
+    }
+    // Warn-on-clear: clearing the URL while MTs use PERSONAL_ROOM doesn't auto-rewire those MTs
+    // (we let new bookings fail loudly at finalize rather than silently swap providers). Confirm
+    // so the host realises the impact.
+    const clearingPersonalRoom =
+      (initial.personalRoomUrl ?? "").length > 0 && draft.personalRoomUrl.trim().length === 0;
+    if (clearingPersonalRoom && initial.personalRoomMtCount > 0) {
+      const ok = confirm(
+        `${initial.personalRoomMtCount} of your meeting type${
+          initial.personalRoomMtCount === 1 ? "" : "s"
+        } use your personal room. Clearing this URL will break new bookings on ${
+          initial.personalRoomMtCount === 1 ? "that one" : "those"
+        } until you set it again or switch them to a different provider. Continue?`,
+      );
+      if (!ok) return;
+    }
     startTransition(async () => {
       const next: Draft = {
         name: draft.name.trim(),
@@ -52,6 +79,7 @@ export function ProfileForm({ initial }: { initial: Initial }) {
         location: draft.location.trim(),
         bio: draft.bio.trim(),
         photoUrl: draft.photoUrl.trim(),
+        personalRoomUrl: draft.personalRoomUrl.trim(),
       };
       const res = await fetch("/api/settings/profile", {
         method: "POST",
@@ -62,6 +90,7 @@ export function ProfileForm({ initial }: { initial: Initial }) {
           location: next.location || null,
           bio: next.bio || null,
           photoUrl: next.photoUrl || null,
+          personalRoomUrl: next.personalRoomUrl || null,
         }),
       });
       if (!res.ok) {
@@ -133,6 +162,21 @@ export function ProfileForm({ initial }: { initial: Initial }) {
               onChange={(e) => update({ photoUrl: e.target.value })}
               placeholder="https://..."
             />
+          </Field>
+          <Field id="personalRoomUrl" label="Personal digital room URL">
+            <Input
+              id="personalRoomUrl"
+              type="url"
+              value={draft.personalRoomUrl}
+              onChange={(e) => update({ personalRoomUrl: e.target.value })}
+              placeholder="https://soul.zoom.us/my/yourname"
+              maxLength={300}
+            />
+            <p className="text-xs text-muted-foreground">
+              Your persistent meeting URL — Zoom Personal Meeting Room, Google Meet permanent
+              room, Whereby room, etc. Meeting types set to <span className="text-foreground">Personal room</span> hand
+              this link to invitees with no per-booking provider call.
+            </p>
           </Field>
           {error && <p className="text-sm text-destructive">{error}</p>}
         </CardContent>

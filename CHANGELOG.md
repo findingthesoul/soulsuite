@@ -2,6 +2,12 @@
 
 Notable shipped changes per version. Newest first. The version on `main` matches `package.json` at the time of merge.
 
+## 0.53.0 — personal room conferencing
+- New `PERSONAL_ROOM` provider for meeting types: hand the host's stored persistent meeting URL (Zoom PMI, Google Meet permanent room, Whereby, etc.) to the invitee — no per-booking provider API call.
+- `Host.personalRoomUrl` editable on `/settings/profile`. Profile-save warns before clearing the URL when active MTs depend on it.
+- Personal MT: provider option enabled only when the host has set their URL. Project MT: COLLECTIVE checks the conferencing host; SINGLE/ROUND_ROBIN every assigned host.
+- Booking finalisation skips Zoom entirely for personal-room MTs; the URL flows into `meetUrl`, the calendar event location, the description, and the confirmation email.
+
 ## 0.42.0 — public pages + home quick links
 - Public landing page at `/<host-slug>` listing all active personal MTs (cal.com-style directory).
 - Public landing page at `/<project-slug>` for team MTs.

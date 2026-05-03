@@ -143,11 +143,14 @@ export default async function ConfirmedPage({
   );
 }
 
-function providerLabel(p: "GOOGLE_MEET" | "ZOOM" | "TEAMS" | "IN_PERSON" | "NONE"): string {
+function providerLabel(
+  p: "GOOGLE_MEET" | "ZOOM" | "TEAMS" | "IN_PERSON" | "PERSONAL_ROOM" | "NONE",
+): string {
   switch (p) {
     case "ZOOM": return "Zoom";
     case "TEAMS": return "Microsoft Teams";
     case "IN_PERSON": return "In person";
+    case "PERSONAL_ROOM": return "Personal room";
     case "NONE": return "No conferencing";
     default: return "Google Meet";
   }

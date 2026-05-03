@@ -56,7 +56,13 @@ export type PaymentMethod = "STRIPE" | "INVOICE" | "ADYEN";
 
 const SUPPORTED_CURRENCIES = ["eur", "usd", "gbp"] as const;
 
-export type ConferencingProvider = "GOOGLE_MEET" | "ZOOM" | "TEAMS" | "IN_PERSON" | "NONE";
+export type ConferencingProvider =
+  | "GOOGLE_MEET"
+  | "ZOOM"
+  | "TEAMS"
+  | "IN_PERSON"
+  | "PERSONAL_ROOM"
+  | "NONE";
 
 export interface HostCalendar {
   id: string;
@@ -209,6 +215,7 @@ function validatePersonalDraft(
   draft: DraftValues,
   hostHasZoom: boolean,
   hostHasStripe: boolean,
+  hostHasPersonalRoom: boolean,
 ): TabError[] {
   const errors: TabError[] = [];
   if (draft.name.trim().length < 2) {
@@ -251,6 +258,12 @@ function validatePersonalDraft(
       });
     }
   }
+  if (draft.conferencingProvider === "PERSONAL_ROOM" && !hostHasPersonalRoom) {
+    errors.push({
+      tabKey: "conferencing",
+      message: "Set up your personal room URL on your profile before using it here.",
+    });
+  }
   const pricingErr = validatePricing(draft, hostHasStripe);
   if (pricingErr) {
     errors.push({ tabKey: "pricing", message: pricingErr });
@@ -263,12 +276,14 @@ export function MeetingTypeForm({
   hostCalendars,
   hostHasZoom,
   hostHasStripe,
+  hostHasPersonalRoom,
   initial,
 }: {
   hostSlug: string;
   hostCalendars: HostCalendar[];
   hostHasZoom: boolean;
   hostHasStripe: boolean;
+  hostHasPersonalRoom: boolean;
   initial?: Initial;
 }) {
   const router = useRouter();
@@ -282,6 +297,7 @@ export function MeetingTypeForm({
         hostCalendars={hostCalendars}
         hostHasZoom={hostHasZoom}
         hostHasStripe={hostHasStripe}
+        hostHasPersonalRoom={hostHasPersonalRoom}
         initial={initial}
       />
     );
@@ -294,6 +310,7 @@ export function MeetingTypeForm({
       hostCalendars={hostCalendars}
       hostHasZoom={hostHasZoom}
       hostHasStripe={hostHasStripe}
+      hostHasPersonalRoom={hostHasPersonalRoom}
       onCreated={(id) => {
         // unused for now; create POST returns id but redirect is enough.
         void id;
@@ -312,12 +329,14 @@ function EditMeetingTypeForm({
   hostCalendars,
   hostHasZoom,
   hostHasStripe,
+  hostHasPersonalRoom,
   initial,
 }: {
   hostSlug: string;
   hostCalendars: HostCalendar[];
   hostHasZoom: boolean;
   hostHasStripe: boolean;
+  hostHasPersonalRoom: boolean;
   initial: Initial;
 }) {
   const router = useRouter();
@@ -345,7 +364,7 @@ function EditMeetingTypeForm({
 
   function save() {
     setError(null);
-    const errors = validatePersonalDraft(draft, hostHasZoom, hostHasStripe);
+    const errors = validatePersonalDraft(draft, hostHasZoom, hostHasStripe, hostHasPersonalRoom);
     if (errors.length > 0) {
       setTabErrors(errors);
       // Auto-switch to first tab with an error.
@@ -518,7 +537,12 @@ function EditMeetingTypeForm({
               <CardDescription>Where the meeting happens. Zoom requires you to connect it in Settings.</CardDescription>
             </CardHeader>
             <CardContent>
-              <ConferencingEditor draft={draft} update={update} hostHasZoom={hostHasZoom} />
+              <ConferencingEditor
+                draft={draft}
+                update={update}
+                hostHasZoom={hostHasZoom}
+                hostHasPersonalRoom={hostHasPersonalRoom}
+              />
             </CardContent>
           </Card>
 
@@ -591,12 +615,14 @@ function CreateMeetingTypeForm({
   hostCalendars,
   hostHasZoom,
   hostHasStripe,
+  hostHasPersonalRoom,
   router,
 }: {
   hostSlug: string;
   hostCalendars: HostCalendar[];
   hostHasZoom: boolean;
   hostHasStripe: boolean;
+  hostHasPersonalRoom: boolean;
   onCreated: (id: string) => void;
   router: Router;
 }) {
@@ -632,6 +658,9 @@ function CreateMeetingTypeForm({
     }
     if (draft.conferencingProvider === "IN_PERSON" && draft.defaultLocation.trim().length === 0) {
       return setError("Enter a default location for in-person meetings.");
+    }
+    if (draft.conferencingProvider === "PERSONAL_ROOM" && !hostHasPersonalRoom) {
+      return setError("Set up your personal room URL on your profile before using it here.");
     }
     if (!Number.isInteger(draft.maxInvitees) || draft.maxInvitees < 1 || draft.maxInvitees > 50) {
       return setError("Max invitees must be a whole number between 1 and 50.");
@@ -751,7 +780,12 @@ function CreateMeetingTypeForm({
           <CardDescription>Where the meeting happens. Zoom requires you to connect it in Settings.</CardDescription>
         </CardHeader>
         <CardContent>
-          <ConferencingEditor draft={draft} update={update} hostHasZoom={hostHasZoom} />
+          <ConferencingEditor
+            draft={draft}
+            update={update}
+            hostHasZoom={hostHasZoom}
+            hostHasPersonalRoom={hostHasPersonalRoom}
+          />
         </CardContent>
       </Card>
 
@@ -1086,10 +1120,12 @@ function ConferencingEditor({
   draft,
   update,
   hostHasZoom,
+  hostHasPersonalRoom,
 }: {
   draft: DraftValues;
   update: <K extends keyof DraftValues>(key: K, value: DraftValues[K]) => void;
   hostHasZoom: boolean;
+  hostHasPersonalRoom: boolean;
 }) {
   return (
     <div className="space-y-3">
@@ -1108,6 +1144,10 @@ function ConferencingEditor({
             Microsoft Teams — coming later
           </option>
           <option value="IN_PERSON">In person</option>
+          <option value="PERSONAL_ROOM" disabled={!hostHasPersonalRoom}>
+            Personal room
+            {hostHasPersonalRoom ? "" : " — set up your personal room URL on your profile"}
+          </option>
           <option value="NONE">None (no conferencing link)</option>
         </Select>
       </div>
@@ -1125,6 +1165,12 @@ function ConferencingEditor({
             Shown on the booking page and added to the calendar event. No online link is generated.
           </p>
         </div>
+      )}
+      {draft.conferencingProvider === "PERSONAL_ROOM" && (
+        <p className="text-xs text-muted-foreground">
+          Every booking will hand your stored personal room URL to the invitee. Update it any time
+          on your <span className="text-foreground">Profile</span> page.
+        </p>
       )}
     </div>
   );

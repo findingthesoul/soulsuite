@@ -9,7 +9,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 
-type ConferencingProvider = "GOOGLE_MEET" | "ZOOM" | "TEAMS" | "IN_PERSON" | "NONE";
+type ConferencingProvider =
+  | "GOOGLE_MEET"
+  | "ZOOM"
+  | "TEAMS"
+  | "IN_PERSON"
+  | "PERSONAL_ROOM"
+  | "NONE";
 
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
 
@@ -32,9 +38,11 @@ interface SlotDraft {
 export function OneOffMeetingTypeForm({
   hostSlug,
   hostHasZoom,
+  hostHasPersonalRoom,
 }: {
   hostSlug: string;
   hostHasZoom: boolean;
+  hostHasPersonalRoom: boolean;
 }) {
   const router = useRouter();
   const [name, setName] = useState("");
@@ -73,6 +81,9 @@ export function OneOffMeetingTypeForm({
     }
     if (conferencingProvider === "IN_PERSON" && defaultLocation.trim().length === 0) {
       return setError("Enter a default location for in-person meetings.");
+    }
+    if (conferencingProvider === "PERSONAL_ROOM" && !hostHasPersonalRoom) {
+      return setError("Set up your personal room URL on your profile before using it here.");
     }
     if (slots.length < 1) return setError("Add at least one slot.");
 
@@ -178,8 +189,17 @@ export function OneOffMeetingTypeForm({
               Microsoft Teams — coming later
             </option>
             <option value="IN_PERSON">In person</option>
+            <option value="PERSONAL_ROOM" disabled={!hostHasPersonalRoom}>
+              Personal room
+              {hostHasPersonalRoom ? "" : " — set up your personal room URL on your profile"}
+            </option>
             <option value="NONE">None (no conferencing link)</option>
           </Select>
+          {conferencingProvider === "PERSONAL_ROOM" && (
+            <p className="text-xs text-muted-foreground pt-2">
+              Bookings will hand your stored personal room URL to the invitee.
+            </p>
+          )}
           {conferencingProvider === "IN_PERSON" && (
             <div className="space-y-1.5 pt-2">
               <Label htmlFor="defaultLocation">Default location</Label>

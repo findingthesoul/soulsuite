@@ -38,7 +38,7 @@ const patchSchema = z.object({
   conflictCalendarIds: z.array(z.string().min(1)).default([]),
   intakeFields: intakeFieldsSchema.default([]),
   isActive: z.boolean(),
-  conferencingProvider: z.enum(["GOOGLE_MEET", "ZOOM", "TEAMS", "IN_PERSON", "NONE"]),
+  conferencingProvider: z.enum(["GOOGLE_MEET", "ZOOM", "TEAMS", "IN_PERSON", "PERSONAL_ROOM", "NONE"]),
   defaultLocation: z.string().trim().max(500).nullable().optional(),
   maxInvitees: z.number().int().min(1).max(50).default(1),
   workingHoursOverride: workingHoursSchema.nullable().optional(),
@@ -79,6 +79,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (loc.length === 0) {
       return new NextResponse("Enter a default location for in-person meetings.", { status: 400 });
     }
+  }
+  if (parsed.data.conferencingProvider === "PERSONAL_ROOM" && !host.personalRoomUrl) {
+    return new NextResponse(
+      "Set up your personal room URL on your profile before using it here.",
+      { status: 400 },
+    );
   }
 
   const isPaid = (parsed.data.priceCents ?? 0) > 0;

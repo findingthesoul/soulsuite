@@ -209,7 +209,10 @@ export default async function SupportPage() {
                 Google calendar), <span className="text-foreground">Zoom</span> (per-host OAuth at{" "}
                 <code>/settings/connections</code>), <span className="text-foreground">Microsoft Teams</span> (coming),{" "}
                 <span className="text-foreground">In person</span> — sets a fixed location on the calendar event;
-                no online link generated, or <span className="text-foreground">None</span> (no link generated).
+                no online link generated, <span className="text-foreground">Personal room</span> — uses your fixed
+                meeting URL (e.g. your Zoom Personal Meeting Room or a permanent Whereby room). Set the URL once on
+                your profile; every booking hands it to the invitee. No per-booking provider API calls. Or{" "}
+                <span className="text-foreground">None</span> (no link generated).
               </p>
               <p id="alternative-location" className="scroll-mt-8">
                 <span className="text-foreground font-medium">Alternative location:</span> any individual booking can

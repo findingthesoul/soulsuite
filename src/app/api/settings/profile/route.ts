@@ -9,6 +9,16 @@ const bodySchema = z.object({
   location: z.string().trim().max(120).nullable(),
   bio: z.string().max(1000).nullable(),
   photoUrl: z.string().url().startsWith("https://").nullable(),
+  // Persistent personal room URL. Validated as a https:// URL when present; null clears it.
+  // Max 300 chars matches the Input's maxLength on the profile form.
+  personalRoomUrl: z
+    .string()
+    .trim()
+    .max(300)
+    .url()
+    .startsWith("https://")
+    .nullable()
+    .optional(),
 });
 
 export async function POST(request: NextRequest) {

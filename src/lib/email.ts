@@ -79,6 +79,9 @@ interface BookingTemplateInput {
   cancelUrl: string;
   rescheduleUrl: string;
   meetUrl?: string | null;
+  // Optional label for the join link (e.g. "Personal room"). Defaults to "Join" when empty so
+  // existing Zoom / Meet emails are unaffected.
+  meetUrlLabel?: string | null;
   // Physical location string. When set this is rendered in place of the meet/zoom join section
   // (e.g. for IN_PERSON meetings) or alongside it (when an alternativeLocation override added a
   // venue to a Zoom booking — both lines are useful then).
@@ -146,7 +149,7 @@ export function bookingConfirmationTemplate(b: BookingTemplateInput): { html: st
       <tr><td style="padding:4px 0;color:#57534e">When</td><td style="padding:4px 0 4px 24px">${escapeHtml(when)}</td></tr>
       <tr><td style="padding:4px 0;color:#57534e">What</td><td style="padding:4px 0 4px 24px">${escapeHtml(b.meetingTypeName)}</td></tr>
       ${b.location ? `<tr><td style="padding:4px 0;color:#57534e">Location</td><td style="padding:4px 0 4px 24px">${escapeHtml(b.location)}</td></tr>` : ""}
-      ${b.meetUrl ? `<tr><td style="padding:4px 0;color:#57534e">Join</td><td style="padding:4px 0 4px 24px"><a href="${escapeAttr(b.meetUrl)}">${escapeHtml(b.meetUrl)}</a></td></tr>` : ""}
+      ${b.meetUrl ? `<tr><td style="padding:4px 0;color:#57534e">${escapeHtml(b.meetUrlLabel || "Join")}</td><td style="padding:4px 0 4px 24px"><a href="${escapeAttr(b.meetUrl)}">${escapeHtml(b.meetUrl)}</a></td></tr>` : ""}
     </table>
     ${invoiceBlockHtml}
     ${b.icalUrl ? `<p style="margin-top:12px"><a href="${escapeAttr(b.icalUrl)}" style="display:inline-block;padding:8px 14px;border:1px solid #e7e5e4;color:#0c0a09;border-radius:6px;text-decoration:none">Add to calendar (.ics)</a></p>` : ""}
@@ -161,7 +164,7 @@ export function bookingConfirmationTemplate(b: BookingTemplateInput): { html: st
     `You're booked: ${b.meetingTypeName} with ${b.hostName}\n\n` +
     `When: ${when}\n` +
     (b.location ? `Location: ${b.location}\n` : "") +
-    (b.meetUrl ? `Join: ${b.meetUrl}\n` : "") +
+    (b.meetUrl ? `${b.meetUrlLabel || "Join"}: ${b.meetUrl}\n` : "") +
     (b.invoice
       ? `\nPayment: An invoice will be sent to ${b.invoice.billingEmail} at ${b.invoice.companyName}.${
           b.invoice.reference ? ` Reference: ${b.invoice.reference}.` : ""

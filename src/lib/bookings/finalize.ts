@@ -82,6 +82,30 @@ export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResul
   // ── In-person: skip Zoom + Meet conference creation; the calendar event's `location` is
   // set to the meeting type's defaultLocation. The Booking row gets meetUrl=null.
   const isInPerson = meetingType.conferencingProvider === "IN_PERSON";
+  // ── Personal room: skip every provider call; the host's stored personalRoomUrl is the meet
+  // URL. For COLLECTIVE, args.hostId is the conferencing host (caller convention), so this is
+  // already the right host's URL. If it's null at finalize time the host cleared it after the
+  // MT was saved — fail finalize the same way Zoom-no-token does (paid → CANCELLED, free → delete).
+  const isPersonalRoom = meetingType.conferencingProvider === "PERSONAL_ROOM";
+  let personalRoomUrl: string | null = null;
+  if (isPersonalRoom) {
+    if (!host.personalRoomUrl) {
+      if (booking.paymentStatus === "PAID") {
+        await prisma.booking
+          .update({ where: { id: booking.id }, data: { status: "CANCELLED" } })
+          .catch(() => undefined);
+      } else {
+        await prisma.booking.delete({ where: { id: booking.id } }).catch(() => undefined);
+      }
+      return {
+        ok: false,
+        status: 502,
+        message:
+          "The host hasn't set up their personal room URL — please pick another time or contact them.",
+      };
+    }
+    personalRoomUrl = host.personalRoomUrl;
+  }
 
   // ── Zoom ──
   let zoomMeeting: { meetingId: string; joinUrl: string; passcode: string | null } | null = null;
@@ -147,7 +171,7 @@ export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResul
   }
 
   // ── Google Calendar event ──
-  let bookingMeetUrl: string | null = zoomMeeting?.joinUrl ?? null;
+  let bookingMeetUrl: string | null = zoomMeeting?.joinUrl ?? personalRoomUrl ?? null;
   let googleEventId: string | null = null;
   try {
     const cal = calendarFor(host.googleRefreshToken);
@@ -159,13 +183,14 @@ export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResul
       (isInPerson && meetingType.defaultLocation
         ? `\nLocation: ${meetingType.defaultLocation}\n`
         : "") +
+      (isPersonalRoom && personalRoomUrl ? `\nJoin: ${personalRoomUrl}\n` : "") +
       (zoomMeeting
         ? `\nJoin Zoom: ${zoomMeeting.joinUrl}` +
           (zoomMeeting.passcode ? `\nPasscode: ${zoomMeeting.passcode}` : "") +
           "\n"
         : "");
     // location field: alternativeLocation override wins. Otherwise: in-person → defaultLocation,
-    // remote → the meet/zoom join URL.
+    // personal room → the URL, remote → the meet/zoom join URL.
     const eventLocation: string | undefined =
       booking.alternativeLocation ??
       (isInPerson
@@ -270,6 +295,7 @@ export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResul
       `/${slugForUrl}/${meetingType.slug}/confirmed/${booking.id}/reschedule`,
     ),
     meetUrl: bookingMeetUrl,
+    meetUrlLabel: isPersonalRoom ? "Personal room" : null,
     // Prefer the per-booking alternativeLocation if a host already set one (e.g. on retry of
     // a previously-failed finalize). Otherwise fall back to the MT's defaultLocation for IN_PERSON.
     location:

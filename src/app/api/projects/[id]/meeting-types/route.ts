@@ -30,7 +30,7 @@ const bodySchema = z.object({
   conflictCalendarIds: z.array(z.string().min(1)).default([]),
   intakeFields: intakeFieldsSchema.default([]),
   conferencingProvider: z
-    .enum(["GOOGLE_MEET", "ZOOM", "TEAMS", "IN_PERSON", "NONE"])
+    .enum(["GOOGLE_MEET", "ZOOM", "TEAMS", "IN_PERSON", "PERSONAL_ROOM", "NONE"])
     .default("GOOGLE_MEET"),
   conferencingHostId: z.string().min(1).nullable().optional(),
   defaultLocation: z.string().trim().max(500).nullable().optional(),
@@ -185,6 +185,34 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       if (missing.length > 0) {
         return new NextResponse(
           `These hosts haven't connected Zoom: ${missing.map((h) => h.name).join(", ")}.`,
+          { status: 400 },
+        );
+      }
+    }
+  }
+
+  if (data.conferencingProvider === "PERSONAL_ROOM") {
+    if (data.routingMode === "COLLECTIVE") {
+      const confHost = await prisma.host.findUnique({
+        where: { id: conferencingHostId! },
+        select: { id: true, name: true, personalRoomUrl: true },
+      });
+      if (!confHost?.personalRoomUrl) {
+        return new NextResponse(
+          `${confHost?.name ?? "Conferencing host"} hasn't set a personal room URL on their profile.`,
+          { status: 400 },
+        );
+      }
+    } else {
+      // SINGLE / ROUND_ROBIN: each booking uses the picked host's URL → every assigned host needs one.
+      const hosts = await prisma.host.findMany({
+        where: { id: { in: data.assignedHostIds } },
+        select: { id: true, name: true, personalRoomUrl: true },
+      });
+      const missing = hosts.filter((h) => !h.personalRoomUrl);
+      if (missing.length > 0) {
+        return new NextResponse(
+          `These assigned hosts haven't set a personal room URL: ${missing.map((h) => h.name).join(", ")}.`,
           { status: 400 },
         );
       }

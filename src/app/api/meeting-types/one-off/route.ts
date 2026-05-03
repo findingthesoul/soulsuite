@@ -11,7 +11,7 @@ const bodySchema = z.object({
   slug: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/),
   description: z.string().nullable().optional(),
   conferencingProvider: z
-    .enum(["GOOGLE_MEET", "ZOOM", "TEAMS", "IN_PERSON", "NONE"])
+    .enum(["GOOGLE_MEET", "ZOOM", "TEAMS", "IN_PERSON", "PERSONAL_ROOM", "NONE"])
     .default("GOOGLE_MEET"),
   defaultLocation: z.string().trim().max(500).nullable().optional(),
   slots: z
@@ -46,6 +46,12 @@ export async function POST(request: NextRequest) {
     if (!data.defaultLocation || data.defaultLocation.trim().length === 0) {
       return new NextResponse("Enter a default location for in-person meetings.", { status: 400 });
     }
+  }
+  if (data.conferencingProvider === "PERSONAL_ROOM" && !host.personalRoomUrl) {
+    return new NextResponse(
+      "Set up your personal room URL on your profile before using it here.",
+      { status: 400 },
+    );
   }
 
   // Validate every slot has end > start, and dedupe by (startsAt) — uniqueness is enforced at DB.

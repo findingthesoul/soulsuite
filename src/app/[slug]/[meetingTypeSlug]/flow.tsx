@@ -29,7 +29,13 @@ interface MeetingType {
   name: string;
   description: string | null;
   durationMinutes: number;
-  conferencingProvider: "GOOGLE_MEET" | "ZOOM" | "TEAMS" | "IN_PERSON" | "NONE";
+  conferencingProvider:
+    | "GOOGLE_MEET"
+    | "ZOOM"
+    | "TEAMS"
+    | "IN_PERSON"
+    | "PERSONAL_ROOM"
+    | "NONE";
   defaultLocation: string | null;
   priceCents: number | null;
   priceCurrency: string | null;
@@ -1034,11 +1040,14 @@ function formatPriceClient(priceCents: number, currency: string): string {
   return `${symbol}${formatted}`;
 }
 
-function providerLabel(p: "GOOGLE_MEET" | "ZOOM" | "TEAMS" | "IN_PERSON" | "NONE"): string {
+function providerLabel(
+  p: "GOOGLE_MEET" | "ZOOM" | "TEAMS" | "IN_PERSON" | "PERSONAL_ROOM" | "NONE",
+): string {
   switch (p) {
     case "ZOOM": return "Zoom";
     case "TEAMS": return "Microsoft Teams";
     case "IN_PERSON": return "In person";
+    case "PERSONAL_ROOM": return "Personal room";
     case "NONE": return "No conferencing";
     default: return "Google Meet";
   }

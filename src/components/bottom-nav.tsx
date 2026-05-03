@@ -37,11 +37,11 @@ const PRIMARY = [
 
 const MORE_PERSONAL = [
   { href: "/settings/availability", label: "Availability", icon: Clock },
+  { href: "/dashboard/payments", label: "Payments", icon: CreditCard },
 ] as const;
 
 const MORE_WORKSPACE = [
   { href: "/settings/members", label: "Internal team", icon: Users },
-  { href: "/dashboard/payments", label: "Payments", icon: CreditCard },
   { href: "/dashboard/contacts", label: "Contacts", icon: BookUser },
 ] as const;
 

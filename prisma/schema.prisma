@@ -103,6 +103,12 @@ model Host {
   // Stripe Connect Standard — host pastes their account ID (acct_…) on /settings/payments.
   // Null = no Stripe connected; paid meeting types blocked from saving until set.
   stripeAccountId    String?
+  // How this host wants to deliver invoices for INVOICE-method bookings.
+  // EXTERNAL (default): Soul Suite confirms the booking and the host invoices from another app.
+  // SOUL_SUITE: Soul Suite generates a Stripe payment link, emails the invoice, and the
+  // INVOICE_PENDING → INVOICE_SENT → PAID transitions are driven automatically by the webhook.
+  // Selectable in the UI only when stripeAccountId is set.
+  invoiceSource      InvoiceSource @default(EXTERNAL)
   timezone           String    @default("Europe/Amsterdam")
   // JSON shape: { mon: [{start: "09:00", end: "17:00"}], tue: [...], ... }
   workingHours       Json?
@@ -372,6 +378,12 @@ enum PaymentMethod {
   INVOICE
 }
 
+// Per-host invoice delivery mode — see Host.invoiceSource.
+enum InvoiceSource {
+  EXTERNAL
+  SOUL_SUITE
+}
+
 model Booking {
   id                   String               @id @default(cuid())
   meetingTypeId        String
@@ -411,6 +423,15 @@ model Booking {
   //     country, countryOther?, vatId?, reference? }
   // See src/app/[slug]/[meetingTypeSlug]/flow.tsx (BillingPanel) for the canonical form schema.
   invoiceDetails       Json?
+  // Soul-Suite-generated invoice delivery (only set when host.invoiceSource = SOUL_SUITE).
+  // invoiceNumber is human-readable, unique per workspace (INV-{year}-{seq}).
+  // invoicePaymentLinkUrl is the Stripe payment link the invitee opens to pay.
+  // invoicePaymentLinkId is the plink_… id, kept so we can deactivate or look it up later.
+  // invoiceSentAt is when the invoice email was sent successfully.
+  invoiceNumber          String?
+  invoicePaymentLinkUrl  String?
+  invoicePaymentLinkId   String?
+  invoiceSentAt          DateTime?
   stripeSessionId      String?
   stripePaymentIntent  String?
   createdAt            DateTime             @default(now())
@@ -553,4 +574,18 @@ model Invite {
 model ReservedSlug {
   value     String   @id
   createdAt DateTime @default(now())
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Invoice numbering — sequential per workspace per year (INV-{year}-{seq}).
+// Read-modify-write inside a transaction; the (workspaceId, year) pair is the PK.
+// ────────────────────────────────────────────────────────────────────────────
+
+model WorkspaceInvoiceCounter {
+  workspaceId String
+  year        Int
+  lastSeq     Int      @default(0)
+  updatedAt   DateTime @updatedAt
+
+  @@id([workspaceId, year])
 }

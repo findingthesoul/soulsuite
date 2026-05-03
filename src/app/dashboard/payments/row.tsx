@@ -33,7 +33,7 @@ interface Row {
   isInvoiceSent: boolean;
 }
 
-export function PaymentRow({ row }: { row: Row }) {
+export function PaymentRow({ row, variant = "table" }: { row: Row; variant?: "table" | "card" }) {
   const router = useRouter();
   const [retryOpen, setRetryOpen] = React.useState(false);
   const [refundOpen, setRefundOpen] = React.useState(false);
@@ -121,6 +121,187 @@ export function PaymentRow({ row }: { row: Row }) {
     }
   }
 
+  const actions = (
+    <>
+      {row.isFailedToFinalize && (
+        <>
+          <Button size="sm" variant="primary" onClick={() => setRetryOpen(true)}>
+            Retry
+          </Button>
+          {row.hasPaymentIntent && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setRefundOpen(true)}
+              className="text-destructive hover:bg-destructive/10"
+            >
+              Refund
+            </Button>
+          )}
+        </>
+      )}
+      {row.isInvoicePending && (
+        <>
+          <Button size="sm" variant="primary" onClick={() => setInvoicedOpen(true)}>
+            Mark as invoiced
+          </Button>
+          <Button size="sm" variant="secondary" onClick={() => setPaidOpen(true)}>
+            Mark as paid
+          </Button>
+        </>
+      )}
+      {row.isInvoiceSent && (
+        <Button size="sm" variant="primary" onClick={() => setPaidOpen(true)}>
+          Mark as paid
+        </Button>
+      )}
+      <Link
+        href={row.detailHref}
+        target="_blank"
+        rel="noreferrer"
+        className="inline-flex h-8 items-center gap-1 rounded-md border border-border bg-surface px-2.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        title="View invitee confirmation page"
+      >
+        <ExternalLink className="h-3 w-3" />
+        View
+      </Link>
+    </>
+  );
+
+  // Dialogs are positioned: fixed by the Dialog primitive, so they render fine
+  // whether they sit inside a <td> (table) or a <div> (card). Sharing one set
+  // across both layouts avoids duplicating four modals per row.
+  const dialogs = (
+    <>
+      <Dialog open={retryOpen} onOpenChange={(o) => !pending && setRetryOpen(o)}>
+        <DialogHeader
+          title="Retry finalisation?"
+          description="This will create the meeting + send a fresh confirmation email to the invitee."
+          onClose={() => !pending && setRetryOpen(false)}
+        />
+        <DialogBody>
+          <p className="text-sm text-muted-foreground">
+            <span className="text-foreground font-medium">{row.inviteeName}</span> ·{" "}
+            {row.meetingTypeName} · {formatDate(row.startsAt)}
+          </p>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="secondary" onClick={() => setRetryOpen(false)} disabled={pending}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={doRetry} disabled={pending}>
+            {pending ? "Retrying…" : "Retry finalisation"}
+          </Button>
+        </DialogFooter>
+      </Dialog>
+
+      <Dialog open={invoicedOpen} onOpenChange={(o) => !pending && setInvoicedOpen(o)}>
+        <DialogHeader
+          title="Mark this booking as invoiced?"
+          description="This is a tracking-only flag — actually sending the invoice happens in your invoicing tool."
+          onClose={() => !pending && setInvoicedOpen(false)}
+        />
+        <DialogBody>
+          <p className="text-sm text-muted-foreground">
+            <span className="text-foreground font-medium">{row.inviteeName}</span> ·{" "}
+            {row.meetingTypeName} · {formatDate(row.startsAt)}
+          </p>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="secondary" onClick={() => setInvoicedOpen(false)} disabled={pending}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={doMarkInvoiced} disabled={pending}>
+            {pending ? "Saving…" : "Mark as invoiced"}
+          </Button>
+        </DialogFooter>
+      </Dialog>
+
+      <Dialog open={paidOpen} onOpenChange={(o) => !pending && setPaidOpen(o)}>
+        <DialogHeader
+          title="Mark this booking as paid?"
+          description="Use after the invoice has actually been paid externally. No money moves in our system — this just updates the tracking flag."
+          onClose={() => !pending && setPaidOpen(false)}
+        />
+        <DialogBody>
+          <p className="text-sm text-muted-foreground">
+            <span className="text-foreground font-medium">{row.inviteeName}</span> ·{" "}
+            {row.meetingTypeName} · {formatDate(row.startsAt)} · {row.priceLabel}
+          </p>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="secondary" onClick={() => setPaidOpen(false)} disabled={pending}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={doMarkPaid} disabled={pending}>
+            {pending ? "Saving…" : "Mark as paid"}
+          </Button>
+        </DialogFooter>
+      </Dialog>
+
+      <Dialog open={refundOpen} onOpenChange={(o) => !pending && setRefundOpen(o)}>
+        <DialogHeader
+          title={`Refund ${row.priceLabel} to ${row.inviteeEmail}?`}
+          description="This cannot be undone. The booking will be marked refunded + cancelled."
+          onClose={() => !pending && setRefundOpen(false)}
+        />
+        <DialogBody>
+          <p className="text-sm text-muted-foreground">
+            <span className="text-foreground font-medium">{row.inviteeName}</span> ·{" "}
+            {row.meetingTypeName} · {formatDate(row.startsAt)}
+          </p>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="secondary" onClick={() => setRefundOpen(false)} disabled={pending}>
+            Cancel
+          </Button>
+          <Button variant="destructive" onClick={doRefund} disabled={pending}>
+            {pending ? "Refunding…" : "Refund"}
+          </Button>
+        </DialogFooter>
+      </Dialog>
+    </>
+  );
+
+  if (variant === "card") {
+    return (
+      <div className="rounded-lg border border-border bg-surface p-4 space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-foreground truncate">{row.inviteeName}</p>
+            <p className="text-xs text-muted-foreground truncate">{row.inviteeEmail}</p>
+          </div>
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <PaymentPill status={row.paymentStatus} />
+            <BookingPill status={row.status} />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-y-2 gap-x-3 text-xs">
+          <div>
+            <p className="text-subtle-foreground uppercase tracking-wide">Date</p>
+            <p className="text-foreground">{formatDate(row.startsAt)}</p>
+            <p className="text-muted-foreground">{formatTimeRange(row.startsAt, row.endsAt)}</p>
+          </div>
+          <div>
+            <p className="text-subtle-foreground uppercase tracking-wide">Amount</p>
+            <p className="text-foreground">{row.priceLabel}</p>
+          </div>
+          <div className="col-span-2">
+            <p className="text-subtle-foreground uppercase tracking-wide">Meeting type</p>
+            <p className="text-foreground">{row.meetingTypeName}</p>
+            <p className="text-muted-foreground">with {row.hostName}</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5 pt-1">{actions}</div>
+        {dialogs}
+      </div>
+    );
+  }
+
   return (
     <tr className="hover:bg-surface-muted/40">
       <td className="px-4 py-3 align-top">
@@ -143,144 +324,8 @@ export function PaymentRow({ row }: { row: Row }) {
         <BookingPill status={row.status} />
       </td>
       <td className="px-4 py-3 align-top text-right">
-        <div className="inline-flex items-center gap-1.5">
-          {row.isFailedToFinalize && (
-            <>
-              <Button size="sm" variant="primary" onClick={() => setRetryOpen(true)}>
-                Retry
-              </Button>
-              {row.hasPaymentIntent && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setRefundOpen(true)}
-                  className="text-destructive hover:bg-destructive/10"
-                >
-                  Refund
-                </Button>
-              )}
-            </>
-          )}
-          {row.isInvoicePending && (
-            <>
-              <Button size="sm" variant="primary" onClick={() => setInvoicedOpen(true)}>
-                Mark as invoiced
-              </Button>
-              <Button size="sm" variant="secondary" onClick={() => setPaidOpen(true)}>
-                Mark as paid
-              </Button>
-            </>
-          )}
-          {row.isInvoiceSent && (
-            <Button size="sm" variant="primary" onClick={() => setPaidOpen(true)}>
-              Mark as paid
-            </Button>
-          )}
-          <Link
-            href={row.detailHref}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex h-8 items-center gap-1 rounded-md border border-border bg-surface px-2.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            title="View invitee confirmation page"
-          >
-            <ExternalLink className="h-3 w-3" />
-            View
-          </Link>
-        </div>
-        {/* Dialogs use fixed positioning (Dialog primitive renders an overlay covering the
-            viewport). They produce no DOM when closed, so co-locating them in this cell is
-            safe and keeps state ownership tidy. */}
-        <Dialog open={retryOpen} onOpenChange={(o) => !pending && setRetryOpen(o)}>
-          <DialogHeader
-            title="Retry finalisation?"
-            description="This will create the meeting + send a fresh confirmation email to the invitee."
-            onClose={() => !pending && setRetryOpen(false)}
-          />
-          <DialogBody>
-            <p className="text-sm text-muted-foreground">
-              <span className="text-foreground font-medium">{row.inviteeName}</span> ·{" "}
-              {row.meetingTypeName} · {formatDate(row.startsAt)}
-            </p>
-            {error && <p className="text-sm text-destructive">{error}</p>}
-          </DialogBody>
-          <DialogFooter>
-            <Button variant="secondary" onClick={() => setRetryOpen(false)} disabled={pending}>
-              Cancel
-            </Button>
-            <Button variant="primary" onClick={doRetry} disabled={pending}>
-              {pending ? "Retrying…" : "Retry finalisation"}
-            </Button>
-          </DialogFooter>
-        </Dialog>
-
-        <Dialog open={invoicedOpen} onOpenChange={(o) => !pending && setInvoicedOpen(o)}>
-          <DialogHeader
-            title="Mark this booking as invoiced?"
-            description="This is a tracking-only flag — actually sending the invoice happens in your invoicing tool."
-            onClose={() => !pending && setInvoicedOpen(false)}
-          />
-          <DialogBody>
-            <p className="text-sm text-muted-foreground">
-              <span className="text-foreground font-medium">{row.inviteeName}</span> ·{" "}
-              {row.meetingTypeName} · {formatDate(row.startsAt)}
-            </p>
-            {error && <p className="text-sm text-destructive">{error}</p>}
-          </DialogBody>
-          <DialogFooter>
-            <Button variant="secondary" onClick={() => setInvoicedOpen(false)} disabled={pending}>
-              Cancel
-            </Button>
-            <Button variant="primary" onClick={doMarkInvoiced} disabled={pending}>
-              {pending ? "Saving…" : "Mark as invoiced"}
-            </Button>
-          </DialogFooter>
-        </Dialog>
-
-        <Dialog open={paidOpen} onOpenChange={(o) => !pending && setPaidOpen(o)}>
-          <DialogHeader
-            title="Mark this booking as paid?"
-            description="Use after the invoice has actually been paid externally. No money moves in our system — this just updates the tracking flag."
-            onClose={() => !pending && setPaidOpen(false)}
-          />
-          <DialogBody>
-            <p className="text-sm text-muted-foreground">
-              <span className="text-foreground font-medium">{row.inviteeName}</span> ·{" "}
-              {row.meetingTypeName} · {formatDate(row.startsAt)} · {row.priceLabel}
-            </p>
-            {error && <p className="text-sm text-destructive">{error}</p>}
-          </DialogBody>
-          <DialogFooter>
-            <Button variant="secondary" onClick={() => setPaidOpen(false)} disabled={pending}>
-              Cancel
-            </Button>
-            <Button variant="primary" onClick={doMarkPaid} disabled={pending}>
-              {pending ? "Saving…" : "Mark as paid"}
-            </Button>
-          </DialogFooter>
-        </Dialog>
-
-        <Dialog open={refundOpen} onOpenChange={(o) => !pending && setRefundOpen(o)}>
-          <DialogHeader
-            title={`Refund ${row.priceLabel} to ${row.inviteeEmail}?`}
-            description="This cannot be undone. The booking will be marked refunded + cancelled."
-            onClose={() => !pending && setRefundOpen(false)}
-          />
-          <DialogBody>
-            <p className="text-sm text-muted-foreground">
-              <span className="text-foreground font-medium">{row.inviteeName}</span> ·{" "}
-              {row.meetingTypeName} · {formatDate(row.startsAt)}
-            </p>
-            {error && <p className="text-sm text-destructive">{error}</p>}
-          </DialogBody>
-          <DialogFooter>
-            <Button variant="secondary" onClick={() => setRefundOpen(false)} disabled={pending}>
-              Cancel
-            </Button>
-            <Button variant="destructive" onClick={doRefund} disabled={pending}>
-              {pending ? "Refunding…" : "Refund"}
-            </Button>
-          </DialogFooter>
-        </Dialog>
+        <div className="inline-flex items-center gap-1.5">{actions}</div>
+        {dialogs}
       </td>
     </tr>
   );

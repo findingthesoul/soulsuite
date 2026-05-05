@@ -10,7 +10,11 @@ import { fetchHostBusy, bustFreebusyCacheForHost } from "@/lib/availability/free
 import { type IntakeField, validateAnswers, pruneHiddenAnswers } from "@/lib/intake";
 import { pickRoundRobinHost } from "@/lib/round-robin";
 import { sendEmail, bookingConfirmationTemplate, appUrl } from "@/lib/email";
-import { upsertContactFromBooking, workspaceIdForMeetingType } from "@/lib/contacts";
+import {
+  upsertContactFromBooking,
+  workspaceIdForMeetingType,
+  tryUpsertContactForBooking,
+} from "@/lib/contacts";
 import { finalizeBooking } from "@/lib/bookings/finalize";
 import { stripeClient, isStripeConfigured } from "@/lib/stripe/client";
 import { invoiceDetailsSchema } from "@/lib/bookings/invoice-details";
@@ -303,6 +307,15 @@ export async function POST(request: NextRequest) {
       throw err;
     }
 
+    // Upsert the Contact row eagerly — finalize.ts will run this again later (idempotent), but
+    // doing it here means a Google failure mid-finalize doesn't leave us without a contact.
+    await tryUpsertContactForBooking({
+      meetingTypeId: meetingType.id,
+      email: body.inviteeEmail,
+      name: body.inviteeName,
+      timeZone: body.inviteeTimezone,
+    });
+
     // One-off slot claim — same logic as the free path; only difference is no Stripe.
     if (oneOffSlot) {
       const claim = await prisma.oneOffSlot.updateMany({
@@ -409,6 +422,15 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Upsert the Contact row eagerly. Stripe payments may not finalize for minutes (or never),
+    // and we still want the contact recorded the moment the invitee chose this meeting.
+    await tryUpsertContactForBooking({
+      meetingTypeId: meetingType.id,
+      email: body.inviteeEmail,
+      name: body.inviteeName,
+      timeZone: body.inviteeTimezone,
+    });
+
     const baseUrl = publicEnv.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
     const slugForUrl =
       meetingType.scope === "PROJECT"
@@ -503,6 +525,15 @@ export async function POST(request: NextRequest) {
     }
     throw err;
   }
+
+  // Upsert the Contact row eagerly — finalize.ts will run this again later (idempotent), but
+  // doing it here means a Google failure mid-finalize doesn't leave us without a contact.
+  await tryUpsertContactForBooking({
+    meetingTypeId: meetingType.id,
+    email: body.inviteeEmail,
+    name: body.inviteeName,
+    timeZone: body.inviteeTimezone,
+  });
 
   // One-off: claim the slot via a conditional updateMany — only succeeds when bookedBookingId
   // is still null. If 0 rows updated, another invitee won the race; roll back our booking row.

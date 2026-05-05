@@ -32,6 +32,35 @@ export async function workspaceIdForMeetingType(meetingTypeId: string): Promise<
 }
 
 /**
+ * Convenience wrapper: resolves the workspace from the meeting type and upserts the contact in
+ * one call, with try/catch + logging baked in. Safe to call multiple times for the same booking
+ * (the underlying upsert is idempotent). Use this at every booking-creation site so a Google /
+ * Zoom failure during finalisation never leaves us without a Contact row.
+ */
+export async function tryUpsertContactForBooking(args: {
+  meetingTypeId: string;
+  email: string;
+  name: string | null;
+  timeZone: string | null;
+}): Promise<void> {
+  try {
+    const wsId = await workspaceIdForMeetingType(args.meetingTypeId);
+    if (!wsId) {
+      console.warn("[contacts] no workspace resolved for meeting type", args.meetingTypeId);
+      return;
+    }
+    await upsertContactFromBooking({
+      workspaceId: wsId,
+      email: args.email,
+      name: args.name,
+      timeZone: args.timeZone,
+    });
+  } catch (err) {
+    console.error("[contacts] upsert failed", err);
+  }
+}
+
+/**
  * Auto-build the workspace contact directory from booking traffic. Called after every
  * `prisma.booking.create` — wrapped in try/catch by the caller so a Contact write never
  * fails the surrounding booking transaction.

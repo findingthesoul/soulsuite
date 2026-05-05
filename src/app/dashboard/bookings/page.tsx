@@ -246,7 +246,7 @@ function PaymentPill({
   priceCurrency,
 }: {
   paymentMethod: "STRIPE" | "INVOICE" | "ADYEN";
-  paymentStatus: "NOT_REQUIRED" | "PENDING" | "PAID" | "REFUNDED" | "FAILED" | "INVOICE_PENDING" | "INVOICE_SENT";
+  paymentStatus: "NOT_REQUIRED" | "PENDING" | "PAID" | "REFUNDED" | "FAILED" | "INVOICE_PENDING" | "INVOICE_SENT" | "INVOICE_VOIDED";
   priceCents: number | null;
   priceCurrency: string | null;
 }) {
@@ -267,6 +267,9 @@ function PaymentPill({
     } else if (paymentStatus === "PAID") {
       label = "Invoice · paid";
       styles = "bg-foreground text-background";
+    } else if (paymentStatus === "INVOICE_VOIDED") {
+      label = "Invoice · voided";
+      styles = "bg-surface-muted text-muted-foreground line-through";
     } else {
       label = "Invoice";
       styles = "bg-surface-muted text-muted-foreground";

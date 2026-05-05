@@ -14,10 +14,12 @@ import { Card } from "@/components/ui/card";
 import { formatPrice } from "@/lib/stripe/client";
 import { PaymentRow } from "./row";
 
-type Filter = "failed" | "refunded" | "healthy" | "invoice" | "all";
+type Filter = "failed" | "refund-pending" | "credit-pending" | "refunded" | "healthy" | "invoice" | "all";
 
 function parseFilter(value: string | undefined): Filter {
   if (
+    value === "refund-pending" ||
+    value === "credit-pending" ||
     value === "refunded" ||
     value === "healthy" ||
     value === "invoice" ||
@@ -51,24 +53,55 @@ export default async function PaymentsPage({
   const baseWhere: Prisma.BookingWhereInput = {
     hostId: { in: manageableHostIds },
     paymentStatus: {
-      in: ["PAID", "REFUNDED", "FAILED", "INVOICE_PENDING", "INVOICE_SENT"],
+      in: [
+        "PAID",
+        "REFUNDED",
+        "FAILED",
+        "INVOICE_PENDING",
+        "INVOICE_SENT",
+        "INVOICE_VOIDED",
+      ],
     },
   };
 
+  // Distinguishing the cancelled-and-paid cases:
+  //   • failed         — paid but never finalized (no Google event). Needs Retry + maybe Refund.
+  //   • refund-pending — paid AND finalized AND later cancelled. Needs Refund only.
+  //   • credit-pending — invoice booking cancelled before money was collected. Needs Credit.
   const filterWhere: Prisma.BookingWhereInput =
     filter === "failed"
-      ? { ...baseWhere, paymentStatus: "PAID", status: "CANCELLED" }
-      : filter === "refunded"
-        ? { ...baseWhere, paymentStatus: "REFUNDED" }
-        : filter === "healthy"
-          ? { ...baseWhere, paymentStatus: "PAID", status: "CONFIRMED" }
-          : filter === "invoice"
-            ? {
-                ...baseWhere,
-                paymentMethod: "INVOICE",
-                paymentStatus: { in: ["INVOICE_PENDING", "INVOICE_SENT"] },
-              }
-            : baseWhere;
+      ? {
+          ...baseWhere,
+          paymentStatus: "PAID",
+          status: "CANCELLED",
+          googleEventId: null,
+        }
+      : filter === "refund-pending"
+        ? {
+            ...baseWhere,
+            paymentStatus: "PAID",
+            status: "CANCELLED",
+            googleEventId: { not: null },
+          }
+        : filter === "credit-pending"
+          ? {
+              ...baseWhere,
+              paymentMethod: "INVOICE",
+              paymentStatus: { in: ["INVOICE_PENDING", "INVOICE_SENT"] },
+              status: "CANCELLED",
+            }
+          : filter === "refunded"
+            ? { ...baseWhere, paymentStatus: { in: ["REFUNDED", "INVOICE_VOIDED"] } }
+            : filter === "healthy"
+              ? { ...baseWhere, paymentStatus: "PAID", status: "CONFIRMED" }
+              : filter === "invoice"
+                ? {
+                    ...baseWhere,
+                    paymentMethod: "INVOICE",
+                    paymentStatus: { in: ["INVOICE_PENDING", "INVOICE_SENT"] },
+                    status: { not: "CANCELLED" },
+                  }
+                : baseWhere;
 
   const [bookings, counts] = await Promise.all([
     prisma.booking.findMany({
@@ -104,9 +137,32 @@ export default async function PaymentsPage({
     }),
     Promise.all([
       prisma.booking.count({
-        where: { ...baseWhere, paymentStatus: "PAID", status: "CANCELLED" },
+        where: {
+          ...baseWhere,
+          paymentStatus: "PAID",
+          status: "CANCELLED",
+          googleEventId: null,
+        },
       }),
-      prisma.booking.count({ where: { ...baseWhere, paymentStatus: "REFUNDED" } }),
+      prisma.booking.count({
+        where: {
+          ...baseWhere,
+          paymentStatus: "PAID",
+          status: "CANCELLED",
+          googleEventId: { not: null },
+        },
+      }),
+      prisma.booking.count({
+        where: {
+          ...baseWhere,
+          paymentMethod: "INVOICE",
+          paymentStatus: { in: ["INVOICE_PENDING", "INVOICE_SENT"] },
+          status: "CANCELLED",
+        },
+      }),
+      prisma.booking.count({
+        where: { ...baseWhere, paymentStatus: { in: ["REFUNDED", "INVOICE_VOIDED"] } },
+      }),
       prisma.booking.count({
         where: { ...baseWhere, paymentStatus: "PAID", status: "CONFIRMED" },
       }),
@@ -115,13 +171,22 @@ export default async function PaymentsPage({
           ...baseWhere,
           paymentMethod: "INVOICE",
           paymentStatus: { in: ["INVOICE_PENDING", "INVOICE_SENT"] },
+          status: { not: "CANCELLED" },
         },
       }),
       prisma.booking.count({ where: baseWhere }),
     ]),
   ]);
 
-  const [failedCount, refundedCount, healthyCount, invoiceCount, allCount] = counts;
+  const [
+    failedCount,
+    refundPendingCount,
+    creditPendingCount,
+    refundedCount,
+    healthyCount,
+    invoiceCount,
+    allCount,
+  ] = counts;
 
   const rows = bookings.map((b) => {
     const slugForUrl =
@@ -149,11 +214,23 @@ export default async function PaymentsPage({
       isFailedToFinalize:
         b.paymentStatus === "PAID" && b.status === "CANCELLED" && !b.googleEventId,
       hasPaymentIntent: !!b.stripePaymentIntent,
-      isInvoicePending: b.paymentMethod === "INVOICE" && b.paymentStatus === "INVOICE_PENDING",
-      isInvoiceSent: b.paymentMethod === "INVOICE" && b.paymentStatus === "INVOICE_SENT",
+      isInvoicePending:
+        b.paymentMethod === "INVOICE" &&
+        b.paymentStatus === "INVOICE_PENDING" &&
+        b.status !== "CANCELLED",
+      isInvoiceSent:
+        b.paymentMethod === "INVOICE" &&
+        b.paymentStatus === "INVOICE_SENT" &&
+        b.status !== "CANCELLED",
       isSoulSuiteInvoice: b.paymentMethod === "INVOICE" && b.host.invoiceSource === "SOUL_SUITE",
       invoicePaymentLinkUrl: b.invoicePaymentLinkUrl,
       invoiceNumber: b.invoiceNumber,
+      isPaidAndCancelled:
+        b.paymentStatus === "PAID" && b.status === "CANCELLED",
+      isInvoiceCreditable:
+        b.paymentMethod === "INVOICE" &&
+        b.status === "CANCELLED" &&
+        (b.paymentStatus === "INVOICE_PENDING" || b.paymentStatus === "INVOICE_SENT"),
     };
   });
 
@@ -174,6 +251,8 @@ export default async function PaymentsPage({
           filter={filter}
           counts={{
             failed: failedCount,
+            refundPending: refundPendingCount,
+            creditPending: creditPendingCount,
             refunded: refundedCount,
             healthy: healthyCount,
             invoice: invoiceCount,
@@ -186,13 +265,17 @@ export default async function PaymentsPage({
             <div className="p-10 text-center text-sm text-muted-foreground">
               {filter === "failed"
                 ? "No paid bookings are stuck. Nice."
-                : filter === "refunded"
-                  ? "No refunds yet."
-                  : filter === "healthy"
-                    ? "No confirmed paid bookings yet."
-                    : filter === "invoice"
-                      ? "No invoice bookings waiting for follow-up."
-                      : "No paid bookings yet."}
+                : filter === "refund-pending"
+                  ? "No paid bookings are waiting on a refund."
+                  : filter === "credit-pending"
+                    ? "No invoices need crediting."
+                    : filter === "refunded"
+                      ? "No refunds or credits yet."
+                      : filter === "healthy"
+                        ? "No confirmed paid bookings yet."
+                        : filter === "invoice"
+                          ? "No invoice bookings waiting for follow-up."
+                          : "No paid bookings yet."}
             </div>
           </Card>
         ) : (
@@ -241,7 +324,15 @@ function Filters({
   counts,
 }: {
   filter: Filter;
-  counts: { failed: number; refunded: number; healthy: number; invoice: number; all: number };
+  counts: {
+    failed: number;
+    refundPending: number;
+    creditPending: number;
+    refunded: number;
+    healthy: number;
+    invoice: number;
+    all: number;
+  };
 }) {
   function pillClass(active: boolean) {
     return [
@@ -259,8 +350,14 @@ function Filters({
       <Link href={href("failed")} className={pillClass(filter === "failed")}>
         Failed to finalize ({counts.failed})
       </Link>
+      <Link href={href("refund-pending")} className={pillClass(filter === "refund-pending")}>
+        Refund pending ({counts.refundPending})
+      </Link>
+      <Link href={href("credit-pending")} className={pillClass(filter === "credit-pending")}>
+        Credit pending ({counts.creditPending})
+      </Link>
       <Link href={href("refunded")} className={pillClass(filter === "refunded")}>
-        Refunded ({counts.refunded})
+        Refunded / credited ({counts.refunded})
       </Link>
       <Link href={href("healthy")} className={pillClass(filter === "healthy")}>
         Healthy ({counts.healthy})

@@ -76,6 +76,54 @@ interface SerializedSlot {
   endsAt: string;
 }
 
+// localStorage key for caching the invitee's invoice details on their own browser. Scoped per
+// host slug + email so the same person rebooking on the same device sees their last entries.
+// Address-level fields never leave the device — server only knows {name, company} via Contact.
+function invoiceCacheKey(hostSlug: string, email: string): string {
+  return `soulsuite.invoiceDetails.${hostSlug}.${email.trim().toLowerCase()}`;
+}
+
+function readCachedInvoiceForm(hostSlug: string, email: string): Partial<InvoiceFormState> | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(invoiceCacheKey(hostSlug, email));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<InvoiceFormState>;
+    return typeof parsed === "object" && parsed !== null ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveCachedInvoiceForm(hostSlug: string, email: string, form: InvoiceFormState): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(invoiceCacheKey(hostSlug, email), JSON.stringify(form));
+  } catch {
+    // Quota / privacy mode / etc. — silently skip; prefill is a nice-to-have.
+  }
+}
+
+// Merge a partial prefill into an existing form, never overwriting fields the user already typed.
+// "Empty" means the empty string for text fields and the schema default ("NL") for country.
+function mergeInvoicePrefill(
+  prev: InvoiceFormState,
+  patch: Partial<InvoiceFormState>,
+): InvoiceFormState {
+  const next: InvoiceFormState = { ...prev };
+  for (const key of Object.keys(patch) as (keyof InvoiceFormState)[]) {
+    const incoming = patch[key];
+    if (incoming === undefined || incoming === null || incoming === "") continue;
+    const current = prev[key];
+    const isEmpty = current === "" || (key === "country" && current === "NL");
+    if (isEmpty) {
+      // TS narrowing for the union; safe because patch keys come from InvoiceFormState.
+      (next as unknown as Record<string, unknown>)[key] = incoming;
+    }
+  }
+  return next;
+}
+
 function detectTz(): string {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -164,6 +212,33 @@ export function BookingFlow({
       billingEmail: prev.billingEmail.length === 0 ? email : prev.billingEmail,
     }));
     setStep("billing");
+    // Prefill in two passes (both fill-only; never overwrite what the invitee already typed):
+    //   A. localStorage on this device — full address recall for the same person re-booking.
+    //   B. server contact-hint — name + company only, for cross-device "I work at Acme" cases.
+    void prefillInvoiceFromHistory();
+  }
+
+  async function prefillInvoiceFromHistory() {
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) return;
+
+    const cached = readCachedInvoiceForm(host.slug, trimmedEmail);
+    if (cached) {
+      setInvoiceForm((prev) => mergeInvoicePrefill(prev, cached));
+    }
+
+    try {
+      const url = `/api/bookings/contact-hint?meetingTypeId=${encodeURIComponent(
+        meetingType.id,
+      )}&email=${encodeURIComponent(trimmedEmail.toLowerCase())}`;
+      const res = await fetch(url);
+      if (!res.ok) return;
+      const hint = (await res.json()) as { name: string | null; company: string | null };
+      if (!hint.company) return;
+      setInvoiceForm((prev) => mergeInvoicePrefill(prev, { companyName: hint.company! }));
+    } catch {
+      // Network failure — prefill is best-effort, the form still works without it.
+    }
   }
 
   return (
@@ -232,7 +307,12 @@ export function BookingFlow({
                   answers={answers}
                   inviteeTimezone={tz}
                   onBack={() => setStep("details")}
-                  onBooked={(id) => router.push(`/${host.slug}/${meetingType.slug}/confirmed/${id}`)}
+                  onBooked={(id) => {
+                    // Cache the just-entered billing block on this device so the same person
+                    // rebooking from this browser sees their address fields prefilled next time.
+                    saveCachedInvoiceForm(host.slug, email, invoiceForm);
+                    router.push(`/${host.slug}/${meetingType.slug}/confirmed/${id}`);
+                  }}
                   onSlotGone={(message) => {
                     setStep("pick");
                     setStagedSlot(null);

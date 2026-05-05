@@ -366,6 +366,11 @@ enum PaymentStatus {
   FAILED
   INVOICE_PENDING
   INVOICE_SENT
+  // The invoice was voided (credit note issued / Stripe payment link deactivated). Used when
+  // the booking is cancelled and no money has been collected yet — distinct from REFUNDED,
+  // which means money WAS collected and was paid back. For Soul-Suite-issued invoices we also
+  // deactivate the underlying Stripe payment link so it can't be paid after the fact.
+  INVOICE_VOIDED
 }
 
 // Which collection rail a paid meeting type uses. STRIPE = Stripe Checkout (existing flow,

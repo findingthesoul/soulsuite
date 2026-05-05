@@ -408,6 +408,47 @@ export function invoiceEmailTemplate(args: {
   return { html, text, subject };
 }
 
+// Invoice-voided notification — sent to the billing email when the host issues a credit note
+// for a cancelled booking. Tells the invitee to disregard the original invoice + (for SOUL_SUITE
+// invoices) confirms the payment link no longer works.
+export function invoiceVoidedTemplate(args: {
+  hostName: string;
+  workspaceName: string;
+  invoiceNumber: string | null;
+  meetingTypeName: string;
+  startsAtIso: string;
+  endsAtIso: string;
+  inviteeName: string;
+  formattedPrice: string;
+  paymentLinkDeactivated: boolean;
+  billingEmail: string;
+  logoUrl?: string | null;
+}): { html: string; text: string; subject: string } {
+  const when = formatDateRange(args.startsAtIso, args.endsAtIso);
+  const subjectLead = args.invoiceNumber
+    ? `Invoice ${args.invoiceNumber} cancelled`
+    : "Invoice cancelled";
+  const subject = `${subjectLead} — ${args.meetingTypeName}`;
+  const linkLine = args.paymentLinkDeactivated
+    ? "<p>The payment link from the original invoice has been deactivated.</p>"
+    : "";
+  const html = brandFrame(
+    subjectLead,
+    `<p>Hi ${escapeHtml(args.inviteeName)},</p>
+    <p>The booking for <strong>${escapeHtml(args.meetingTypeName)}</strong> on <strong>${escapeHtml(when)}</strong> with ${escapeHtml(args.hostName)} has been cancelled, and ${args.invoiceNumber ? `invoice <strong>${escapeHtml(args.invoiceNumber)}</strong>` : "the corresponding invoice"} (${escapeHtml(args.formattedPrice)}) is no longer due.</p>
+    ${linkLine}
+    <p style="font-size:12px;color:#a8a29e;margin-top:16px">If you've already initiated payment, please reply to this email so ${escapeHtml(args.hostName)} can sort it out with you.</p>`,
+    args.logoUrl,
+  );
+  const text =
+    `${subjectLead}\n\n` +
+    `The booking for ${args.meetingTypeName} on ${when} with ${args.hostName} has been cancelled.\n` +
+    `${args.invoiceNumber ? `Invoice ${args.invoiceNumber} ` : "The invoice "}(${args.formattedPrice}) is no longer due.\n` +
+    (args.paymentLinkDeactivated ? `The payment link from the original invoice has been deactivated.\n` : "") +
+    `\nIf you've already initiated payment, please reply to this email.\n`;
+  return { html, text, subject };
+}
+
 // ────────────────────────────────────────────────────────────
 // Helpers
 // ────────────────────────────────────────────────────────────

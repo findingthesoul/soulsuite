@@ -23,7 +23,8 @@ interface Row {
     | "NOT_REQUIRED"
     | "PENDING"
     | "INVOICE_PENDING"
-    | "INVOICE_SENT";
+    | "INVOICE_SENT"
+    | "INVOICE_VOIDED";
   paymentMethod: "STRIPE" | "INVOICE";
   status: "CONFIRMED" | "CANCELLED" | "RESCHEDULED";
   detailHref: string;
@@ -34,6 +35,11 @@ interface Row {
   isSoulSuiteInvoice: boolean;
   invoicePaymentLinkUrl: string | null;
   invoiceNumber: string | null;
+  // Cancelled paid bookings → host owes a refund. Distinct from isFailedToFinalize, which is
+  // a system error needing both Retry + Refund. Here only Refund applies.
+  isPaidAndCancelled: boolean;
+  // Cancelled invoice bookings whose money was never collected → host should issue a credit.
+  isInvoiceCreditable: boolean;
 }
 
 export function PaymentRow({ row, variant = "table" }: { row: Row; variant?: "table" | "card" }) {
@@ -43,6 +49,7 @@ export function PaymentRow({ row, variant = "table" }: { row: Row; variant?: "ta
   const [invoicedOpen, setInvoicedOpen] = React.useState(false);
   const [paidOpen, setPaidOpen] = React.useState(false);
   const [resendOpen, setResendOpen] = React.useState(false);
+  const [creditOpen, setCreditOpen] = React.useState(false);
   const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [copied, setCopied] = React.useState(false);
@@ -109,6 +116,14 @@ export function PaymentRow({ row, variant = "table" }: { row: Row; variant?: "ta
     const r = await postJson(`/api/admin/bookings/${row.id}/resend-invoice`);
     if (r.ok) {
       setResendOpen(false);
+      router.refresh();
+    }
+  }
+
+  async function doCreditInvoice() {
+    const r = await postJson(`/api/admin/bookings/${row.id}/credit-invoice`);
+    if (r.ok) {
+      setCreditOpen(false);
       router.refresh();
     }
   }
@@ -193,6 +208,24 @@ export function PaymentRow({ row, variant = "table" }: { row: Row; variant?: "ta
       {row.isInvoiceSent && !row.isSoulSuiteInvoice && (
         <Button size="sm" variant="primary" onClick={() => setPaidOpen(true)}>
           Mark as paid
+        </Button>
+      )}
+      {/* Cancelled paid booking that finalized cleanly (i.e. not isFailedToFinalize). Host
+          owes a refund — only show when we have a payment intent we can actually refund. */}
+      {row.isPaidAndCancelled && !row.isFailedToFinalize && row.hasPaymentIntent && (
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => setRefundOpen(true)}
+          className="text-destructive hover:bg-destructive/10"
+        >
+          Refund
+        </Button>
+      )}
+      {/* Cancelled invoice booking, no money collected → credit / void the invoice. */}
+      {row.isInvoiceCreditable && (
+        <Button size="sm" variant="primary" onClick={() => setCreditOpen(true)}>
+          Credit invoice
         </Button>
       )}
       <Link
@@ -331,6 +364,33 @@ export function PaymentRow({ row, variant = "table" }: { row: Row; variant?: "ta
           </Button>
           <Button variant="destructive" onClick={doRefund} disabled={pending}>
             {pending ? "Refunding…" : "Refund"}
+          </Button>
+        </DialogFooter>
+      </Dialog>
+
+      <Dialog open={creditOpen} onOpenChange={(o) => !pending && setCreditOpen(o)}>
+        <DialogHeader
+          title={row.invoiceNumber ? `Credit invoice ${row.invoiceNumber}?` : "Credit this invoice?"}
+          description={
+            row.isSoulSuiteInvoice
+              ? "Deactivates the Stripe payment link and emails the invitee that the invoice has been cancelled."
+              : "Marks the invoice as voided and emails the invitee that it's no longer due. Issue the credit note in your invoicing tool."
+          }
+          onClose={() => !pending && setCreditOpen(false)}
+        />
+        <DialogBody>
+          <p className="text-sm text-muted-foreground">
+            <span className="text-foreground font-medium">{row.inviteeName}</span> ·{" "}
+            {row.meetingTypeName} · {formatDate(row.startsAt)} · {row.priceLabel}
+          </p>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="secondary" onClick={() => setCreditOpen(false)} disabled={pending}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={doCreditInvoice} disabled={pending}>
+            {pending ? "Crediting…" : "Credit invoice"}
           </Button>
         </DialogFooter>
       </Dialog>

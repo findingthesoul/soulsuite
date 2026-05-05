@@ -20,10 +20,20 @@ export default async function DashboardPage() {
   const firstName = ctx.host.name.split(" ")[0];
   const now = new Date();
 
+  // Capture the previous "seen" timestamp before bumping it — the sections compare every
+  // booking's createdAt against this to decide whether to show a "new" badge. The update fires
+  // in the background so it doesn't block the first paint; the next visit picks up the new
+  // timestamp regardless of what races. Null on first ever visit → no badges that round.
+  const previousSeenAt = ctx.host.dashboardSeenAt;
+  void prisma.host.update({
+    where: { id: ctx.host.id },
+    data: { dashboardSeenAt: now },
+  }).catch(() => undefined);
+
   // Each section streams independently via Suspense — header renders instantly, then
   // Today / Next up / Open polls fill in as their queries land. With this + the loading.tsx
   // skeleton from the parent boundary, navigating onto /dashboard feels native-app-fast
-  // even on a slow first byte.
+  // even on a slow first byte. Today + Next up sit side-by-side on md+ for faster skim.
   return (
     <AppShell {...shellProps(ctx)}>
       <div className="space-y-8">
@@ -36,13 +46,15 @@ export default async function DashboardPage() {
           <QuickLinksSection host={ctx.host} />
         </Suspense>
 
-        <Suspense fallback={<SectionSkeleton title="Today" />}>
-          <TodaySection host={ctx.host} />
-        </Suspense>
+        <div className="grid gap-6 md:grid-cols-2">
+          <Suspense fallback={<SectionSkeleton title="Today" />}>
+            <TodaySection host={ctx.host} previousSeenAt={previousSeenAt} />
+          </Suspense>
 
-        <Suspense fallback={<SectionSkeleton title="Next up" />}>
-          <UpcomingSection host={ctx.host} />
-        </Suspense>
+          <Suspense fallback={<SectionSkeleton title="Next up" />}>
+            <UpcomingSection host={ctx.host} previousSeenAt={previousSeenAt} />
+          </Suspense>
+        </div>
 
         <Suspense fallback={null}>
           <OpenPollsSection host={ctx.host} />
@@ -52,7 +64,7 @@ export default async function DashboardPage() {
   );
 }
 
-async function TodaySection({ host }: { host: Host }) {
+async function TodaySection({ host, previousSeenAt }: { host: Host; previousSeenAt: Date | null }) {
   const now = new Date();
   const todayEnd = new Date(now);
   todayEnd.setUTCHours(23, 59, 59, 999);
@@ -81,6 +93,7 @@ async function TodaySection({ host }: { host: Host }) {
                 projectName={b.project?.name}
                 startsAt={b.startsAt.toISOString()}
                 endsAt={b.endsAt.toISOString()}
+                isNew={isBookingNew(b.createdAt, previousSeenAt)}
               />
             ))}
           </ul>
@@ -90,7 +103,7 @@ async function TodaySection({ host }: { host: Host }) {
   );
 }
 
-async function UpcomingSection({ host }: { host: Host }) {
+async function UpcomingSection({ host, previousSeenAt }: { host: Host; previousSeenAt: Date | null }) {
   const todayEnd = new Date();
   todayEnd.setUTCHours(23, 59, 59, 999);
   const bookings = await prisma.booking.findMany({
@@ -118,6 +131,7 @@ async function UpcomingSection({ host }: { host: Host }) {
                 projectName={b.project?.name}
                 startsAt={b.startsAt.toISOString()}
                 endsAt={b.endsAt.toISOString()}
+                isNew={isBookingNew(b.createdAt, previousSeenAt)}
               />
             ))}
           </ul>
@@ -269,12 +283,20 @@ async function QuickLinksSection({ host }: { host: Host }) {
 
 const bookingRowSelect = {
   id: true,
+  createdAt: true,
   startsAt: true,
   endsAt: true,
   inviteeName: true,
   meetingType: { select: { slug: true, name: true } },
   project: { select: { slug: true, name: true } },
 } as const;
+
+// "New" = created since the host's previous dashboard visit. First-ever visit (no prior
+// timestamp) treats nothing as new — avoids painting the entire page red on day one.
+function isBookingNew(createdAt: Date, previousSeenAt: Date | null): boolean {
+  if (!previousSeenAt) return false;
+  return createdAt.getTime() > previousSeenAt.getTime();
+}
 
 function SectionSkeleton({ title }: { title: string }) {
   return (
@@ -311,6 +333,7 @@ function BookingRow({
   projectName,
   startsAt,
   endsAt,
+  isNew,
 }: {
   href: string;
   name: string;
@@ -318,6 +341,7 @@ function BookingRow({
   projectName?: string;
   startsAt: string;
   endsAt: string;
+  isNew?: boolean;
 }) {
   return (
     <li>
@@ -326,9 +350,23 @@ function BookingRow({
         className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-surface-muted transition-colors"
       >
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-foreground truncate">
-            {name}
-            <span className="text-muted-foreground font-normal"> · {meetingType}</span>
+          <p className="text-sm font-medium text-foreground truncate flex items-center gap-2">
+            {isNew && (
+              <span
+                className="inline-block h-2 w-2 rounded-full bg-primary shrink-0"
+                aria-label="New booking"
+                title="New since your last visit"
+              />
+            )}
+            <span className="truncate">
+              {name}
+              <span className="text-muted-foreground font-normal"> · {meetingType}</span>
+            </span>
+            {isNew && (
+              <span className="ml-auto rounded-full bg-primary/10 text-primary px-1.5 py-0.5 text-[10px] uppercase tracking-wide font-medium shrink-0">
+                New
+              </span>
+            )}
           </p>
           <p className="text-xs text-muted-foreground">
             <BookingDateTime startsAt={startsAt} endsAt={endsAt} />

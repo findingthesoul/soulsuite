@@ -1,4 +1,5 @@
 import { calendarFor, isGoogleAuthError } from "@/lib/google/client";
+import { prisma } from "@/lib/prisma";
 import type { BusyInterval } from "./engine";
 
 interface HostInput {
@@ -71,31 +72,57 @@ export async function fetchHostBusy(
   const effective = resolveConflictCalendars(host.calendars, meetingType);
   if (effective.length === 0) return [];
 
+  // Cache only covers the Google freebusy result. Pending-approval bookings are layered on
+  // *after* the cache lookup so changes to pending state aren't masked by a stale TTL.
   const cacheable = !!host.id;
   const cacheKey = cacheable ? freebusyCacheKey(host.id!, effective, range.from, range.to) : null;
-  if (cacheKey) {
-    const hit = _freebusyCache.get(cacheKey);
-    if (hit && hit.expiresAt > Date.now()) return hit.busy;
-  }
-
-  const cal = calendarFor(host.googleRefreshToken);
-  const res = await cal.freebusy.query({
-    requestBody: {
-      timeMin: range.from.toISOString(),
-      timeMax: range.to.toISOString(),
-      items: effective.map((c) => ({ id: c.googleCalendarId })),
-    },
-  });
-
-  const out: BusyInterval[] = [];
-  for (const c of effective) {
-    const data = res.data.calendars?.[c.googleCalendarId];
-    for (const b of data?.busy ?? []) {
-      if (b.start && b.end) out.push({ start: new Date(b.start), end: new Date(b.end) });
+  let googleBusy: BusyInterval[];
+  const hit = cacheKey ? _freebusyCache.get(cacheKey) : null;
+  if (hit && hit.expiresAt > Date.now()) {
+    googleBusy = hit.busy;
+  } else {
+    const cal = calendarFor(host.googleRefreshToken);
+    const res = await cal.freebusy.query({
+      requestBody: {
+        timeMin: range.from.toISOString(),
+        timeMax: range.to.toISOString(),
+        items: effective.map((c) => ({ id: c.googleCalendarId })),
+      },
+    });
+    googleBusy = [];
+    for (const c of effective) {
+      const data = res.data.calendars?.[c.googleCalendarId];
+      for (const b of data?.busy ?? []) {
+        if (b.start && b.end) googleBusy.push({ start: new Date(b.start), end: new Date(b.end) });
+      }
     }
+    if (cacheKey) _freebusyCache.set(cacheKey, { busy: googleBusy, expiresAt: Date.now() + FREEBUSY_TTL_MS });
   }
-  if (cacheKey) _freebusyCache.set(cacheKey, { busy: out, expiresAt: Date.now() + FREEBUSY_TTL_MS });
-  return out;
+
+  // Pending-approval bookings have no Google event yet, so freebusy doesn't see them. Treat
+  // them as busy on the requested host so the slot disappears from the picker until the host
+  // approves or declines. Queried outside the freebusy cache so flips show up immediately.
+  if (host.id) {
+    const pending = await fetchPendingApprovalBusy(host.id, range);
+    return [...googleBusy, ...pending];
+  }
+  return googleBusy;
+}
+
+async function fetchPendingApprovalBusy(
+  hostId: string,
+  range: { from: Date; to: Date },
+): Promise<BusyInterval[]> {
+  const rows = await prisma.booking.findMany({
+    where: {
+      hostId,
+      status: "PENDING_APPROVAL",
+      startsAt: { lt: range.to },
+      endsAt: { gt: range.from },
+    },
+    select: { startsAt: true, endsAt: true },
+  });
+  return rows.map((r) => ({ start: r.startsAt, end: r.endsAt }));
 }
 
 export { isGoogleAuthError };

@@ -45,6 +45,8 @@ const patchSchema = z.object({
   priceCents: z.number().int().min(50).max(10_000_000).nullable().optional(),
   priceCurrency: z.enum(["eur", "usd", "gbp"]).nullable().optional(),
   paymentMethod: z.enum(["STRIPE", "INVOICE", "ADYEN"]).default("STRIPE"),
+  // Host-approval gate. v1 rejects approval + paid; personal MTs are always SINGLE routing.
+  requireApproval: z.boolean().default(false),
 });
 
 async function findOwnedMeetingType(id: string, hostId: string) {
@@ -97,6 +99,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (isPaid && parsed.data.paymentMethod === "STRIPE" && !host.stripeAccountId) {
     return new NextResponse("Connect Stripe under Settings → Payments first.", { status: 400 });
   }
+  if (parsed.data.requireApproval && isPaid) {
+    return new NextResponse(
+      "Require approval can't be combined with paid meeting types yet — pick one.",
+      { status: 400 },
+    );
+  }
 
   // Validate that any conflict-calendar IDs belong to this host.
   if (parsed.data.conflictCalendarIds.length > 0) {
@@ -141,6 +149,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
           priceCurrency: isPaid ? parsed.data.priceCurrency! : null,
           paymentMethod:
             isPaid && parsed.data.paymentMethod === "INVOICE" ? "INVOICE" : "STRIPE",
+          requireApproval: parsed.data.requireApproval,
         },
       });
       const newFormId = await syncIntakeForm({

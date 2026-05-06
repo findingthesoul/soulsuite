@@ -19,6 +19,9 @@ const bodySchema = z.object({
     .startsWith("https://")
     .nullable()
     .optional(),
+  // Default for newly-created meeting types' requireApproval flag. Optional so older clients
+  // that don't send the field don't trip validation.
+  requireApprovalDefault: z.boolean().optional(),
 });
 
 export async function POST(request: NextRequest) {

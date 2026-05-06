@@ -53,6 +53,9 @@ const bodySchema = z.object({
   // ADYEN intentionally rejected — UI shows it as a placeholder, but the DB enum doesn't include
   // it yet (no code path to handle it).
   paymentMethod: z.enum(["STRIPE", "INVOICE", "ADYEN"]).default("STRIPE"),
+  // Host-approval gate. Optional; when omitted the create handler defaults to the host's
+  // requireApprovalDefault. v1 rejects approval + paid and approval + non-SINGLE routing.
+  requireApproval: z.boolean().optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -97,6 +100,16 @@ export async function POST(request: NextRequest) {
     return new NextResponse("Connect Stripe under Settings → Payments first.", { status: 400 });
   }
 
+  // Approval workflow: rejected when combined with a paid MT (the approved-but-not-paid flow is
+  // out of scope for v1). Personal MTs are always SINGLE routing so no extra check needed here.
+  const requireApproval = data.requireApproval ?? host.requireApprovalDefault;
+  if (requireApproval && isPaid) {
+    return new NextResponse(
+      "Require approval can't be combined with paid meeting types yet — pick one.",
+      { status: 400 },
+    );
+  }
+
   if (data.conflictCalendarIds.length > 0) {
     const owned = await prisma.calendar.findMany({
       where: { hostId: host.id, id: { in: data.conflictCalendarIds } },
@@ -138,6 +151,7 @@ export async function POST(request: NextRequest) {
           // Free MTs always store STRIPE (the schema default) so the column is meaningless
           // for them. Only paid MTs honour the chosen rail.
           paymentMethod: isPaid && data.paymentMethod === "INVOICE" ? "INVOICE" : "STRIPE",
+          requireApproval,
         },
       });
       const intakeFormId = await syncIntakeForm({

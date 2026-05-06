@@ -12,6 +12,7 @@ import { SkeletonRow } from "@/components/skeletons";
 import { BookingDateTime } from "./bookings/client";
 import { PrefetchLink } from "@/components/prefetch-link";
 import { CopyLinkButton, OpenBookingLink } from "@/components/copy-link-button";
+import { ApprovalButtons } from "./bookings/approval-buttons";
 
 export default async function DashboardPage() {
   const ctx = await getPageContextOrRedirect();
@@ -41,6 +42,10 @@ export default async function DashboardPage() {
           <h1 className="text-3xl font-semibold tracking-tight">Welcome, {firstName}</h1>
           <p className="text-sm text-muted-foreground">{niceDateLong(now)}</p>
         </header>
+
+        <Suspense fallback={null}>
+          <ApprovalRequestsSection host={ctx.host} />
+        </Suspense>
 
         <Suspense fallback={null}>
           <QuickLinksSection host={ctx.host} />
@@ -169,6 +174,73 @@ async function OpenPollsSection({ host }: { host: Host }) {
               </Link>
             </li>
           ))}
+        </ul>
+      </Card>
+    </section>
+  );
+}
+
+async function ApprovalRequestsSection({ host }: { host: Host }) {
+  const bookings = await prisma.booking.findMany({
+    where: { hostId: host.id, status: "PENDING_APPROVAL" },
+    select: {
+      id: true,
+      startsAt: true,
+      endsAt: true,
+      inviteeName: true,
+      inviteeEmail: true,
+      meetingType: { select: { slug: true, name: true } },
+      project: { select: { slug: true, name: true } },
+    },
+    orderBy: { startsAt: "asc" },
+    take: 20,
+  });
+  if (bookings.length === 0) return null;
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-baseline justify-between">
+        <h2 className="text-xs uppercase tracking-wide text-subtle-foreground">
+          Approval requests
+          <span className="ml-1 text-muted-foreground">({bookings.length})</span>
+        </h2>
+        <Link
+          href="/dashboard/bookings"
+          className="text-xs text-muted-foreground underline hover:text-foreground"
+        >
+          View all
+        </Link>
+      </div>
+      <Card className="border-amber-300/60 dark:border-amber-500/30">
+        <ul className="divide-y divide-border">
+          {bookings.map((b) => {
+            const slug = b.project ? b.project.slug : host.slug;
+            const href = `/${slug}/${b.meetingType.slug}/confirmed/${b.id}`;
+            return (
+              <li
+                key={b.id}
+                className="flex items-center gap-3 px-4 py-3 hover:bg-surface-muted transition-colors"
+              >
+                <PrefetchLink href={href} className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-foreground truncate">
+                    {b.inviteeName}
+                    <span className="text-muted-foreground font-normal"> · {b.meetingType.name}</span>
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    <BookingDateTime
+                      startsAt={b.startsAt.toISOString()}
+                      endsAt={b.endsAt.toISOString()}
+                    />
+                    <span className="ml-1.5">· {b.inviteeEmail}</span>
+                    {b.project && <span className="ml-1.5">· {b.project.name}</span>}
+                  </p>
+                </PrefetchLink>
+                <div className="shrink-0">
+                  <ApprovalButtons bookingId={b.id} />
+                </div>
+              </li>
+            );
+          })}
         </ul>
       </Card>
     </section>

@@ -74,7 +74,11 @@ async function TodaySection({ host, previousSeenAt }: { host: Host; previousSeen
   const todayEnd = new Date(now);
   todayEnd.setUTCHours(23, 59, 59, 999);
   const bookings = await prisma.booking.findMany({
-    where: { hostId: host.id, status: { not: "CANCELLED" }, startsAt: { gte: now, lte: todayEnd } },
+    where: {
+      hostId: host.id,
+      status: { in: ["CONFIRMED", "RESCHEDULED"] },
+      startsAt: { gte: now, lte: todayEnd },
+    },
     select: bookingRowSelect,
     orderBy: { startsAt: "asc" },
     take: 10,
@@ -112,7 +116,11 @@ async function UpcomingSection({ host, previousSeenAt }: { host: Host; previousS
   const todayEnd = new Date();
   todayEnd.setUTCHours(23, 59, 59, 999);
   const bookings = await prisma.booking.findMany({
-    where: { hostId: host.id, status: { not: "CANCELLED" }, startsAt: { gt: todayEnd } },
+    where: {
+      hostId: host.id,
+      status: { in: ["CONFIRMED", "RESCHEDULED"] },
+      startsAt: { gt: todayEnd },
+    },
     select: bookingRowSelect,
     orderBy: { startsAt: "asc" },
     take: 5,

@@ -39,7 +39,7 @@ interface MeetingType {
   defaultLocation: string | null;
   priceCents: number | null;
   priceCurrency: string | null;
-  paymentMethod: "STRIPE" | "INVOICE";
+  paymentMethod: "STRIPE" | "INVOICE" | "ADYEN";
 }
 
 // Empty invoice form state — shared between initial render and "Back to billing" navigation.

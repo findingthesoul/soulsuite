@@ -90,14 +90,17 @@ export async function POST(request: NextRequest) {
   // Pricing: paid MTs need a currency, plus per-rail validation (Stripe needs a connected
   // account; invoice needs nothing extra). ADYEN is rejected — UI placeholder only.
   const isPaid = (data.priceCents ?? 0) > 0;
-  if (data.paymentMethod === "ADYEN") {
-    return new NextResponse("Adyen isn't available yet — pick Stripe or invoice.", { status: 400 });
-  }
   if (isPaid && !data.priceCurrency) {
     return new NextResponse("Pick a currency for paid meeting types.", { status: 400 });
   }
   if (isPaid && data.paymentMethod === "STRIPE" && !host.stripeAccountId) {
     return new NextResponse("Connect Stripe under Settings → Payments first.", { status: 400 });
+  }
+  if (isPaid && data.paymentMethod === "ADYEN" && !host.adyenMerchantAccount) {
+    return new NextResponse(
+      "Set your Adyen merchant account under Settings → Payments first.",
+      { status: 400 },
+    );
   }
 
   // Approval workflow: rejected when combined with a paid MT (the approved-but-not-paid flow is
@@ -149,8 +152,8 @@ export async function POST(request: NextRequest) {
           priceCents: isPaid ? data.priceCents! : null,
           priceCurrency: isPaid ? data.priceCurrency! : null,
           // Free MTs always store STRIPE (the schema default) so the column is meaningless
-          // for them. Only paid MTs honour the chosen rail.
-          paymentMethod: isPaid && data.paymentMethod === "INVOICE" ? "INVOICE" : "STRIPE",
+          // for them. Paid MTs honour the chosen rail (STRIPE / INVOICE / ADYEN).
+          paymentMethod: isPaid ? data.paymentMethod : "STRIPE",
           requireApproval,
         },
       });

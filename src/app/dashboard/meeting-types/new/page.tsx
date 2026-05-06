@@ -22,6 +22,7 @@ export default async function NewMeetingTypePage() {
           hostSlug={ctx.host.slug}
           hostHasZoom={!!ctx.host.zoomRefreshToken}
           hostHasStripe={!!ctx.host.stripeAccountId}
+          hostHasAdyen={!!ctx.host.adyenMerchantAccount}
           hostHasPersonalRoom={!!ctx.host.personalRoomUrl}
           hostRequireApprovalDefault={ctx.host.requireApprovalDefault}
           hostCalendars={calendars.map((c) => ({

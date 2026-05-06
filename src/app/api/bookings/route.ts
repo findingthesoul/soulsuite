@@ -19,6 +19,7 @@ import { getEmailLogoUrl } from "@/lib/branding";
 import { upsertContactFromBooking, workspaceIdForMeetingType } from "@/lib/contacts";
 import { finalizeBooking } from "@/lib/bookings/finalize";
 import { stripeClient, isStripeConfigured } from "@/lib/stripe/client";
+import { createPaymentLink as createAdyenPaymentLink, isAdyenConfigured } from "@/lib/adyen/client";
 import { invoiceDetailsSchema } from "@/lib/bookings/invoice-details";
 import { sendSoulSuiteInvoice } from "@/lib/bookings/send-invoice";
 import { publicEnv } from "@/lib/env";
@@ -448,6 +449,111 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ id: invoiceBookingId });
   }
 
+  // ── Paid meeting types: Adyen Pay-by-Link branch ──
+  // Creates the Booking row in PENDING then asks Adyen for a hosted payment link. The
+  // /api/adyen/webhook handler flips PAID on AUTHORISATION + runs finalizeBooking. Refunds
+  // through Adyen are not yet wired — that lands alongside the dashboard refund button.
+  if (isPaid && meetingType.paymentMethod === "ADYEN") {
+    if (!isAdyenConfigured()) {
+      return new NextResponse("Adyen is not configured on this server.", { status: 503 });
+    }
+    if (!meetingType.priceCurrency) {
+      return new NextResponse("Meeting type has no priceCurrency set.", { status: 500 });
+    }
+    if (!host.adyenMerchantAccount) {
+      return new NextResponse(
+        "This meeting host hasn't set up Adyen yet. Please contact them.",
+        { status: 502 },
+      );
+    }
+
+    let pendingId: string;
+    try {
+      const created = await prisma.booking.create({
+        data: {
+          meetingTypeId: meetingType.id,
+          hostId: host.id,
+          projectId: meetingType.projectId,
+          inviteeEmail: body.inviteeEmail,
+          inviteeName: body.inviteeName,
+          inviteeAnswers:
+            Object.keys(cleanedAnswers).length > 0
+              ? (cleanedAnswers as Prisma.InputJsonValue)
+              : undefined,
+          startsAt,
+          endsAt,
+          requestId,
+          status: "CONFIRMED",
+          paymentMethod: "ADYEN",
+          paymentStatus: "PENDING",
+        },
+      });
+      pendingId = created.id;
+    } catch (err) {
+      if (err && typeof err === "object" && (err as { code?: string }).code === "P2002") {
+        const existing = await prisma.booking.findUnique({ where: { requestId } });
+        if (existing) {
+          if (existing.paymentStatus === "PAID") return NextResponse.json({ id: existing.id });
+          if (existing.adyenPaymentLinkUrl) {
+            return NextResponse.json({
+              id: existing.id,
+              checkoutUrl: existing.adyenPaymentLinkUrl,
+            });
+          }
+          pendingId = existing.id;
+        } else {
+          throw err;
+        }
+      } else {
+        throw err;
+      }
+    }
+
+    const baseUrl = publicEnv.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
+    const slugForUrl =
+      meetingType.scope === "PROJECT"
+        ? (
+            await prisma.project.findUnique({
+              where: { id: meetingType.projectId! },
+              select: { slug: true },
+            })
+          )?.slug ?? host.slug
+        : host.slug;
+
+    let link;
+    try {
+      // Adyen rejects expiresAt > 70 days; cap conservatively at 7d so abandoned links don't
+      // linger. The booking row itself drives availability via PENDING status, not the link TTL.
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      link = await createAdyenPaymentLink({
+        merchantAccount: host.adyenMerchantAccount,
+        amount: { value: meetingType.priceCents!, currency: meetingType.priceCurrency },
+        reference: pendingId,
+        description: meetingType.name,
+        shopperEmail: body.inviteeEmail,
+        shopperName: shopperNameParts(body.inviteeName),
+        returnUrl: `${baseUrl}/${slugForUrl}/${meetingType.slug}/confirmed/${pendingId}?paid=1`,
+        expiresAt,
+      });
+    } catch (err) {
+      console.error("[booking] adyen payment link create failed", err);
+      await prisma.booking.delete({ where: { id: pendingId } }).catch(() => undefined);
+      return new NextResponse("Couldn't start the Adyen payment — please try again.", {
+        status: 502,
+      });
+    }
+
+    await prisma.booking.update({
+      where: { id: pendingId },
+      data: {
+        adyenPaymentLinkId: link.id,
+        adyenPaymentLinkUrl: link.url,
+      },
+    });
+
+    return NextResponse.json({ id: pendingId, checkoutUrl: link.url });
+  }
+
   // ── Paid meeting types: Stripe Checkout branch ──
   // For paid MTs we create the Booking row in PENDING state and a Stripe Checkout Session
   // tied to the host's connected Stripe account. The webhook (/api/stripe/webhook) flips
@@ -725,4 +831,13 @@ export async function POST(request: NextRequest) {
     return new NextResponse(result.message, { status: result.status });
   }
   return NextResponse.json({ id: bookingId });
+}
+
+// Best-effort split of "First Last" into Adyen's shopperName shape. Single-token names land
+// entirely as firstName so we never send an empty lastName, which Adyen rejects in some flows.
+function shopperNameParts(full: string): { firstName: string; lastName: string } {
+  const trimmed = full.trim();
+  const space = trimmed.indexOf(" ");
+  if (space === -1) return { firstName: trimmed, lastName: trimmed };
+  return { firstName: trimmed.slice(0, space), lastName: trimmed.slice(space + 1) };
 }

@@ -25,7 +25,7 @@ interface Row {
     | "INVOICE_PENDING"
     | "INVOICE_SENT"
     | "INVOICE_VOIDED";
-  paymentMethod: "STRIPE" | "INVOICE";
+  paymentMethod: "STRIPE" | "INVOICE" | "ADYEN";
   status: "CONFIRMED" | "CANCELLED" | "RESCHEDULED" | "PENDING_APPROVAL";
   detailHref: string;
   isFailedToFinalize: boolean;

@@ -1037,9 +1037,6 @@ function validateProjectDraft(
     });
   }
   if (draft.isPaid) {
-    if (draft.paymentMethod === "ADYEN") {
-      errors.push({ tabKey: "pricing", message: "Adyen isn't available yet — pick Stripe or invoice." });
-    }
     const major = Number(draft.priceMajor);
     if (!Number.isFinite(major) || major <= 0) {
       errors.push({ tabKey: "pricing", message: "Enter a price greater than 0." });
@@ -1160,7 +1157,6 @@ function validateDraft(draft: DraftValues, members: ProjectMember[]): string | n
   // Pricing — every host that could be the booking host needs Stripe connected:
   //   SINGLE/ROUND_ROBIN: every assigned host. COLLECTIVE: the conferencing host.
   if (draft.isPaid) {
-    if (draft.paymentMethod === "ADYEN") return "Adyen isn't available yet — pick Stripe or invoice.";
     const major = Number(draft.priceMajor);
     if (!Number.isFinite(major) || major <= 0) return "Enter a price greater than 0.";
     if (draft.paymentMethod === "STRIPE" && Math.round(major * 100) < 50) {

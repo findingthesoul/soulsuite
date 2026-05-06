@@ -90,14 +90,17 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
 
   const isPaid = (parsed.data.priceCents ?? 0) > 0;
-  if (parsed.data.paymentMethod === "ADYEN") {
-    return new NextResponse("Adyen isn't available yet — pick Stripe or invoice.", { status: 400 });
-  }
   if (isPaid && !parsed.data.priceCurrency) {
     return new NextResponse("Pick a currency for paid meeting types.", { status: 400 });
   }
   if (isPaid && parsed.data.paymentMethod === "STRIPE" && !host.stripeAccountId) {
     return new NextResponse("Connect Stripe under Settings → Payments first.", { status: 400 });
+  }
+  if (isPaid && parsed.data.paymentMethod === "ADYEN" && !host.adyenMerchantAccount) {
+    return new NextResponse(
+      "Set your Adyen merchant account under Settings → Payments first.",
+      { status: 400 },
+    );
   }
   if (parsed.data.requireApproval && isPaid) {
     return new NextResponse(
@@ -147,8 +150,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
           workingHoursOverride: parsed.data.workingHoursOverride ?? Prisma.JsonNull,
           priceCents: isPaid ? parsed.data.priceCents! : null,
           priceCurrency: isPaid ? parsed.data.priceCurrency! : null,
-          paymentMethod:
-            isPaid && parsed.data.paymentMethod === "INVOICE" ? "INVOICE" : "STRIPE",
+          paymentMethod: isPaid ? parsed.data.paymentMethod : "STRIPE",
           requireApproval: parsed.data.requireApproval,
         },
       });

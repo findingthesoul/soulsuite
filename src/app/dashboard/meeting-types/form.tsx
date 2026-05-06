@@ -173,13 +173,17 @@ function pricingPayload(draft: DraftValues):
   };
 }
 
-function validatePricing(draft: DraftValues, hostHasStripe: boolean): string | null {
+function validatePricing(
+  draft: DraftValues,
+  hostHasStripe: boolean,
+  hostHasAdyen: boolean,
+): string | null {
   if (!draft.isPaid) return null;
-  if (draft.paymentMethod === "ADYEN") {
-    return "Adyen isn't available yet — pick Stripe or invoice.";
-  }
   if (draft.paymentMethod === "STRIPE" && !hostHasStripe) {
     return "Connect Stripe under Settings → Payments first.";
+  }
+  if (draft.paymentMethod === "ADYEN" && !hostHasAdyen) {
+    return "Set your Adyen merchant account under Settings → Payments first.";
   }
   const major = Number(draft.priceMajor);
   if (!Number.isFinite(major) || major <= 0) {
@@ -219,6 +223,7 @@ function validatePersonalDraft(
   draft: DraftValues,
   hostHasZoom: boolean,
   hostHasStripe: boolean,
+  hostHasAdyen: boolean,
   hostHasPersonalRoom: boolean,
 ): TabError[] {
   const errors: TabError[] = [];
@@ -268,7 +273,7 @@ function validatePersonalDraft(
       message: "Set up your personal room URL on your profile before using it here.",
     });
   }
-  const pricingErr = validatePricing(draft, hostHasStripe);
+  const pricingErr = validatePricing(draft, hostHasStripe, hostHasAdyen);
   if (pricingErr) {
     errors.push({ tabKey: "pricing", message: pricingErr });
   }
@@ -286,6 +291,7 @@ export function MeetingTypeForm({
   hostCalendars,
   hostHasZoom,
   hostHasStripe,
+  hostHasAdyen,
   hostHasPersonalRoom,
   hostRequireApprovalDefault,
   initial,
@@ -294,6 +300,7 @@ export function MeetingTypeForm({
   hostCalendars: HostCalendar[];
   hostHasZoom: boolean;
   hostHasStripe: boolean;
+  hostHasAdyen: boolean;
   hostHasPersonalRoom: boolean;
   hostRequireApprovalDefault: boolean;
   initial?: Initial;
@@ -309,6 +316,7 @@ export function MeetingTypeForm({
         hostCalendars={hostCalendars}
         hostHasZoom={hostHasZoom}
         hostHasStripe={hostHasStripe}
+        hostHasAdyen={hostHasAdyen}
         hostHasPersonalRoom={hostHasPersonalRoom}
         initial={initial}
       />
@@ -322,6 +330,7 @@ export function MeetingTypeForm({
       hostCalendars={hostCalendars}
       hostHasZoom={hostHasZoom}
       hostHasStripe={hostHasStripe}
+      hostHasAdyen={hostHasAdyen}
       hostHasPersonalRoom={hostHasPersonalRoom}
       hostRequireApprovalDefault={hostRequireApprovalDefault}
       onCreated={(id) => {
@@ -342,6 +351,7 @@ function EditMeetingTypeForm({
   hostCalendars,
   hostHasZoom,
   hostHasStripe,
+  hostHasAdyen,
   hostHasPersonalRoom,
   initial,
 }: {
@@ -349,6 +359,7 @@ function EditMeetingTypeForm({
   hostCalendars: HostCalendar[];
   hostHasZoom: boolean;
   hostHasStripe: boolean;
+  hostHasAdyen: boolean;
   hostHasPersonalRoom: boolean;
   initial: Initial;
 }) {
@@ -377,7 +388,7 @@ function EditMeetingTypeForm({
 
   function save() {
     setError(null);
-    const errors = validatePersonalDraft(draft, hostHasZoom, hostHasStripe, hostHasPersonalRoom);
+    const errors = validatePersonalDraft(draft, hostHasZoom, hostHasStripe, hostHasAdyen, hostHasPersonalRoom);
     if (errors.length > 0) {
       setTabErrors(errors);
       // Auto-switch to first tab with an error.
@@ -584,7 +595,7 @@ function EditMeetingTypeForm({
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <PricingEditor draft={draft} update={update} hostHasStripe={hostHasStripe} />
+              <PricingEditor draft={draft} update={update} hostHasStripe={hostHasStripe} hostHasAdyen={hostHasAdyen} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -629,6 +640,7 @@ function CreateMeetingTypeForm({
   hostCalendars,
   hostHasZoom,
   hostHasStripe,
+  hostHasAdyen,
   hostHasPersonalRoom,
   hostRequireApprovalDefault,
   router,
@@ -637,6 +649,7 @@ function CreateMeetingTypeForm({
   hostCalendars: HostCalendar[];
   hostHasZoom: boolean;
   hostHasStripe: boolean;
+  hostHasAdyen: boolean;
   hostHasPersonalRoom: boolean;
   hostRequireApprovalDefault: boolean;
   onCreated: (id: string) => void;
@@ -684,7 +697,7 @@ function CreateMeetingTypeForm({
     if (!Number.isInteger(draft.maxInvitees) || draft.maxInvitees < 1 || draft.maxInvitees > 50) {
       return setError("Max invitees must be a whole number between 1 and 50.");
     }
-    const pricingErr = validatePricing(draft, hostHasStripe);
+    const pricingErr = validatePricing(draft, hostHasStripe, hostHasAdyen);
     if (pricingErr) return setError(pricingErr);
     if (draft.requireApproval && draft.isPaid) {
       return setError(
@@ -837,7 +850,7 @@ function CreateMeetingTypeForm({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <PricingEditor draft={draft} update={update} hostHasStripe={hostHasStripe} />
+          <PricingEditor draft={draft} update={update} hostHasStripe={hostHasStripe} hostHasAdyen={hostHasAdyen} />
         </CardContent>
       </Card>
 
@@ -1227,10 +1240,12 @@ function PricingEditor({
   draft,
   update,
   hostHasStripe,
+  hostHasAdyen,
 }: {
   draft: DraftValues;
   update: <K extends keyof DraftValues>(key: K, value: DraftValues[K]) => void;
   hostHasStripe: boolean;
+  hostHasAdyen: boolean;
 }) {
   return (
     <div className="space-y-3">
@@ -1296,6 +1311,11 @@ function PricingEditor({
           Connect Stripe under Settings → Payments first.
         </p>
       )}
+      {draft.isPaid && draft.paymentMethod === "ADYEN" && !hostHasAdyen && (
+        <p className="text-xs text-destructive">
+          Set your Adyen merchant account under Settings → Payments first.
+        </p>
+      )}
     </div>
   );
 }
@@ -1344,18 +1364,20 @@ export function PaymentMethodPicker({
             </span>
           </span>
         </label>
-        <label className="flex items-start gap-2 opacity-60 cursor-not-allowed">
+        <label className="flex items-start gap-2">
           <input
             type="radio"
             name="paymentMethod"
             checked={value === "ADYEN"}
             onChange={() => onChange("ADYEN")}
-            disabled
             className="h-4 w-4 mt-0.5 border-border accent-foreground"
           />
           <span>
             <span className="text-foreground">Adyen</span>
-            <span className="block text-xs text-muted-foreground">Coming soon.</span>
+            <span className="block text-xs text-muted-foreground">
+              Pay-by-Link via Adyen — best for South Africa, Curaçao, and other regions Stripe
+              doesn&apos;t cover.
+            </span>
           </span>
         </label>
       </div>

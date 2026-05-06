@@ -20,6 +20,17 @@ const bodySchema = z.object({
       message: "Stripe account ID must look like acct_xxx (letters and digits).",
     }),
   invoiceSource: z.enum(["EXTERNAL", "SOUL_SUITE"]).optional(),
+  // Adyen sub-merchant account name on Soul Suite's platform. Allow letters/digits/._- up to
+  // 80 chars; null clears it. Adyen's own constraints are stricter but those are enforced when
+  // the payment link is created.
+  adyenMerchantAccount: z
+    .string()
+    .trim()
+    .nullable()
+    .refine((v) => v === null || v === "" || /^[A-Za-z0-9._-]{1,80}$/.test(v), {
+      message: "Adyen merchant account uses letters, digits, dot, dash, underscore (max 80 chars).",
+    })
+    .optional(),
 });
 
 export async function PATCH(request: NextRequest) {
@@ -43,9 +54,17 @@ export async function PATCH(request: NextRequest) {
     );
   }
 
+  const adyenRaw = parsed.data.adyenMerchantAccount;
+  const adyenMerchantAccount =
+    adyenRaw === undefined ? undefined : adyenRaw && adyenRaw.length > 0 ? adyenRaw : null;
+
   await prisma.host.update({
     where: { id: host.id },
-    data: { stripeAccountId, invoiceSource },
+    data: {
+      stripeAccountId,
+      invoiceSource,
+      ...(adyenMerchantAccount !== undefined && { adyenMerchantAccount }),
+    },
   });
   return NextResponse.json({ ok: true });
 }

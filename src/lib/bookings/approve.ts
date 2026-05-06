@@ -4,8 +4,13 @@
 
 import { prisma } from "@/lib/prisma";
 import { finalizeBooking } from "@/lib/bookings/finalize";
-import { bookingDeclinedTemplate, sendEmail } from "@/lib/email";
+import {
+  bookingAlternativeRequestedTemplate,
+  bookingDeclinedTemplate,
+  sendEmail,
+} from "@/lib/email";
 import { getEmailLogoUrl } from "@/lib/branding";
+import { publicEnv } from "@/lib/env";
 
 export type ApproveResult =
   | { ok: true; status: "ALREADY_CONFIRMED" }
@@ -115,4 +120,75 @@ export async function declinePendingBooking(args: DeclineArgs): Promise<DeclineR
     replyTo: booking.host.email,
   });
   return { ok: true, status: "DECLINED" };
+}
+
+export type AlternativeResult =
+  | { ok: true }
+  | { ok: false; status: number; message: string };
+
+interface AlternativeArgs {
+  bookingId: string;
+  decidedByHostId: string;
+  // Free-form note from the host shown in the invitee email. Trim/clip is the caller's job.
+  comment: string | null;
+}
+
+// Same effect as decline (cancels the pending booking, frees one-off claims) but the email
+// invites the invitee to rebook with an optional comment from the host. Used when the host
+// can't take the requested slot but still wants the meeting.
+export async function requestAlternativeForPendingBooking(
+  args: AlternativeArgs,
+): Promise<AlternativeResult> {
+  const booking = await prisma.booking.findUnique({
+    where: { id: args.bookingId },
+    include: {
+      meetingType: { select: { name: true, slug: true } },
+      host: { select: { name: true, email: true, slug: true } },
+      project: { select: { slug: true } },
+    },
+  });
+  if (!booking) return { ok: false, status: 404, message: "Booking not found" };
+  if (booking.status !== "PENDING_APPROVAL") {
+    return { ok: false, status: 409, message: "This booking is not awaiting approval." };
+  }
+
+  await prisma.booking.update({
+    where: { id: booking.id },
+    data: {
+      status: "CANCELLED",
+      approvalDecidedByHostId: args.decidedByHostId,
+    },
+  });
+
+  await prisma.oneOffSlot
+    .updateMany({
+      where: { bookedBookingId: booking.id },
+      data: { bookedBookingId: null },
+    })
+    .catch(() => undefined);
+
+  const slug = booking.project?.slug ?? booking.host.slug;
+  const baseUrl = publicEnv.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
+  const rebookUrl = `${baseUrl}/${slug}/${booking.meetingType.slug}`;
+  const logoUrl = await getEmailLogoUrl();
+  const tmpl = bookingAlternativeRequestedTemplate({
+    hostName: booking.host.name,
+    meetingTypeName: booking.meetingType.name,
+    startsAtIso: booking.startsAt.toISOString(),
+    endsAtIso: booking.endsAt.toISOString(),
+    inviteeName: booking.inviteeName,
+    comment: args.comment,
+    rebookUrl,
+    logoUrl,
+  });
+  void sendEmail({
+    to: booking.inviteeEmail,
+    subject: tmpl.subject,
+    html: tmpl.html,
+    text: tmpl.text,
+    fromName: booking.host.name,
+    replyTo: booking.host.email,
+  });
+
+  return { ok: true };
 }

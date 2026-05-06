@@ -512,6 +512,44 @@ export function bookingDeclinedTemplate(args: {
   return { html, text, subject };
 }
 
+// "Ask for an alternative" email — sent to the invitee when the host wants to keep the door
+// open but can't take the requested time. Carries an optional free-text comment from the host
+// + a rebook link back to the meeting type page so the invitee can pick a new slot.
+export function bookingAlternativeRequestedTemplate(args: {
+  hostName: string;
+  meetingTypeName: string;
+  startsAtIso: string;
+  endsAtIso: string;
+  inviteeName: string;
+  comment: string | null;
+  rebookUrl: string;
+  logoUrl?: string | null;
+}): { html: string; text: string; subject: string } {
+  const when = formatDateRange(args.startsAtIso, args.endsAtIso);
+  const subject = `Could we find another time? ${args.meetingTypeName} — ${when}`;
+  const commentBlockHtml = args.comment
+    ? `<div style="margin:16px 0;padding:14px 16px;border:1px solid #e7e5e4;border-radius:8px;background:#fafaf9">
+        <p style="margin:0 0 4px;font-size:12px;color:#a8a29e;text-transform:uppercase;letter-spacing:0.04em">Note from ${escapeHtml(args.hostName)}</p>
+        <p style="margin:0;font-size:14px;white-space:pre-line">${escapeHtml(args.comment)}</p>
+      </div>`
+    : "";
+  const html = brandFrame(
+    "Could we find another time?",
+    `<p>Hi ${escapeHtml(args.inviteeName)},</p>
+    <p><strong>${escapeHtml(args.hostName)}</strong> can't take the slot you picked for <strong>${escapeHtml(args.meetingTypeName)}</strong> on <strong>${escapeHtml(when)}</strong>, but would still like to meet.</p>
+    ${commentBlockHtml}
+    <p style="margin:24px 0">
+      <a href="${escapeAttr(args.rebookUrl)}" style="display:inline-block;padding:12px 22px;background:#1c1917;color:#fafafa;border-radius:6px;text-decoration:none;font-weight:600">Pick another time</a>
+    </p>`,
+    args.logoUrl,
+  );
+  const text =
+    `${args.hostName} can't take ${args.meetingTypeName} on ${when}, but would still like to meet.\n\n` +
+    (args.comment ? `Note from ${args.hostName}:\n${args.comment}\n\n` : "") +
+    `Pick another time: ${args.rebookUrl}\n`;
+  return { html, text, subject };
+}
+
 // ────────────────────────────────────────────────────────────
 // Helpers
 // ────────────────────────────────────────────────────────────

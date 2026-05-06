@@ -4,8 +4,8 @@ import { ChevronLeft } from "lucide-react";
 import { getPageContextOrRedirect, shellProps } from "@/lib/page-context";
 import { prisma } from "@/lib/prisma";
 import { AppShell } from "@/components/app-shell";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ContactDetailForm } from "./form";
+import { ContactMeetingsList, type MeetingItem } from "./meetings-list";
 
 export default async function ContactDetailPage({
   params,
@@ -20,30 +20,59 @@ export default async function ContactDetailPage({
   if (!contact || contact.workspaceId !== ctx.workspace.id) notFound();
 
   const now = new Date();
-  const [pastBookings, upcomingBookings] = await Promise.all([
-    prisma.booking.findMany({
-      where: { inviteeEmail: contact.email, startsAt: { lt: now } },
-      orderBy: { startsAt: "desc" },
-      take: 50,
-      select: {
-        id: true,
-        startsAt: true,
-        endsAt: true,
-        meetingType: { select: { name: true } },
-      },
-    }),
-    prisma.booking.findMany({
-      where: { inviteeEmail: contact.email, startsAt: { gte: now }, status: "CONFIRMED" },
-      orderBy: { startsAt: "asc" },
-      take: 50,
-      select: {
-        id: true,
-        startsAt: true,
-        endsAt: true,
-        meetingType: { select: { name: true } },
-      },
-    }),
-  ]);
+  // One query, partitioned in JS — saves the round-trips and keeps the three buckets ranked
+  // consistently. Cap at 150 rows total; older history is reachable via /dashboard/bookings.
+  const allBookings = await prisma.booking.findMany({
+    where: { inviteeEmail: contact.email },
+    orderBy: { startsAt: "desc" },
+    take: 150,
+    select: {
+      id: true,
+      startsAt: true,
+      endsAt: true,
+      status: true,
+      inviteeName: true,
+      inviteeEmail: true,
+      meetUrl: true,
+      conferencingProvider: true,
+      alternativeLocation: true,
+      meetingType: { select: { name: true, slug: true, defaultLocation: true } },
+      host: { select: { name: true, slug: true } },
+      project: { select: { slug: true } },
+    },
+  });
+
+  const upcoming: MeetingItem[] = [];
+  const past: MeetingItem[] = [];
+  const cancelled: MeetingItem[] = [];
+  for (const b of allBookings) {
+    const item: MeetingItem = {
+      id: b.id,
+      startsAt: b.startsAt.toISOString(),
+      endsAt: b.endsAt.toISOString(),
+      status: b.status,
+      inviteeName: b.inviteeName,
+      inviteeEmail: b.inviteeEmail,
+      meetUrl: b.meetUrl,
+      conferencingProvider: b.conferencingProvider,
+      alternativeLocation: b.alternativeLocation,
+      meetingTypeName: b.meetingType.name,
+      meetingTypeSlug: b.meetingType.slug,
+      defaultLocation: b.meetingType.defaultLocation,
+      hostName: b.host.name,
+      hostSlug: b.host.slug,
+      projectSlug: b.project?.slug ?? null,
+    };
+    if (b.status === "CANCELLED") {
+      cancelled.push(item);
+    } else if (b.startsAt.getTime() >= now.getTime()) {
+      upcoming.push(item);
+    } else {
+      past.push(item);
+    }
+  }
+  // Upcoming wants asc (next first); past + cancelled stay desc (most-recent first).
+  upcoming.reverse();
 
   return (
     <AppShell {...shellProps(ctx)}>
@@ -70,51 +99,7 @@ export default async function ContactDetailPage({
           }}
         />
 
-        <div className="grid gap-4 md:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle>Upcoming meetings</CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              {upcomingBookings.length === 0 ? (
-                <p className="px-6 pb-6 text-sm text-muted-foreground">No upcoming meetings.</p>
-              ) : (
-                <ul className="divide-y divide-border">
-                  {upcomingBookings.map((b) => (
-                    <li key={b.id} className="px-6 py-3">
-                      <p className="text-sm font-medium text-foreground">{b.meetingType.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {new Date(b.startsAt).toLocaleString()}
-                      </p>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Past meetings</CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              {pastBookings.length === 0 ? (
-                <p className="px-6 pb-6 text-sm text-muted-foreground">No past meetings.</p>
-              ) : (
-                <ul className="divide-y divide-border">
-                  {pastBookings.map((b) => (
-                    <li key={b.id} className="px-6 py-3">
-                      <p className="text-sm font-medium text-foreground">{b.meetingType.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {new Date(b.startsAt).toLocaleString()}
-                      </p>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+        <ContactMeetingsList upcoming={upcoming} past={past} cancelled={cancelled} />
       </div>
     </AppShell>
   );

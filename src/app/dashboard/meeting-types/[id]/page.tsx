@@ -44,6 +44,7 @@ export default async function EditMeetingTypePage({
           hostHasZoom={!!ctx.host.zoomRefreshToken}
           hostHasStripe={!!ctx.host.stripeAccountId}
           hostHasPersonalRoom={!!ctx.host.personalRoomUrl}
+          hostRequireApprovalDefault={ctx.host.requireApprovalDefault}
           hostCalendars={calendars.map((c) => ({
             id: c.id,
             summary: c.summary ?? c.googleCalendarId,
@@ -69,6 +70,7 @@ export default async function EditMeetingTypePage({
             priceCents: mt.priceCents,
             priceCurrency: mt.priceCurrency,
             paymentMethod: mt.paymentMethod,
+            requireApproval: mt.requireApproval,
           }}
         />
       </div>

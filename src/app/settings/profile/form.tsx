@@ -20,6 +20,7 @@ interface Initial {
   // Number of meeting types currently using PERSONAL_ROOM, so we can warn the host before they
   // clear their stored URL (which would break new bookings on those MTs at finalize time).
   personalRoomMtCount: number;
+  requireApprovalDefault: boolean;
 }
 
 interface Draft {
@@ -29,6 +30,7 @@ interface Draft {
   bio: string;
   photoUrl: string;
   personalRoomUrl: string;
+  requireApprovalDefault: boolean;
 }
 
 export function ProfileForm({ initial }: { initial: Initial }) {
@@ -40,6 +42,7 @@ export function ProfileForm({ initial }: { initial: Initial }) {
     bio: initial.bio ?? "",
     photoUrl: initial.photoUrl ?? "",
     personalRoomUrl: initial.personalRoomUrl ?? "",
+    requireApprovalDefault: initial.requireApprovalDefault,
   });
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -80,6 +83,7 @@ export function ProfileForm({ initial }: { initial: Initial }) {
         bio: draft.bio.trim(),
         photoUrl: draft.photoUrl.trim(),
         personalRoomUrl: draft.personalRoomUrl.trim(),
+        requireApprovalDefault: draft.requireApprovalDefault,
       };
       const res = await fetch("/api/settings/profile", {
         method: "POST",
@@ -91,6 +95,7 @@ export function ProfileForm({ initial }: { initial: Initial }) {
           bio: next.bio || null,
           photoUrl: next.photoUrl || null,
           personalRoomUrl: next.personalRoomUrl || null,
+          requireApprovalDefault: next.requireApprovalDefault,
         }),
       });
       if (!res.ok) {
@@ -178,6 +183,22 @@ export function ProfileForm({ initial }: { initial: Initial }) {
               this link to invitees with no per-booking provider call.
             </p>
           </Field>
+          <div className="space-y-1.5 pt-2 border-t border-border">
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={draft.requireApprovalDefault}
+                onChange={(e) => update({ requireApprovalDefault: e.target.checked })}
+                className="h-4 w-4 mt-0.5 rounded border-border accent-foreground"
+              />
+              <span>
+                <span className="text-foreground">Require approval before confirming bookings</span>
+                <span className="block text-xs text-muted-foreground">
+                  Default for new meeting types. Existing meeting types keep their own setting.
+                </span>
+              </span>
+            </label>
+          </div>
           {error && <p className="text-sm text-destructive">{error}</p>}
         </CardContent>
       </Card>

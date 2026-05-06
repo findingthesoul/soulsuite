@@ -125,6 +125,9 @@ model Host {
   // visit with a "new" badge. Null = the host has never visited the dashboard yet (treat all
   // as not-new to avoid a noisy first impression).
   dashboardSeenAt    DateTime?
+  // Default for the "require approval" flag on newly-created meeting types. Existing MTs are
+  // not retroactively changed when this flips — see MeetingType.requireApproval.
+  requireApprovalDefault Boolean @default(false)
   createdAt          DateTime  @default(now())
 
   calendars            Calendar[]
@@ -311,6 +314,11 @@ model MeetingType {
   // Stripe Checkout. INVOICE collects billing details from the invitee and confirms the booking
   // immediately — the host invoices manually. No-op when priceCents is null/0 (free MT).
   paymentMethod         PaymentMethod        @default(STRIPE)
+  // Host-approval gate. When true, public bookings are recorded as PENDING_APPROVAL and the host
+  // must Approve (→ run finalize, create the calendar event) or Decline (→ cancel) before the
+  // invitee gets a confirmed time. v1 only allows this on routingMode=SINGLE and free MTs.
+  // Initialised from Host.requireApprovalDefault at create time; not auto-synced after that.
+  requireApproval       Boolean              @default(false)
   createdAt             DateTime             @default(now())
 
   host       Host?            @relation("PersonalMeetingTypeHost", fields: [hostId], references: [id], onDelete: Cascade)
@@ -354,6 +362,10 @@ enum BookingStatus {
   CONFIRMED
   CANCELLED
   RESCHEDULED
+  // Booking request awaiting host approval (when MeetingType.requireApproval). No Google
+  // calendar event is created until the host approves; on approve the row flips to CONFIRMED
+  // and the standard finalize path runs.
+  PENDING_APPROVAL
 }
 
 // Payment lifecycle for paid meeting types. NOT_REQUIRED = free MT (default). PENDING = Stripe
@@ -443,6 +455,15 @@ model Booking {
   invoiceSentAt          DateTime?
   stripeSessionId      String?
   stripePaymentIntent  String?
+  // Approval workflow — set on PENDING_APPROVAL bookings and stamped on Approve/Decline.
+  // approvalToken is the unguessable secret used by the host's email Approve/Decline links so
+  // they round-trip without auth (the booking id is rendered to the invitee, so we can't reuse it
+  // for host-only actions). approvedAt is null until the host approves; approvalDecidedByHostId
+  // is the host who took the action (currently always the booking's hostId — kept as its own
+  // column for future workspace-admin-approves-on-host's-behalf flows).
+  approvalToken          String?              @unique
+  approvedAt             DateTime?
+  approvalDecidedByHostId String?
   createdAt            DateTime             @default(now())
 
   meetingType       MeetingType @relation(fields: [meetingTypeId], references: [id])

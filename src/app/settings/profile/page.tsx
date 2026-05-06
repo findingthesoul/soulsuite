@@ -32,6 +32,7 @@ export default async function ProfilePage() {
             photoUrl: host.photoUrl,
             personalRoomUrl: host.personalRoomUrl,
             personalRoomMtCount,
+            requireApprovalDefault: host.requireApprovalDefault,
           }}
         />
       </div>

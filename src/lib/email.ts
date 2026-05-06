@@ -449,6 +449,69 @@ export function invoiceVoidedTemplate(args: {
   return { html, text, subject };
 }
 
+// Approval-needed email — sent to the HOST when an invitee submits a booking on a meeting type
+// with requireApproval=true. Contains the request details and two big buttons (Approve / Decline)
+// that round-trip via /api/bookings/[id]/{approve,decline}?token=... using a per-booking secret
+// so the host can act without signing in.
+export function approvalNeededTemplate(args: {
+  hostName: string;
+  meetingTypeName: string;
+  startsAtIso: string;
+  endsAtIso: string;
+  inviteeName: string;
+  inviteeEmail: string;
+  approveUrl: string;
+  declineUrl: string;
+  logoUrl?: string | null;
+}): { html: string; text: string; subject: string } {
+  const when = formatDateRange(args.startsAtIso, args.endsAtIso);
+  const subject = `Approval needed: ${args.inviteeName} requested ${when}`;
+  const html = brandFrame(
+    "Approval needed",
+    `<p>Hi ${escapeHtml(args.hostName)},</p>
+    <p><strong>${escapeHtml(args.inviteeName)}</strong> (${escapeHtml(args.inviteeEmail)}) has requested a booking on <strong>${escapeHtml(args.meetingTypeName)}</strong>.</p>
+    <table style="border-collapse:collapse;margin:16px 0;font-size:14px">
+      <tr><td style="padding:4px 0;color:#57534e">When</td><td style="padding:4px 0 4px 24px">${escapeHtml(when)}</td></tr>
+      <tr><td style="padding:4px 0;color:#57534e">What</td><td style="padding:4px 0 4px 24px">${escapeHtml(args.meetingTypeName)}</td></tr>
+    </table>
+    <p style="margin:24px 0">
+      <a href="${escapeAttr(args.approveUrl)}" style="display:inline-block;padding:12px 22px;background:#1c1917;color:#fafafa;border-radius:6px;text-decoration:none;font-weight:600;margin-right:8px">Approve</a>
+      <a href="${escapeAttr(args.declineUrl)}" style="display:inline-block;padding:12px 22px;border:1px solid #e7e5e4;color:#0c0a09;border-radius:6px;text-decoration:none">Decline</a>
+    </p>
+    <p style="font-size:12px;color:#a8a29e">No calendar event has been created yet — that happens when you approve.</p>`,
+    args.logoUrl,
+  );
+  const text =
+    `Approval needed: ${args.inviteeName} (${args.inviteeEmail}) requested ${args.meetingTypeName}\n\n` +
+    `When: ${when}\n\n` +
+    `Approve: ${args.approveUrl}\nDecline: ${args.declineUrl}\n`;
+  return { html, text, subject };
+}
+
+// Booking-declined email — sent to the invitee when the host declines a PENDING_APPROVAL request.
+export function bookingDeclinedTemplate(args: {
+  hostName: string;
+  meetingTypeName: string;
+  startsAtIso: string;
+  endsAtIso: string;
+  inviteeName: string;
+  logoUrl?: string | null;
+}): { html: string; text: string; subject: string } {
+  const when = formatDateRange(args.startsAtIso, args.endsAtIso);
+  const subject = `Declined: ${args.meetingTypeName} — ${when}`;
+  const html = brandFrame(
+    "Request declined",
+    `<p>Hi ${escapeHtml(args.inviteeName)},</p>
+    <p>Unfortunately, <strong>${escapeHtml(args.hostName)}</strong> can't take your booking request for <strong>${escapeHtml(args.meetingTypeName)}</strong> on <strong>${escapeHtml(when)}</strong>.</p>
+    <p>Feel free to reply to this email if you'd like to find another time.</p>`,
+    args.logoUrl,
+  );
+  const text =
+    `${args.hostName} has declined your booking request for ${args.meetingTypeName} on ${when}.\n\n` +
+    `Reply to this email if you'd like to find another time.\n`;
+  return { html, text, subject };
+}
+
 // ────────────────────────────────────────────────────────────
 // Helpers
 // ────────────────────────────────────────────────────────────

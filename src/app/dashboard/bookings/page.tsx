@@ -10,6 +10,7 @@ import { MonthGrid } from "./month-grid";
 import { PersistSearchParams } from "@/components/persist-search-params";
 import { PrefetchLink } from "@/components/prefetch-link";
 import { AltLocationButton } from "./alt-location-button";
+import { ApprovalButtons } from "./approval-buttons";
 
 type RangeFilter = "upcoming" | "past" | "all";
 type ScopeFilter = "all" | "personal" | string; // string = project id
@@ -188,7 +189,12 @@ export default async function BookingsPage({
                         <StatusPill status={b.status} />
                       </div>
                     </PrefetchLink>
-                    {showAlt && (
+                    {b.status === "PENDING_APPROVAL" && isHostOwn && (
+                      <div className="pr-3">
+                        <ApprovalButtons bookingId={b.id} />
+                      </div>
+                    )}
+                    {showAlt && b.status !== "PENDING_APPROVAL" && (
                       <div className="pr-3">
                         <AltLocationButton
                           bookingId={b.id}
@@ -214,7 +220,7 @@ function bookingForGrid(
     startsAt: Date;
     endsAt: Date;
     inviteeName: string;
-    status: "CONFIRMED" | "CANCELLED" | "RESCHEDULED";
+    status: "CONFIRMED" | "CANCELLED" | "RESCHEDULED" | "PENDING_APPROVAL";
     meetingType: { slug: string; name: string };
     project: { slug: string } | null;
   },
@@ -301,14 +307,27 @@ function PaymentPill({
   );
 }
 
-function StatusPill({ status }: { status: "CONFIRMED" | "CANCELLED" | "RESCHEDULED" }) {
+function StatusPill({
+  status,
+}: {
+  status: "CONFIRMED" | "CANCELLED" | "RESCHEDULED" | "PENDING_APPROVAL";
+}) {
   const styles =
     status === "CANCELLED"
       ? "bg-destructive/10 text-destructive"
       : status === "RESCHEDULED"
         ? "bg-surface-muted text-foreground"
-        : "bg-foreground text-background";
-  const label = status === "RESCHEDULED" ? "rescheduled" : status === "CANCELLED" ? "cancelled" : "confirmed";
+        : status === "PENDING_APPROVAL"
+          ? "bg-amber-100 text-amber-900 dark:bg-amber-500/15 dark:text-amber-200"
+          : "bg-foreground text-background";
+  const label =
+    status === "RESCHEDULED"
+      ? "rescheduled"
+      : status === "CANCELLED"
+        ? "cancelled"
+        : status === "PENDING_APPROVAL"
+          ? "awaiting approval"
+          : "confirmed";
   return (
     <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide font-medium ${styles}`}>
       {label}

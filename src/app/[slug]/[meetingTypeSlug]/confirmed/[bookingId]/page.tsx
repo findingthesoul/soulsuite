@@ -20,7 +20,20 @@ export default async function ConfirmedPage({
   if (!booking) notFound();
 
   const isCancelled = booking.status === "CANCELLED";
+  const isPending = booking.status === "PENDING_APPROVAL";
   const baseUrl = `/${slug}/${meetingTypeSlug}/confirmed/${booking.id}`;
+
+  const headerLabel = isPending
+    ? `Awaiting confirmation from ${booking.host.name}`
+    : isCancelled
+      ? "Booking cancelled"
+      : "You're booked";
+  const headerIcon = isPending ? "⏳" : isCancelled ? "✕" : "✓";
+  const headerStyle = isPending
+    ? "bg-amber-100 text-amber-900 dark:bg-amber-500/15 dark:text-amber-200"
+    : isCancelled
+      ? "bg-destructive text-destructive-foreground"
+      : "bg-foreground text-background";
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -28,20 +41,22 @@ export default async function ConfirmedPage({
         <div className="rounded-xl border border-border bg-surface shadow-xs p-8 md:p-10 space-y-6">
           <div className="flex items-center gap-3">
             <span
-              className={`inline-flex h-9 w-9 items-center justify-center rounded-full font-medium ${
-                isCancelled
-                  ? "bg-destructive text-destructive-foreground"
-                  : "bg-foreground text-background"
-              }`}
+              className={`inline-flex h-9 w-9 items-center justify-center rounded-full font-medium ${headerStyle}`}
             >
-              {isCancelled ? "✕" : "✓"}
+              {headerIcon}
             </span>
-            <h1 className="text-xl font-semibold tracking-tight">
-              {isCancelled ? "Booking cancelled" : "You're booked"}
-            </h1>
+            <h1 className="text-xl font-semibold tracking-tight">{headerLabel}</h1>
           </div>
 
-          {!isCancelled && (
+          {isPending && (
+            <p className="text-sm text-muted-foreground">
+              Your request was sent to <span className="text-foreground font-medium">{booking.host.name}</span>.
+              You&apos;ll get an email at <span className="text-foreground font-medium">{booking.inviteeEmail}</span> once
+              they approve or decline.
+            </p>
+          )}
+
+          {!isCancelled && !isPending && (
             <p className="text-sm text-muted-foreground">
               Sent to <span className="text-foreground font-medium">{booking.inviteeEmail}</span>.
             </p>
@@ -67,7 +82,7 @@ export default async function ConfirmedPage({
                 <Clock className="h-4 w-4" />
                 <span>{booking.meetingType.durationMinutes} minutes</span>
               </li>
-              {!isCancelled && booking.alternativeLocation && (
+              {!isCancelled && !isPending && booking.alternativeLocation && (
                 <li className="flex items-start gap-2">
                   <MapPin className="h-4 w-4 mt-0.5" />
                   <span>
@@ -79,6 +94,7 @@ export default async function ConfirmedPage({
                 </li>
               )}
               {!isCancelled &&
+                !isPending &&
                 !booking.alternativeLocation &&
                 booking.conferencingProvider === "IN_PERSON" && (
                   <li className="flex items-start gap-2">
@@ -94,6 +110,7 @@ export default async function ConfirmedPage({
                   </li>
                 )}
               {!isCancelled &&
+                !isPending &&
                 booking.conferencingProvider !== "NONE" &&
                 booking.conferencingProvider !== "IN_PERSON" && (
                   <li className="flex items-center gap-2">
@@ -121,7 +138,16 @@ export default async function ConfirmedPage({
             </ul>
           </div>
 
-          {!isCancelled && (
+          {isPending && (
+            <div className="flex flex-wrap gap-2 pt-1">
+              <Link href={`${baseUrl}/cancel`} className={buttonVariants({ variant: "secondary" })}>
+                <X className="h-3.5 w-3.5" />
+                Cancel request
+              </Link>
+            </div>
+          )}
+
+          {!isCancelled && !isPending && (
             <div className="flex flex-wrap gap-2 pt-1">
               <a href={`${baseUrl}/calendar.ics`} className={buttonVariants({ variant: "secondary" })}>
                 <CalendarPlus className="h-3.5 w-3.5" />

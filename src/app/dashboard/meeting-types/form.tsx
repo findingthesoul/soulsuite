@@ -47,6 +47,7 @@ interface Initial {
   priceCents: number | null;
   priceCurrency: string | null;
   paymentMethod: PaymentMethod;
+  requireApproval: boolean;
 }
 
 // Mirrors the Prisma enum + the UI-only "ADYEN" placeholder. ADYEN is rejected by the API; we
@@ -104,6 +105,7 @@ interface DraftValues {
   priceMajor: string;
   priceCurrency: string;
   paymentMethod: PaymentMethod;
+  requireApproval: boolean;
 }
 
 const DRAFT_DEFAULT: DraftValues = {
@@ -126,6 +128,7 @@ const DRAFT_DEFAULT: DraftValues = {
   priceMajor: "",
   priceCurrency: "eur",
   paymentMethod: "STRIPE",
+  requireApproval: false,
 };
 
 function initialToDraft(initial: Initial): DraftValues {
@@ -150,6 +153,7 @@ function initialToDraft(initial: Initial): DraftValues {
     priceMajor: isPaid && initial.priceCents != null ? (initial.priceCents / 100).toString() : "",
     priceCurrency: initial.priceCurrency ?? "eur",
     paymentMethod: initial.paymentMethod,
+    requireApproval: initial.requireApproval,
   };
 }
 
@@ -268,6 +272,12 @@ function validatePersonalDraft(
   if (pricingErr) {
     errors.push({ tabKey: "pricing", message: pricingErr });
   }
+  if (draft.requireApproval && draft.isPaid) {
+    errors.push({
+      tabKey: "availability",
+      message: "Require approval can't be combined with paid meeting types yet — pick one.",
+    });
+  }
   return errors;
 }
 
@@ -277,6 +287,7 @@ export function MeetingTypeForm({
   hostHasZoom,
   hostHasStripe,
   hostHasPersonalRoom,
+  hostRequireApprovalDefault,
   initial,
 }: {
   hostSlug: string;
@@ -284,6 +295,7 @@ export function MeetingTypeForm({
   hostHasZoom: boolean;
   hostHasStripe: boolean;
   hostHasPersonalRoom: boolean;
+  hostRequireApprovalDefault: boolean;
   initial?: Initial;
 }) {
   const router = useRouter();
@@ -311,6 +323,7 @@ export function MeetingTypeForm({
       hostHasZoom={hostHasZoom}
       hostHasStripe={hostHasStripe}
       hostHasPersonalRoom={hostHasPersonalRoom}
+      hostRequireApprovalDefault={hostRequireApprovalDefault}
       onCreated={(id) => {
         // unused for now; create POST returns id but redirect is enough.
         void id;
@@ -403,6 +416,7 @@ function EditMeetingTypeForm({
           priceCents: pricing.priceCents,
           priceCurrency: pricing.priceCurrency,
           paymentMethod: draft.isPaid ? draft.paymentMethod : "STRIPE",
+          requireApproval: draft.requireApproval,
         }),
       });
       if (!res.ok) {
@@ -616,6 +630,7 @@ function CreateMeetingTypeForm({
   hostHasZoom,
   hostHasStripe,
   hostHasPersonalRoom,
+  hostRequireApprovalDefault,
   router,
 }: {
   hostSlug: string;
@@ -623,10 +638,14 @@ function CreateMeetingTypeForm({
   hostHasZoom: boolean;
   hostHasStripe: boolean;
   hostHasPersonalRoom: boolean;
+  hostRequireApprovalDefault: boolean;
   onCreated: (id: string) => void;
   router: Router;
 }) {
-  const [draft, setDraft] = useState<DraftValues>(DRAFT_DEFAULT);
+  const [draft, setDraft] = useState<DraftValues>({
+    ...DRAFT_DEFAULT,
+    requireApproval: hostRequireApprovalDefault,
+  });
   const [slugTouched, setSlugTouched] = useState(false);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -667,6 +686,11 @@ function CreateMeetingTypeForm({
     }
     const pricingErr = validatePricing(draft, hostHasStripe);
     if (pricingErr) return setError(pricingErr);
+    if (draft.requireApproval && draft.isPaid) {
+      return setError(
+        "Require approval can't be combined with paid meeting types yet — pick one.",
+      );
+    }
     const overridePayload = serialiseOverride(draft.workingHoursOverride);
     const pricing = pricingPayload(draft);
 
@@ -696,6 +720,7 @@ function CreateMeetingTypeForm({
           priceCents: pricing.priceCents,
           priceCurrency: pricing.priceCurrency,
           paymentMethod: draft.isPaid ? draft.paymentMethod : "STRIPE",
+          requireApproval: draft.requireApproval,
         }),
       });
       if (!res.ok) {
@@ -1016,7 +1041,7 @@ function AvailabilityEditor({
     update("workingHoursOverride", on ? defaultSchedule() : null);
   }
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <div className="space-y-2 text-sm">
         <label className="flex items-center gap-2">
           <input
@@ -1045,6 +1070,28 @@ function AvailabilityEditor({
           onChange={(next) => update("workingHoursOverride", next)}
         />
       )}
+      <div className="pt-3 border-t border-border space-y-1">
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={draft.requireApproval}
+            onChange={(e) => update("requireApproval", e.target.checked)}
+            className="h-4 w-4 mt-0.5 rounded border-border accent-foreground"
+          />
+          <span>
+            <span className="text-foreground">Require approval before confirming</span>
+            <span className="block text-xs text-muted-foreground">
+              Bookings wait as pending until you Approve or Decline. The calendar event is only
+              created on approval.
+            </span>
+          </span>
+        </label>
+        {draft.requireApproval && draft.isPaid && (
+          <p className="text-xs text-destructive">
+            Can&apos;t combine with paid meeting types yet — pick one.
+          </p>
+        )}
+      </div>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { calendarFor, isGoogleAuthError } from "@/lib/google/client";
@@ -9,7 +9,13 @@ import { effectiveWorkingHours } from "@/lib/availability";
 import { fetchHostBusy, bustFreebusyCacheForHost } from "@/lib/availability/freebusy";
 import { type IntakeField, validateAnswers, pruneHiddenAnswers } from "@/lib/intake";
 import { pickRoundRobinHost } from "@/lib/round-robin";
-import { sendEmail, bookingConfirmationTemplate, appUrl } from "@/lib/email";
+import {
+  sendEmail,
+  bookingConfirmationTemplate,
+  approvalNeededTemplate,
+  appUrl,
+} from "@/lib/email";
+import { getEmailLogoUrl } from "@/lib/branding";
 import { upsertContactFromBooking, workspaceIdForMeetingType } from "@/lib/contacts";
 import { finalizeBooking } from "@/lib/bookings/finalize";
 import { stripeClient, isStripeConfigured } from "@/lib/stripe/client";
@@ -257,6 +263,99 @@ export async function POST(request: NextRequest) {
     .digest("hex")
     .slice(0, 32);
   const requestId = `bk-${deterministic}`;
+
+  // ── Require-approval branch ──
+  // When the meeting type requires host approval we record a PENDING_APPROVAL booking with no
+  // calendar event, no Zoom meeting, and email the host an Approve / Decline link. The invitee
+  // lands on /confirmed which renders the "awaiting confirmation" variant.
+  // v1 constraints (also enforced at MT save time): SINGLE routing, free MT.
+  if (meetingType.requireApproval) {
+    let pendingId: string;
+    const approvalToken = randomBytes(24).toString("hex");
+    try {
+      const created = await prisma.booking.create({
+        data: {
+          meetingTypeId: meetingType.id,
+          hostId: host.id,
+          projectId: meetingType.projectId,
+          inviteeEmail: body.inviteeEmail,
+          inviteeName: body.inviteeName,
+          inviteeAnswers:
+            Object.keys(cleanedAnswers).length > 0
+              ? (cleanedAnswers as Prisma.InputJsonValue)
+              : undefined,
+          startsAt,
+          endsAt,
+          requestId,
+          status: "PENDING_APPROVAL",
+          approvalToken,
+        },
+      });
+      pendingId = created.id;
+    } catch (err) {
+      if (err && typeof err === "object" && (err as { code?: string }).code === "P2002") {
+        const existing = await prisma.booking.findUnique({ where: { requestId } });
+        if (existing) return NextResponse.json({ id: existing.id });
+      }
+      throw err;
+    }
+
+    // One-off claim: same conditional updateMany — pending requests still hold the slot so a
+    // second invitee can't book on top of an awaiting-approval request.
+    if (oneOffSlot) {
+      const claim = await prisma.oneOffSlot.updateMany({
+        where: { id: oneOffSlot.id, bookedBookingId: null },
+        data: { bookedBookingId: pendingId },
+      });
+      if (claim.count === 0) {
+        await prisma.booking.delete({ where: { id: pendingId } }).catch(() => undefined);
+        return new NextResponse(
+          "That slot was just claimed by someone else — please pick another.",
+          { status: 409 },
+        );
+      }
+    }
+
+    // Email the host. Best-effort — failures are logged but don't unwind the booking; the host
+    // can still find pending rows on /dashboard/bookings.
+    const logoUrl = await getEmailLogoUrl();
+    const tmpl = approvalNeededTemplate({
+      hostName: host.name,
+      meetingTypeName: meetingType.name,
+      startsAtIso: startsAt.toISOString(),
+      endsAtIso: endsAt.toISOString(),
+      inviteeName: body.inviteeName,
+      inviteeEmail: body.inviteeEmail,
+      approveUrl: appUrl(`/api/bookings/${pendingId}/approve?token=${approvalToken}`),
+      declineUrl: appUrl(`/api/bookings/${pendingId}/decline?token=${approvalToken}`),
+      logoUrl,
+    });
+    void sendEmail({
+      to: host.email,
+      subject: tmpl.subject,
+      html: tmpl.html,
+      text: tmpl.text,
+      replyTo: body.inviteeEmail,
+    });
+
+    // Contact upsert — same as the regular path, so the directory has the requester even if the
+    // host declines later.
+    try {
+      const wsId = await workspaceIdForMeetingType(meetingType.id);
+      if (wsId) {
+        await upsertContactFromBooking({
+          workspaceId: wsId,
+          email: body.inviteeEmail,
+          name: body.inviteeName,
+          timeZone: body.inviteeTimezone,
+        });
+      }
+    } catch (err) {
+      console.error("[booking] contact upsert failed (pending)", err);
+    }
+
+    return NextResponse.json({ id: pendingId });
+  }
 
   // ── Paid meeting types: branch on the MT's payment method ──
   const isPaid = (meetingType.priceCents ?? 0) > 0;

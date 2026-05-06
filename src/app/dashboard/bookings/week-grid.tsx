@@ -9,7 +9,7 @@ interface BookingItem {
   endsAt: string;   // ISO
   inviteeName: string;
   meetingTypeName: string;
-  status: "CONFIRMED" | "CANCELLED" | "RESCHEDULED";
+  status: "CONFIRMED" | "CANCELLED" | "RESCHEDULED" | "PENDING_APPROVAL";
   href: string;
 }
 

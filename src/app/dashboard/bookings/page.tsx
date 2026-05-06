@@ -25,6 +25,7 @@ export default async function BookingsPage({
     view?: string;
     weekOf?: string;
     monthOf?: string;
+    includeCancelled?: string;
   }>;
 }) {
   const ctx = await getPageContextOrRedirect();
@@ -34,6 +35,7 @@ export default async function BookingsPage({
     sp.view === "week" ? "week" : sp.view === "month" ? "month" : "list";
   const range: RangeFilter = sp.range === "past" ? "past" : sp.range === "all" ? "all" : "upcoming";
   const scope: ScopeFilter = sp.scope ?? "all";
+  const includeCancelled = sp.includeCancelled === "1";
 
   const weekOfStart = parseDayUtc(sp.weekOf) ?? mondayOfCurrentWeek();
   const weekOfEnd = new Date(weekOfStart.getTime() + 7 * 24 * 3600 * 1000);
@@ -48,6 +50,9 @@ export default async function BookingsPage({
     hostId: ctx.host.id,
     ...(scope === "personal" && { projectId: null }),
     ...(scope !== "all" && scope !== "personal" && { projectId: scope }),
+    // Hide cancelled rows by default — the checkbox in the filter bar opts back in. Pending
+    // approval / confirmed / rescheduled stay visible regardless.
+    ...(!includeCancelled && { status: { not: "CANCELLED" as const } }),
   };
 
   const now = new Date();
@@ -97,7 +102,10 @@ export default async function BookingsPage({
 
   return (
     <AppShell {...shellProps(ctx)}>
-      <PersistSearchParams keys={["view", "range", "scope"]} storageKey="soul-suite-bookings-view" />
+      <PersistSearchParams
+        keys={["view", "range", "scope", "includeCancelled"]}
+        storageKey="soul-suite-bookings-view"
+      />
       <div className="space-y-6">
         <header className="flex items-start justify-between gap-4">
           <div className="space-y-1">
@@ -120,6 +128,7 @@ export default async function BookingsPage({
           weekOfStart={weekOfStart}
           monthOfStart={monthOfStart}
           memberships={memberships.map((m) => m.project)}
+          includeCancelled={includeCancelled}
         />
 
         {view === "week" ? (
@@ -388,6 +397,7 @@ function Filters({
   weekOfStart,
   monthOfStart,
   memberships,
+  includeCancelled,
 }: {
   view: ViewMode;
   range: RangeFilter;
@@ -395,6 +405,7 @@ function Filters({
   weekOfStart: Date;
   monthOfStart: Date;
   memberships: { id: string; name: string; slug: string }[];
+  includeCancelled: boolean;
 }) {
   function pillClass(active: boolean) {
     return [
@@ -404,15 +415,23 @@ function Filters({
         : "border border-border bg-surface text-muted-foreground hover:text-foreground",
     ].join(" ");
   }
-  function build(next: { range?: string; scope?: string; weekOf?: string; monthOf?: string }) {
+  function build(next: {
+    range?: string;
+    scope?: string;
+    weekOf?: string;
+    monthOf?: string;
+    includeCancelled?: boolean;
+  }) {
     const params = new URLSearchParams();
     if (view !== "list") params.set("view", view);
     const r = next.range ?? range;
     const s = next.scope ?? scope;
+    const ic = next.includeCancelled ?? includeCancelled;
     if (view === "list" && r !== "upcoming") params.set("range", r);
     if (s !== "all") params.set("scope", s);
     if (view === "week" && next.weekOf) params.set("weekOf", next.weekOf);
     if (view === "month" && next.monthOf) params.set("monthOf", next.monthOf);
+    if (ic) params.set("includeCancelled", "1");
     const qs = params.toString();
     return qs ? `/dashboard/bookings?${qs}` : "/dashboard/bookings";
   }
@@ -478,6 +497,23 @@ function Filters({
       )}
       <span className="text-subtle-foreground text-xs px-1">·</span>
       <ScopeDropdown scope={scope} memberships={memberships} build={build} />
+      <span className="text-subtle-foreground text-xs px-1">·</span>
+      <Link
+        href={build({ includeCancelled: !includeCancelled })}
+        className="flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+      >
+        <span
+          aria-hidden
+          className={`inline-flex h-4 w-4 items-center justify-center rounded-sm border ${
+            includeCancelled
+              ? "bg-foreground border-foreground text-background"
+              : "border-border bg-surface"
+          }`}
+        >
+          {includeCancelled ? "✓" : ""}
+        </span>
+        Include cancelled
+      </Link>
     </div>
   );
 }

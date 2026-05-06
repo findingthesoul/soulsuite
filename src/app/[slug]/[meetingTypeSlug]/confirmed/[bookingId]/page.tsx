@@ -30,7 +30,7 @@ export default async function ConfirmedPage({
       : "You're booked";
   const headerIcon = isPending ? "⏳" : isCancelled ? "✕" : "✓";
   const headerStyle = isPending
-    ? "bg-amber-100 text-amber-900 dark:bg-amber-500/15 dark:text-amber-200"
+    ? "bg-accent text-accent-foreground"
     : isCancelled
       ? "bg-destructive text-destructive-foreground"
       : "bg-foreground text-background";

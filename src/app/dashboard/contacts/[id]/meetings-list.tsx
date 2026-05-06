@@ -195,7 +195,7 @@ function StatusPill({ status }: { status: MeetingItem["status"] }) {
     CANCELLED: { label: "Cancelled", cls: "bg-destructive/10 text-destructive" },
     PENDING_APPROVAL: {
       label: "Awaiting approval",
-      cls: "bg-amber-100 text-amber-900 dark:bg-amber-500/15 dark:text-amber-200",
+      cls: "bg-accent text-accent-foreground",
     },
   };
   const { label, cls } = map[status];

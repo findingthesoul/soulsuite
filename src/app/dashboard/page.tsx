@@ -219,7 +219,7 @@ async function ApprovalRequestsSection({ host }: { host: Host }) {
           View all
         </Link>
       </div>
-      <Card className="border-amber-300/60 dark:border-amber-500/30">
+      <Card className="border-accent/60">
         <ul className="divide-y divide-border">
           {bookings.map((b) => {
             const slug = b.project ? b.project.slug : host.slug;

@@ -327,7 +327,7 @@ function StatusPill({
       : status === "RESCHEDULED"
         ? "bg-surface-muted text-foreground"
         : status === "PENDING_APPROVAL"
-          ? "bg-amber-100 text-amber-900 dark:bg-amber-500/15 dark:text-amber-200"
+          ? "bg-accent text-accent-foreground"
           : "bg-foreground text-background";
   const label =
     status === "RESCHEDULED"

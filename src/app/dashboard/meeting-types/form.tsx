@@ -1364,19 +1364,25 @@ export function PaymentMethodPicker({
             </span>
           </span>
         </label>
-        <label className="flex items-start gap-2">
+        <label className="flex items-start gap-2 opacity-60 cursor-not-allowed">
           <input
             type="radio"
             name="paymentMethod"
             checked={value === "ADYEN"}
             onChange={() => onChange("ADYEN")}
+            disabled
             className="h-4 w-4 mt-0.5 border-border accent-foreground"
           />
           <span>
-            <span className="text-foreground">Adyen</span>
+            <span className="text-foreground">
+              Adyen
+              <span className="ml-1.5 inline-block rounded-full bg-surface-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide font-medium text-muted-foreground align-middle">
+                In research
+              </span>
+            </span>
             <span className="block text-xs text-muted-foreground">
-              Pay-by-Link via Adyen — best for South Africa, Curaçao, and other regions Stripe
-              doesn&apos;t cover.
+              Adyen requires high-volume onboarding (≈€1M/year) and a sales contract — under
+              evaluation. Code path is wired up; awaiting account approval.
             </span>
           </span>
         </label>

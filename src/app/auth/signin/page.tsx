@@ -29,12 +29,18 @@ export default function SignInPage() {
         redirectTo: `${publicEnv.NEXT_PUBLIC_APP_URL}/auth/callback`,
         scopes: GOOGLE_SCOPES,
         queryParams: {
-          // Forces Google to issue a refresh token even on subsequent sign-ins.
+          // Asks Google to issue a refresh token. We only get one back the first time the
+          // user consents (or after they revoke and re-grant); on subsequent sign-ins Google
+          // skips it because the previous grant is still valid — and we already persisted the
+          // refresh token on the Host row, so that's fine.
           access_type: "offline",
-          // `select_account` forces Google to show the account chooser every sign-in, so users
-          // can switch Google accounts after sign-out instead of being silently re-signed in as
-          // the same identity. `consent` keeps the refresh-token grant fresh.
-          prompt: "select_account consent",
+          // `select_account` forces Google to show the account chooser every sign-in so users
+          // can switch Google accounts after sign-out. We deliberately do NOT add `consent` —
+          // that would re-show the calendar-permission prompt on every sign-in, which is
+          // jarring once the user has already authorised. If the stored refresh token becomes
+          // invalid (revoked / 7-day-test-user expiry), /settings/calendars detects it and
+          // sends the user through a one-shot reconnect flow.
+          prompt: "select_account",
         },
       },
     });

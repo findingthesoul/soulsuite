@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { TimezonePicker } from "@/components/ui/timezone-picker";
 import { SaveBar } from "@/components/save-bar";
 import { useDirtyState } from "@/lib/use-dirty-state";
 
@@ -150,11 +151,10 @@ export function ContactDetailForm({ initial }: { initial: Initial }) {
             />
           </Field>
           <Field id="timeZone" label="Time zone">
-            <Input
+            <TimezonePicker
               id="timeZone"
               value={draft.timeZone}
-              onChange={(e) => update({ timeZone: e.target.value })}
-              placeholder="Europe/Amsterdam"
+              onChange={(next) => update({ timeZone: next })}
             />
           </Field>
           {error && <p className="text-sm text-destructive">{error}</p>}

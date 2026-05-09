@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { TimezonePicker } from "@/components/ui/timezone-picker";
 import { useDirtyState } from "@/lib/use-dirty-state";
 import { PageHeader, SaveBar } from "@/components/save-bar";
 import { DirtyNavGuard } from "@/components/dirty-nav-guard";
@@ -38,15 +39,6 @@ function defaultSchedule(): Schedule {
     sat: [],
     sun: [],
   };
-}
-
-function timezoneOptions(): string[] {
-  const intl = Intl as typeof Intl & { supportedValuesOf?: (key: string) => string[] };
-  const list =
-    typeof intl.supportedValuesOf === "function"
-      ? intl.supportedValuesOf("timeZone")
-      : ["Europe/Amsterdam", "Europe/London", "Europe/Berlin", "America/New_York", "America/Los_Angeles", "UTC"];
-  return [...list].sort();
 }
 
 interface Initial {
@@ -80,7 +72,6 @@ export function WorkingHoursForm({
   const { draft, setDraft, dirty, reset, commit } = useDirtyState<Draft>(start);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const tzs = timezoneOptions();
 
   function setRangeField(day: Day, idx: number, field: keyof Range, value: string) {
     setDraft({
@@ -151,13 +142,11 @@ export function WorkingHoursForm({
       <CardContent className="space-y-5">
         <div className="space-y-1.5">
           <Label htmlFor="tz">Timezone</Label>
-          <Select id="tz" value={draft.timezone} onChange={(e) => setDraft({ ...draft, timezone: e.target.value })}>
-            {tzs.map((tz) => (
-              <option key={tz} value={tz}>
-                {tz}
-              </option>
-            ))}
-          </Select>
+          <TimezonePicker
+            id="tz"
+            value={draft.timezone}
+            onChange={(next) => setDraft({ ...draft, timezone: next })}
+          />
         </div>
 
         <div className="rounded-md border border-border divide-y divide-border">

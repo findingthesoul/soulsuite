@@ -11,6 +11,7 @@ import { Avatar } from "@/components/ui/avatar";
 import { type IntakeField, validateAnswers } from "@/lib/intake";
 import { IntakeFieldsRenderer } from "@/components/intake-fields-renderer";
 import { Select } from "@/components/ui/select";
+import { TimezonePicker } from "@/components/ui/timezone-picker";
 import {
   invoiceDetailsSchema,
   SUPPORTED_BILLING_COUNTRIES,
@@ -498,18 +499,10 @@ function PickPanel({
 
       <div className="pt-4 border-t border-border flex flex-wrap items-center gap-3 text-sm">
         <Globe className="h-4 w-4 text-muted-foreground" />
-        <span className="text-muted-foreground">Time zone:</span>
-        <select
-          value={tz}
-          onChange={(e) => setTz(e.target.value)}
-          className="rounded-md border border-border bg-surface px-2 py-1 text-sm"
-        >
-          {tzOptions().map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
+        <span className="text-muted-foreground shrink-0">Time zone:</span>
+        <div className="w-full sm:w-72">
+          <TimezonePicker value={tz} onChange={setTz} />
+        </div>
       </div>
     </div>
   );
@@ -1098,15 +1091,6 @@ function todayKey(tz: string): string {
 function parseMonth(yyyymmdd: string): { year: number; month: number } {
   const [y, m] = yyyymmdd.split("-").map(Number);
   return { year: y, month: m };
-}
-
-function tzOptions(): string[] {
-  const intl = Intl as typeof Intl & { supportedValuesOf?: (key: string) => string[] };
-  const list =
-    typeof intl.supportedValuesOf === "function"
-      ? intl.supportedValuesOf("timeZone")
-      : ["Europe/Amsterdam", "Europe/London", "America/New_York", "America/Los_Angeles", "UTC"];
-  return [...list].sort();
 }
 
 function formatPriceClient(priceCents: number, currency: string): string {

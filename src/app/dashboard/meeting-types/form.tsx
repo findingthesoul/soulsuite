@@ -18,7 +18,7 @@ import {
   MAX_ADVANCE_DAYS,
   formatMinutes,
 } from "@/lib/scheduling-rules";
-import { type IntakeField } from "@/lib/intake";
+import { type IntakeField, validateIntakeFieldDefinitions } from "@/lib/intake";
 import { IntakeFieldsEditor } from "@/components/intake-fields-editor";
 import {
   WorkingHoursEditor,
@@ -276,6 +276,10 @@ function validatePersonalDraft(
   const pricingErr = validatePricing(draft, hostHasStripe, hostHasAdyen);
   if (pricingErr) {
     errors.push({ tabKey: "pricing", message: pricingErr });
+  }
+  const intakeErr = validateIntakeFieldDefinitions(draft.intakeFields);
+  if (intakeErr) {
+    errors.push({ tabKey: "intake", message: intakeErr.message });
   }
   if (draft.requireApproval && draft.isPaid) {
     errors.push({
@@ -699,6 +703,8 @@ function CreateMeetingTypeForm({
     }
     const pricingErr = validatePricing(draft, hostHasStripe, hostHasAdyen);
     if (pricingErr) return setError(pricingErr);
+    const intakeErr = validateIntakeFieldDefinitions(draft.intakeFields);
+    if (intakeErr) return setError(intakeErr.message);
     if (draft.requireApproval && draft.isPaid) {
       return setError(
         "Require approval can't be combined with paid meeting types yet — pick one.",

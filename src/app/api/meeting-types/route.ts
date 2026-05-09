@@ -65,7 +65,10 @@ export async function POST(request: NextRequest) {
   const json = await request.json();
   const parsed = bodySchema.safeParse(json);
   if (!parsed.success) {
-    return new NextResponse(parsed.error.issues[0]?.message ?? "invalid body", { status: 400 });
+    const issue = parsed.error.issues[0];
+    const path = issue?.path?.join(".") ?? "";
+    const msg = issue?.message ?? "invalid body";
+    return new NextResponse(path ? `${path}: ${msg}` : msg, { status: 400 });
   }
   const data = parsed.data;
 

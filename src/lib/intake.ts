@@ -76,6 +76,67 @@ export const intakeFieldsSchema = z
     }
   });
 
+// Validate intake field *definitions* (not answers — see validateAnswers below). Mirrors the
+// server-side zod schema so the MT form can surface a friendly per-field message and jump to
+// the Intake tab before the API round-trip. Returns null when the array is well-formed, or a
+// `{ index, message }` for the first problem found (1-based numbering in messages for humans).
+export function validateIntakeFieldDefinitions(
+  fields: IntakeField[],
+): { index: number; message: string } | null {
+  if (fields.length > 20) {
+    return { index: 0, message: "Too many intake questions (max 20)." };
+  }
+  const seen = new Set<string>();
+  for (let i = 0; i < fields.length; i++) {
+    const f = fields[i];
+    const human = `Question ${i + 1}`;
+    if (!f.label || !f.label.trim()) {
+      return { index: i, message: `${human}: label is required.` };
+    }
+    if (f.label.length > 120) {
+      return { index: i, message: `${human}: label is too long (max 120 characters).` };
+    }
+    if (!KEY_RE.test(f.key)) {
+      return {
+        index: i,
+        message: `${human} ("${f.label}"): key must be 2–40 chars (lowercase letters, digits, hyphens).`,
+      };
+    }
+    if (seen.has(f.key)) {
+      return { index: i, message: `${human} ("${f.label}"): duplicate key "${f.key}".` };
+    }
+    seen.add(f.key);
+    if (!(FIELD_TYPES as readonly string[]).includes(f.type)) {
+      return { index: i, message: `${human} ("${f.label}"): unsupported type.` };
+    }
+    if (f.type === "select") {
+      if (!f.options || f.options.length === 0) {
+        return { index: i, message: `${human} ("${f.label}"): add at least one option.` };
+      }
+      const emptyAt = f.options.findIndex((o) => !o || !o.trim());
+      if (emptyAt !== -1) {
+        return {
+          index: i,
+          message: `${human} ("${f.label}"): option ${emptyAt + 1} is empty.`,
+        };
+      }
+    }
+    if (f.conditionalOn) {
+      const refIdx = fields.findIndex((x) => x.key === f.conditionalOn!.fieldKey);
+      if (refIdx === -1) {
+        return { index: i, message: `${human} ("${f.label}") depends on a missing field.` };
+      }
+      if (refIdx >= i) {
+        return {
+          index: i,
+          message: `${human} ("${f.label}") must come after the field it depends on.`,
+        };
+      }
+    }
+  }
+  return null;
+}
+
 // Decide whether a field is currently visible given the answers so far.
 export function isFieldVisible(field: IntakeField, answers: Record<string, unknown>): boolean {
   if (!field.conditionalOn) return true;

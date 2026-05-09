@@ -17,7 +17,7 @@ import {
   MAX_ADVANCE_DAYS,
   formatMinutes,
 } from "@/lib/scheduling-rules";
-import { type IntakeField } from "@/lib/intake";
+import { type IntakeField, validateIntakeFieldDefinitions } from "@/lib/intake";
 import { IntakeFieldsEditor } from "@/components/intake-fields-editor";
 import {
   WorkingHoursEditor,
@@ -1073,6 +1073,10 @@ function validateProjectDraft(
       }
     }
   }
+  const intakeErr = validateIntakeFieldDefinitions(draft.intakeFields);
+  if (intakeErr) {
+    errors.push({ tabKey: "intake", message: intakeErr.message });
+  }
   return errors;
 }
 
@@ -1181,6 +1185,8 @@ function validateDraft(draft: DraftValues, members: ProjectMember[]): string | n
       }
     }
   }
+  const intakeErr = validateIntakeFieldDefinitions(draft.intakeFields);
+  if (intakeErr) return intakeErr.message;
   return null;
 }
 

@@ -25,6 +25,9 @@ const patchSchema = z.object({
   minNoticeMinutes: z.number().int().refine((v) => (MIN_NOTICE_MINUTES as readonly number[]).includes(v)),
   maxAdvanceDays: z.number().int().refine((v) => (MAX_ADVANCE_DAYS as readonly number[]).includes(v)),
   routingMode: z.enum(["SINGLE", "ROUND_ROBIN", "COLLECTIVE"]).default("SINGLE"),
+  roundRobinFairness: z
+    .enum(["LEAST_RECENTLY_ASSIGNED", "LEAST_LOADED", "STRICT_ROTATION", "RANDOM"])
+    .default("LEAST_RECENTLY_ASSIGNED"),
   assignedHostIds: z.array(z.string().min(1)).min(1),
   conflictCalendarIds: z.array(z.string().min(1)).default([]),
   intakeFields: intakeFieldsSchema.default([]),
@@ -231,6 +234,7 @@ export async function PATCH(
           minNoticeMinutes: data.minNoticeMinutes,
           maxAdvanceDays: data.maxAdvanceDays,
           routingMode: data.routingMode,
+          roundRobinFairness: data.roundRobinFairness,
           assignedHostIds: data.assignedHostIds,
           conflictCalendarIds: data.conflictCalendarIds,
           isActive: data.isActive,

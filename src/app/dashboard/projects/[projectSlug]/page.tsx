@@ -67,7 +67,6 @@ export default async function ProjectDashboardPage({
             slug: project.slug,
             description: project.description,
             isActive: project.isActive,
-            roundRobinFairness: project.roundRobinFairness,
           }}
           projectId={project.id}
         />

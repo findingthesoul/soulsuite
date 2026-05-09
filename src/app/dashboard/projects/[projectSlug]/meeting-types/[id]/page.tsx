@@ -77,6 +77,7 @@ export default async function EditProjectMeetingTypePage({
             maxAdvanceDays: mt.maxAdvanceDays,
             conflictCalendarIds: mt.conflictCalendarIds,
             routingMode: mt.routingMode,
+            roundRobinFairness: mt.roundRobinFairness,
             assignedHostIds: mt.assignedHostIds,
             intakeFields,
             isActive: mt.isActive,

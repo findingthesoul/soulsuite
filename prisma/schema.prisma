@@ -173,9 +173,6 @@ model Project {
   name        String
   description String?
   isActive    Boolean  @default(true)
-  // Per-team round-robin fairness rule. Default LEAST_RECENTLY_ASSIGNED matches the brief's
-  // pre-feature behaviour. See src/lib/round-robin.ts for the implementation of each rule.
-  roundRobinFairness RoundRobinFairness @default(LEAST_RECENTLY_ASSIGNED)
   createdAt   DateTime @default(now())
 
   workspace    Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -268,6 +265,10 @@ model MeetingType {
   minNoticeMinutes      Int                  @default(60)
   maxAdvanceDays        Int                  @default(60)
   routingMode           RoutingMode          @default(SINGLE)
+  // Fairness rule for ROUND_ROBIN routing. Ignored for SINGLE / COLLECTIVE. Sits on the MT
+  // (not the Project) so two team meeting types can use different rules — e.g. a first-touch
+  // sales call on STRICT_ROTATION while the follow-up uses LEAST_LOADED.
+  roundRobinFairness    RoundRobinFairness   @default(LEAST_RECENTLY_ASSIGNED)
   // Group meetings: how many invitees can claim the same slot. 1 = traditional 1:1 meeting,
   // >1 = shared event (single Google event, many bookings rows). Only valid for SINGLE routing.
   maxInvitees           Int                  @default(1)

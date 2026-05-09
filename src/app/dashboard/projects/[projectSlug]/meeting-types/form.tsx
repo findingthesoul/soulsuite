@@ -36,6 +36,15 @@ type ConferencingProvider =
   | "PERSONAL_ROOM"
   | "NONE";
 type RoutingMode = "SINGLE" | "ROUND_ROBIN" | "COLLECTIVE";
+type Fairness = "LEAST_RECENTLY_ASSIGNED" | "LEAST_LOADED" | "STRICT_ROTATION" | "RANDOM";
+
+const FAIRNESS_DESCRIPTIONS: Record<Fairness, string> = {
+  LEAST_RECENTLY_ASSIGNED:
+    "Whoever hasn't taken a booking longest gets the next one. Fair across vacations and schedules.",
+  LEAST_LOADED: "Host with the fewest upcoming bookings gets it.",
+  STRICT_ROTATION: "Pure A → B → C order, regardless of load.",
+  RANDOM: "Random pick from the team.",
+};
 
 interface ProjectMember {
   hostId: string;
@@ -62,6 +71,7 @@ interface Initial {
   maxAdvanceDays: number;
   conflictCalendarIds: string[];
   routingMode: RoutingMode;
+  roundRobinFairness: Fairness;
   assignedHostIds: string[];
   intakeFields: IntakeField[];
   isActive: boolean;
@@ -98,6 +108,7 @@ interface DraftValues {
   maxAdvanceDays: number;
   conflictCalendarIds: string[];
   routingMode: RoutingMode;
+  roundRobinFairness: Fairness;
   assignedHostIds: string[];
   intakeFields: IntakeField[];
   isActive: boolean;
@@ -125,6 +136,7 @@ function initialToDraft(initial: Initial): DraftValues {
     maxAdvanceDays: initial.maxAdvanceDays,
     conflictCalendarIds: initial.conflictCalendarIds,
     routingMode: initial.routingMode,
+    roundRobinFairness: initial.roundRobinFairness,
     assignedHostIds: initial.assignedHostIds,
     intakeFields: initial.intakeFields,
     isActive: initial.isActive,
@@ -303,6 +315,7 @@ function EditProjectMeetingTypeForm({
           maxAdvanceDays: draft.maxAdvanceDays,
           conflictCalendarIds: draft.conflictCalendarIds,
           routingMode: draft.routingMode,
+          roundRobinFairness: draft.roundRobinFairness,
           assignedHostIds: draft.assignedHostIds,
           intakeFields: draft.intakeFields,
           isActive: draft.isActive,
@@ -411,6 +424,20 @@ function EditProjectMeetingTypeForm({
               />
             </CardContent>
           </Card>
+
+          {draft.routingMode === "ROUND_ROBIN" && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Fairness</CardTitle>
+                <CardDescription>
+                  How round-robin picks among free assigned hosts.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <FairnessEditor draft={draft} update={update} />
+              </CardContent>
+            </Card>
+          )}
 
           {draft.routingMode === "SINGLE" && (
             <Card>
@@ -574,6 +601,7 @@ function CreateProjectMeetingTypeForm({
     maxAdvanceDays: 60,
     conflictCalendarIds: [],
     routingMode: "SINGLE",
+    roundRobinFairness: "LEAST_RECENTLY_ASSIGNED",
     assignedHostIds: members[0]?.hostId ? [members[0].hostId] : [],
     intakeFields: [],
     isActive: true,
@@ -683,6 +711,7 @@ function CreateProjectMeetingTypeForm({
           maxAdvanceDays: draft.maxAdvanceDays,
           conflictCalendarIds: draft.conflictCalendarIds,
           routingMode: draft.routingMode,
+          roundRobinFairness: draft.roundRobinFairness,
           assignedHostIds: draft.assignedHostIds,
           intakeFields: draft.intakeFields,
           isActive: draft.isActive,
@@ -733,6 +762,18 @@ function CreateProjectMeetingTypeForm({
           />
         </CardContent>
       </Card>
+
+      {draft.routingMode === "ROUND_ROBIN" && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Fairness</CardTitle>
+            <CardDescription>How round-robin picks among free assigned hosts.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <FairnessEditor draft={draft} update={update} />
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
@@ -1614,6 +1655,33 @@ function SchedulingEditor({
           </Select>
         </div>
       </div>
+    </div>
+  );
+}
+
+function FairnessEditor({
+  draft,
+  update,
+}: {
+  draft: DraftValues;
+  update: <K extends keyof DraftValues>(key: K, value: DraftValues[K]) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <Label htmlFor="roundRobinFairness">Fairness rule</Label>
+      <Select
+        id="roundRobinFairness"
+        value={draft.roundRobinFairness}
+        onChange={(e) => update("roundRobinFairness", e.target.value as Fairness)}
+      >
+        <option value="LEAST_RECENTLY_ASSIGNED">Least recently assigned</option>
+        <option value="LEAST_LOADED">Least loaded</option>
+        <option value="STRICT_ROTATION">Strict rotation</option>
+        <option value="RANDOM">Random</option>
+      </Select>
+      <p className="text-xs text-muted-foreground">
+        {FAIRNESS_DESCRIPTIONS[draft.roundRobinFairness]}
+      </p>
     </div>
   );
 }

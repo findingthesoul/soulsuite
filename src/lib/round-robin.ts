@@ -1,4 +1,5 @@
-// Round-robin helpers. Per-Team fairness rule lives on Project.roundRobinFairness:
+// Round-robin helpers. Fairness rule lives on MeetingType.roundRobinFairness (was per-team
+// pre-1.5):
 //   LEAST_RECENTLY_ASSIGNED (default) — oldest ProjectMember.lastAssignedAt wins (nulls first),
 //     tie-broken by addedAt for stable behaviour. This was the historic only-rule.
 //   LEAST_LOADED — host with the fewest upcoming CONFIRMED bookings in the next 14 days. Uses
@@ -66,10 +67,11 @@ export async function computeRoundRobinSlots(
 }
 
 // Pick the host to assign for a fresh round-robin booking, given a list of candidates that are
-// all free at the requested time. Reads Project.roundRobinFairness to choose the rule.
+// all free at the requested time. Reads MeetingType.roundRobinFairness to choose the rule —
+// fairness is per-MT (not per-team) so two MTs in the same project can use different rules.
 //
-// `meetingTypeId` and `assignedHostIds` are needed for STRICT_ROTATION (it looks at the most
-// recent Booking on the meeting type to find "last assigned").
+// `meetingTypeId` is required to read the rule. `assignedHostIds` is needed for STRICT_ROTATION
+// (it looks at the most recent Booking on the meeting type to find "last assigned").
 export async function pickRoundRobinHost(
   projectId: string,
   candidateHostIds: string[],
@@ -78,11 +80,17 @@ export async function pickRoundRobinHost(
   if (candidateHostIds.length === 0) return null;
   if (candidateHostIds.length === 1) return candidateHostIds[0];
 
-  const project = await prisma.project.findUnique({
-    where: { id: projectId },
-    select: { roundRobinFairness: true },
-  });
-  const rule = project?.roundRobinFairness ?? "LEAST_RECENTLY_ASSIGNED";
+  // Look up the rule from the MT. If we weren't given a meetingTypeId (legacy callers), or the
+  // row has been deleted under us, fall back to the historic default.
+  let rule: "LEAST_RECENTLY_ASSIGNED" | "LEAST_LOADED" | "STRICT_ROTATION" | "RANDOM" =
+    "LEAST_RECENTLY_ASSIGNED";
+  if (options?.meetingTypeId) {
+    const mt = await prisma.meetingType.findUnique({
+      where: { id: options.meetingTypeId },
+      select: { roundRobinFairness: true },
+    });
+    if (mt?.roundRobinFairness) rule = mt.roundRobinFairness;
+  }
 
   switch (rule) {
     case "RANDOM": {

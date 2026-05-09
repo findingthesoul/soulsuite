@@ -25,6 +25,10 @@ const bodySchema = z.object({
   minNoticeMinutes: z.number().int().refine((v) => (MIN_NOTICE_MINUTES as readonly number[]).includes(v)),
   maxAdvanceDays: z.number().int().refine((v) => (MAX_ADVANCE_DAYS as readonly number[]).includes(v)),
   routingMode: z.enum(["SINGLE", "ROUND_ROBIN", "COLLECTIVE"]).default("SINGLE"),
+  // Per-MT fairness rule for ROUND_ROBIN routing. Ignored for SINGLE / COLLECTIVE.
+  roundRobinFairness: z
+    .enum(["LEAST_RECENTLY_ASSIGNED", "LEAST_LOADED", "STRICT_ROTATION", "RANDOM"])
+    .default("LEAST_RECENTLY_ASSIGNED"),
   // SINGLE → exactly 1 host. ROUND_ROBIN → 2 or more.
   assignedHostIds: z.array(z.string().min(1)).min(1),
   conflictCalendarIds: z.array(z.string().min(1)).default([]),
@@ -235,6 +239,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
               : data.routingMode === "COLLECTIVE"
                 ? RoutingMode.COLLECTIVE
                 : RoutingMode.SINGLE,
+          roundRobinFairness: data.roundRobinFairness,
           assignedHostIds: data.assignedHostIds,
           bufferBeforeMinutes: data.bufferBeforeMinutes,
           bufferAfterMinutes: data.bufferAfterMinutes,

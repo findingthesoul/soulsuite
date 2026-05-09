@@ -99,9 +99,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (isPaid && parsed.data.paymentMethod === "STRIPE" && !host.stripeAccountId) {
     return new NextResponse("Connect Stripe under Settings → Payments first.", { status: 400 });
   }
-  if (isPaid && parsed.data.paymentMethod === "ADYEN" && !host.adyenMerchantAccount) {
+  if (isPaid && parsed.data.paymentMethod === "ADYEN") {
     return new NextResponse(
-      "Set your Adyen merchant account under Settings → Payments first.",
+      "Adyen is no longer supported. Pick Stripe or Invoice.",
       { status: 400 },
     );
   }

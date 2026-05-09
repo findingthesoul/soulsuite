@@ -132,7 +132,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   // to have a Stripe account connected. INVOICE rail skips that check entirely. ADYEN is a
   // placeholder; UI shouldn't post it but we reject defensively.
   if (data.paymentMethod === "ADYEN") {
-    return new NextResponse("Adyen isn't available yet — pick Stripe or invoice.", { status: 400 });
+    return new NextResponse("Adyen is no longer supported. Pick Stripe or Invoice.", { status: 400 });
   }
   const isPaid = (data.priceCents ?? 0) > 0;
   if (isPaid) {

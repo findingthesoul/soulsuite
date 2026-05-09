@@ -26,6 +26,7 @@ import { BottomSheet } from "@/components/ui/bottom-sheet";
 
 interface Props {
   hasWorkspace?: boolean;
+  canManageWorkspace?: boolean;
 }
 
 const PRIMARY = [
@@ -40,8 +41,11 @@ const MORE_PERSONAL = [
   { href: "/dashboard/payments", label: "Payments", icon: CreditCard },
 ] as const;
 
-const MORE_WORKSPACE = [
+const MORE_WORKSPACE_MANAGER = [
   { href: "/settings/members", label: "Internal team", icon: Users },
+  { href: "/dashboard/contacts", label: "Contacts", icon: BookUser },
+] as const;
+const MORE_WORKSPACE_MEMBER = [
   { href: "/dashboard/contacts", label: "Contacts", icon: BookUser },
 ] as const;
 
@@ -49,7 +53,8 @@ const MORE_FOOTER = [
   { href: "/support", label: "Help", icon: HelpCircle },
 ] as const;
 
-export function BottomNav({ hasWorkspace = false }: Props) {
+export function BottomNav({ hasWorkspace = false, canManageWorkspace = false }: Props) {
+  const moreWorkspace = canManageWorkspace ? MORE_WORKSPACE_MANAGER : MORE_WORKSPACE_MEMBER;
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = React.useState(false);
 
@@ -62,7 +67,7 @@ export function BottomNav({ hasWorkspace = false }: Props) {
   // the route doesn't map to a primary tab.
   const inMore =
     !PRIMARY.some((p) => isActive(p.href, p.exact)) &&
-    [...MORE_PERSONAL, ...MORE_WORKSPACE, ...MORE_FOOTER].some((m) =>
+    [...MORE_PERSONAL, ...moreWorkspace, ...MORE_FOOTER].some((m) =>
       pathname === m.href || pathname.startsWith(m.href + "/"),
     );
 
@@ -111,7 +116,7 @@ export function BottomNav({ hasWorkspace = false }: Props) {
           {hasWorkspace && (
             <SheetSection
               title="Workspace"
-              items={MORE_WORKSPACE}
+              items={moreWorkspace}
               onNavigate={() => setMoreOpen(false)}
               pathname={pathname}
             />

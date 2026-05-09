@@ -35,14 +35,6 @@ const serverSchema = z.object({
   // time so dev environments without Stripe can still run.
   STRIPE_SECRET_KEY: z.string().min(1).optional(),
   STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
-  // Adyen — checkout API key + base URL (test or live). HMAC key is the standard webhook HMAC
-  // configured in Adyen Customer Area; user/password are the optional Basic Auth pair on the
-  // notification endpoint. All optional at boot time so dev environments without Adyen can run.
-  ADYEN_API_KEY: z.string().min(1).optional(),
-  ADYEN_BASE_URL: z.string().url().optional(),
-  ADYEN_HMAC_KEY: z.string().min(1).optional(),
-  ADYEN_NOTIFICATION_USER: z.string().min(1).optional(),
-  ADYEN_NOTIFICATION_PASSWORD: z.string().min(1).optional(),
 });
 
 export const publicEnv = publicSchema.parse({

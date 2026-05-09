@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
 import { unstable_cache, revalidateTag } from "next/cache";
-import type { Host } from "@prisma/client";
+import type { Host, WorkspaceRole } from "@prisma/client";
 import { getCurrentHost } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { canManageWorkspace } from "@/lib/permissions";
 
 export interface PageContext {
   host: Host;
@@ -11,6 +12,7 @@ export interface PageContext {
     name: string;
     logoUrl: string | null;
     brandColor: string | null;
+    role: WorkspaceRole;
   } | null;
 }
 
@@ -30,10 +32,12 @@ const fetchWorkspaceForHost = unstable_cache(
     const membership = await prisma.workspaceMember.findFirst({
       where: { hostId },
       select: {
+        role: true,
         workspace: { select: { id: true, name: true, logoUrl: true, brandColor: true } },
       },
     });
-    return membership?.workspace ?? null;
+    if (!membership?.workspace) return null;
+    return { ...membership.workspace, role: membership.role };
   },
   ["workspace-for-host"],
   { revalidate: 300, tags: ["workspace-for-host"] },
@@ -61,5 +65,6 @@ export function shellProps(ctx: PageContext) {
     logoUrl: ctx.workspace?.logoUrl ?? null,
     brandColor: ctx.workspace?.brandColor ?? null,
     hasWorkspace: !!ctx.workspace,
+    canManageWorkspace: ctx.workspace ? canManageWorkspace(ctx.workspace.role) : false,
   };
 }

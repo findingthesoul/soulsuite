@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { redirect } from "next/navigation";
 import { getPageContextOrRedirect, shellProps } from "@/lib/page-context";
 import { getWorkspaceRole, canManageWorkspace } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
@@ -10,7 +10,32 @@ import { inviteUrl } from "@/lib/invites";
 export default async function MembersSettingsPage() {
   const ctx = await getPageContextOrRedirect();
   const membership = await getWorkspaceRole(ctx.host);
-  if (!membership || !canManageWorkspace(membership.role)) notFound();
+  // No workspace at all — bounce to dashboard. We never want a 404 from a sidebar link.
+  if (!membership) redirect("/dashboard");
+  // Workspace member but not an owner/admin — render a friendly explanation instead of 404.
+  if (!canManageWorkspace(membership.role)) {
+    return (
+      <AppShell {...shellProps(ctx)}>
+        <div className="mx-auto w-full max-w-2xl space-y-6">
+          <header className="space-y-1">
+            <h1 className="text-2xl font-semibold tracking-tight">Internal team</h1>
+            <p className="text-sm text-muted-foreground">
+              Only workspace owners and admins can manage internal team members.
+            </p>
+          </header>
+          <Card>
+            <CardHeader>
+              <CardTitle>You don&apos;t have access</CardTitle>
+              <CardDescription>
+                Ask an owner of <strong>{membership.workspace.name}</strong> to invite or manage
+                people on your behalf, or to promote you to admin if you should have access.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        </div>
+      </AppShell>
+    );
+  }
 
   const [members, invites] = await Promise.all([
     prisma.workspaceMember.findMany({

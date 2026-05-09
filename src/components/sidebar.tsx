@@ -11,9 +11,16 @@ interface Props {
   logoUrl?: string | null;
   brandColor?: string | null;
   hasWorkspace?: boolean;
+  canManageWorkspace?: boolean;
 }
 
-export function Sidebar({ workspaceName, logoUrl, brandColor, hasWorkspace = false }: Props) {
+export function Sidebar({
+  workspaceName,
+  logoUrl,
+  brandColor,
+  hasWorkspace = false,
+  canManageWorkspace = false,
+}: Props) {
   const { mode } = useSidebar();
   const isCollapsed = mode === "collapsed" || mode === "hover";
   const isOverlay = mode === "hover";
@@ -69,7 +76,12 @@ export function Sidebar({ workspaceName, logoUrl, brandColor, hasWorkspace = fal
           </Link>
         </div>
 
-        <SidebarNav compact={isCollapsed} overlay={isOverlay} hasWorkspace={hasWorkspace} />
+        <SidebarNav
+          compact={isCollapsed}
+          overlay={isOverlay}
+          hasWorkspace={hasWorkspace}
+          canManageWorkspace={canManageWorkspace}
+        />
       </aside>
 
       {/* Spacer in hover mode so the fixed sidebar doesn't overlap content. */}

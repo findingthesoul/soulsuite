@@ -256,9 +256,6 @@ export default async function SupportPage() {
                   address, VAT, PO ref) at booking time. Booking is confirmed without payment; you send the invoice
                   externally and mark it paid in <code>/dashboard/payments</code>.
                 </li>
-                <li>
-                  <span className="text-foreground">Adyen</span> — coming.
-                </li>
               </ul>
               <p>
                 <code>/dashboard/payments</code> shows all your paid bookings with filters (Failed-to-finalize,

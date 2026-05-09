@@ -15,13 +15,11 @@ type InvoiceSource = "EXTERNAL" | "SOUL_SUITE";
 interface Initial {
   stripeAccountId: string | null;
   invoiceSource: InvoiceSource;
-  adyenMerchantAccount: string | null;
 }
 
 interface Draft {
   stripeAccountId: string;
   invoiceSource: InvoiceSource;
-  adyenMerchantAccount: string;
 }
 
 const ACCOUNT_ID_RE = /^acct_[A-Za-z0-9]+$/;
@@ -31,7 +29,6 @@ export function PaymentsForm({ initial }: { initial: Initial }) {
   const { draft, dirty, update, discard, commit } = useDirtyState<Draft>({
     stripeAccountId: initial.stripeAccountId ?? "",
     invoiceSource: initial.invoiceSource,
-    adyenMerchantAccount: initial.adyenMerchantAccount ?? "",
   });
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -45,12 +42,6 @@ export function PaymentsForm({ initial }: { initial: Initial }) {
     if (draft.invoiceSource === "SOUL_SUITE" && !value) {
       return setError("Connect a Stripe account before enabling Soul Suite invoice delivery.");
     }
-    const adyen = draft.adyenMerchantAccount.trim();
-    if (adyen && !/^[A-Za-z0-9._-]{1,80}$/.test(adyen)) {
-      return setError(
-        "Adyen merchant account names use letters, digits, dot, dash, or underscore (max 80 chars).",
-      );
-    }
     startTransition(async () => {
       const res = await fetch("/api/settings/stripe-account", {
         method: "PATCH",
@@ -58,18 +49,13 @@ export function PaymentsForm({ initial }: { initial: Initial }) {
         body: JSON.stringify({
           stripeAccountId: value || null,
           invoiceSource: draft.invoiceSource,
-          adyenMerchantAccount: adyen || null,
         }),
       });
       if (!res.ok) {
         setError((await res.text()) || "Failed to save");
         return;
       }
-      commit({
-        stripeAccountId: value,
-        invoiceSource: draft.invoiceSource,
-        adyenMerchantAccount: adyen,
-      });
+      commit({ stripeAccountId: value, invoiceSource: draft.invoiceSource });
       router.refresh();
     });
   }
@@ -162,39 +148,6 @@ export function PaymentsForm({ initial }: { initial: Initial }) {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Adyen merchant account</CardTitle>
-          <CardDescription>
-            For meeting types that collect payment via Adyen Pay-by-Link. Soul Suite operates the
-            Adyen platform; paste the sub-merchant account name we provisioned for you (e.g.
-            <code className="px-1">SoulSuiteHostName</code>).
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="adyenMerchantAccount">Merchant account</Label>
-            <Input
-              id="adyenMerchantAccount"
-              value={draft.adyenMerchantAccount}
-              onChange={(e) => update({ adyenMerchantAccount: e.target.value })}
-              placeholder="SoulSuiteHostName"
-              autoComplete="off"
-              spellCheck={false}
-            />
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Status:{" "}
-            {initial.adyenMerchantAccount ? (
-              <span className="text-foreground">
-                Connected ({initial.adyenMerchantAccount})
-              </span>
-            ) : (
-              <span>Not connected — Adyen-paid meeting types will be blocked.</span>
-            )}
-          </p>
-        </CardContent>
-      </Card>
     </div>
   );
 }

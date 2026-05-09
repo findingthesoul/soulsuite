@@ -9,10 +9,19 @@ export interface AppShellProps {
   logoUrl?: string | null;
   brandColor?: string | null;
   hasWorkspace?: boolean;
+  canManageWorkspace?: boolean;
   children: React.ReactNode;
 }
 
-export function AppShell({ user, workspaceName, logoUrl, brandColor, hasWorkspace = false, children }: AppShellProps) {
+export function AppShell({
+  user,
+  workspaceName,
+  logoUrl,
+  brandColor,
+  hasWorkspace = false,
+  canManageWorkspace = false,
+  children,
+}: AppShellProps) {
   // Brand color is exposed as `--brand` for components that opt in (e.g. logo bg). It does NOT
   // override --primary anymore — that broke buttons whenever someone picked a light brand color
   // (white-on-white invisible button).
@@ -22,7 +31,13 @@ export function AppShell({ user, workspaceName, logoUrl, brandColor, hasWorkspac
 
   return (
     <div className="flex h-screen overflow-hidden bg-background text-foreground" style={inlineStyle}>
-      <Sidebar workspaceName={workspaceName} logoUrl={logoUrl} brandColor={brandColor} hasWorkspace={hasWorkspace} />
+      <Sidebar
+        workspaceName={workspaceName}
+        logoUrl={logoUrl}
+        brandColor={brandColor}
+        hasWorkspace={hasWorkspace}
+        canManageWorkspace={canManageWorkspace}
+      />
 
       {/* Main area */}
       <div className="flex flex-1 flex-col min-w-0 overflow-y-auto">
@@ -40,7 +55,7 @@ export function AppShell({ user, workspaceName, logoUrl, brandColor, hasWorkspac
         </main>
       </div>
 
-      <BottomNav hasWorkspace={hasWorkspace} />
+      <BottomNav hasWorkspace={hasWorkspace} canManageWorkspace={canManageWorkspace} />
     </div>
   );
 }

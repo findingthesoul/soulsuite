@@ -130,6 +130,63 @@ export function CalendarPickerForm({
     </Card>
   );
 
+  // Help block: how to surface more calendars. Sub-calendars are owned/shared inside Google
+  // Calendar itself, not Soul Suite, so we explain the two routes (create + share) and where
+  // the sync happens. Only renders in edit mode — the onboarding flow already nudges users
+  // through their primary calendar without distraction.
+  const calendarsHelp = (
+    <Card>
+      <CardHeader>
+        <CardTitle>Don&apos;t see a calendar you expected?</CardTitle>
+        <CardDescription>
+          Soul Suite shows every Google calendar you own or have at least write access to. To add
+          one, do it inside Google Calendar — Soul Suite picks it up the next time you load this
+          page.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm text-muted-foreground">
+        <ol className="list-decimal pl-5 space-y-2">
+          <li>
+            <strong className="text-foreground">Create a new calendar</strong> — open{" "}
+            <a
+              href="https://calendar.google.com/calendar/u/0/r/settings/createcalendar"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline"
+            >
+              Google Calendar → Add other calendars → Create new calendar
+            </a>
+            . Once created, it shows up here automatically.
+          </li>
+          <li>
+            <strong className="text-foreground">Get access to someone else&apos;s calendar</strong> — ask
+            them to share it with you with at least <em>Make changes to events</em> permission
+            (
+            <a
+              href="https://support.google.com/calendar/answer/37082"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline"
+            >
+              Google&apos;s guide
+            </a>
+            ). Read-only shares are intentionally hidden — Soul Suite needs write access to make
+            it a conflict source or write target.
+          </li>
+          <li>
+            <strong className="text-foreground">Reload this page</strong> — the calendar list is
+            fetched live from Google on every visit. If you just changed a permission and don&apos;t
+            see it, refresh the browser.
+          </li>
+        </ol>
+        <p className="pt-1 text-xs">
+          Soul Suite never modifies which calendars exist on your Google account. Adding,
+          removing, or renaming calendars all happens in Google Calendar itself.
+        </p>
+      </CardContent>
+    </Card>
+  );
+
   if (isEdit) {
     return (
       <div className="space-y-4">
@@ -156,6 +213,7 @@ export function CalendarPickerForm({
           </p>
         )}
         {error && <p className="text-sm text-destructive">{error}</p>}
+        {calendarsHelp}
       </div>
     );
   }

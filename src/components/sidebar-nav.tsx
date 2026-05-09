@@ -25,8 +25,16 @@ const PERSONAL_SETTINGS_ITEMS = [
   { href: "/settings/availability", label: "Availability", icon: Clock, exact: false },
   { href: "/dashboard/payments", label: "Payments", icon: CreditCard, exact: false },
 ];
-const WORKSPACE_SETTINGS_ITEMS = [
-  { href: "/settings/members", label: "Internal", icon: Users, exact: false },
+// Items in this list are visible to every workspace member by default. Items that should only
+// surface for owners/admins go via the explicit `canManageWorkspace` filter below.
+const WORKSPACE_SETTINGS_ITEMS: {
+  href: string;
+  label: string;
+  icon: typeof Users;
+  exact: boolean;
+  managerOnly?: boolean;
+}[] = [
+  { href: "/settings/members", label: "Internal", icon: Users, exact: false, managerOnly: true },
   { href: "/dashboard/contacts", label: "Contacts", icon: BookUser, exact: false },
 ];
 
@@ -34,9 +42,15 @@ interface Props {
   compact?: boolean; // collapsed (icons-only) sidebar
   overlay?: boolean; // hover mode — labels appear on group-hover
   hasWorkspace?: boolean;
+  canManageWorkspace?: boolean;
 }
 
-export function SidebarNav({ compact = false, overlay = false, hasWorkspace = false }: Props) {
+export function SidebarNav({
+  compact = false,
+  overlay = false,
+  hasWorkspace = false,
+  canManageWorkspace = false,
+}: Props) {
   const pathname = usePathname();
 
   function isActive(href: string, exact: boolean) {
@@ -96,7 +110,9 @@ export function SidebarNav({ compact = false, overlay = false, hasWorkspace = fa
                 Workspace
               </p>
             </div>
-            {WORKSPACE_SETTINGS_ITEMS.map(({ href, label, icon: Icon, exact }) => (
+            {WORKSPACE_SETTINGS_ITEMS.filter(
+              (item) => !item.managerOnly || canManageWorkspace,
+            ).map(({ href, label, icon: Icon, exact }) => (
               <Link key={href} href={href} className={navItemClass(href, exact)} title={label}>
                 <Icon className="h-4 w-4 shrink-0" />
                 <span className={labelClass()}>{label}</span>

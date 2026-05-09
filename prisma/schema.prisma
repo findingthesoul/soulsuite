@@ -103,11 +103,6 @@ model Host {
   // Stripe Connect Standard — host pastes their account ID (acct_…) on /settings/payments.
   // Null = no Stripe connected; paid meeting types blocked from saving until set.
   stripeAccountId    String?
-  // Adyen merchant account name (e.g. "SoulSuiteHost123") configured under Soul's Adyen
-  // platform account. The host's bookings create Pay-by-Link sessions against this merchant
-  // account so payouts go to the right entity. Null = no Adyen connected; paid MTs with
-  // paymentMethod=ADYEN are blocked from saving until set.
-  adyenMerchantAccount String?
   // How this host wants to deliver invoices for INVOICE-method bookings.
   // EXTERNAL (default): Soul Suite confirms the booking and the host invoices from another app.
   // SOUL_SUITE: Soul Suite generates a Stripe payment link, emails the invoice, and the
@@ -402,8 +397,10 @@ enum PaymentStatus {
 enum PaymentMethod {
   STRIPE
   INVOICE
-  // Adyen Pay-by-Link. Routes the invitee through an Adyen-hosted checkout page and the
-  // /api/adyen/webhook handler flips PAID on AUTHORISATION success.
+  // ADYEN was scaffolded in 1.3.0 but Adyen declined to onboard the platform; the enum value
+  // stays for backwards compatibility (we can't drop a Postgres enum value cleanly without
+  // recreating the type). No code path produces or consumes it — paid MTs route through
+  // Stripe or Invoice only.
   ADYEN
 }
 
@@ -463,12 +460,6 @@ model Booking {
   invoiceSentAt          DateTime?
   stripeSessionId      String?
   stripePaymentIntent  String?
-  // Adyen Pay-by-Link reference + URL stored on the booking row so the public flow can show
-  // the link, the webhook can locate the booking from the AUTHORISATION notification, and
-  // refunds can target the original payment via PSP reference.
-  adyenPaymentLinkId   String?
-  adyenPaymentLinkUrl  String?
-  adyenPspReference    String?
   // Approval workflow — set on PENDING_APPROVAL bookings and stamped on Approve/Decline.
   // approvalToken is the unguessable secret used by the host's email Approve/Decline links so
   // they round-trip without auth (the booking id is rendered to the invitee, so we can't reuse it

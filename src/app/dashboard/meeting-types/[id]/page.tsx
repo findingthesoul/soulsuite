@@ -43,7 +43,6 @@ export default async function EditMeetingTypePage({
           hostSlug={ctx.host.slug}
           hostHasZoom={!!ctx.host.zoomRefreshToken}
           hostHasStripe={!!ctx.host.stripeAccountId}
-          hostHasAdyen={!!ctx.host.adyenMerchantAccount}
           hostHasPersonalRoom={!!ctx.host.personalRoomUrl}
           hostRequireApprovalDefault={ctx.host.requireApprovalDefault}
           hostCalendars={calendars.map((c) => ({

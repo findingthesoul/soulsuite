@@ -19,7 +19,6 @@ export default async function PaymentsSettingsPage() {
           initial={{
             stripeAccountId: ctx.host.stripeAccountId,
             invoiceSource: ctx.host.invoiceSource,
-            adyenMerchantAccount: ctx.host.adyenMerchantAccount,
           }}
         />
       </div>

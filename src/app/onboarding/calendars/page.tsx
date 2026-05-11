@@ -1,4 +1,4 @@
-import { calendarFor, isGoogleAuthError, isHostOwnedCalendar } from "@/lib/google/client";
+import { calendarFor, isGoogleAuthError, isAccessibleCalendar } from "@/lib/google/client";
 import { prisma } from "@/lib/prisma";
 import { getPageContextOrRedirect, shellProps, type PageContext } from "@/lib/page-context";
 import { CalendarPickerForm } from "./form";
@@ -23,7 +23,7 @@ export default async function CalendarPickerPage() {
     const cal = calendarFor(ctx.host.googleRefreshToken);
     const res = await cal.calendarList.list({ maxResults: 100 });
     calendars = (res.data.items ?? [])
-      .filter((c) => c.id && isHostOwnedCalendar(c.id, ctx.host.email))
+      .filter((c) => c.id && isAccessibleCalendar(c.id, ctx.host.email, c.accessRole ?? null))
       .map((c) => ({
         id: c.id ?? "",
         summary: c.summaryOverride ?? c.summary ?? c.id ?? "(unnamed)",

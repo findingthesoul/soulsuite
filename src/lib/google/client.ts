@@ -24,16 +24,33 @@ export function calendarFor(refreshToken: string): calendar_v3.Calendar {
 // IDs are the colleague's email address. We exclude any calendar whose ID looks like an
 // email belonging to someone else — keeping the host's primary, sub-calendars they created
 // (`...@group.calendar.google.com`), and special calendars (holidays, contacts birthdays).
-export function isHostOwnedCalendar(calendarId: string, hostEmail: string): boolean {
+//
+// Cross-account shares with explicit write access (e.g. a personal Gmail calendar shared to
+// the host with "Make changes to events") are also kept — they show up with the source
+// account's email as the ID and `accessRole: "writer"`. The Workspace-admin "appears as owner"
+// case is intentionally excluded by ONLY admitting `writer` from foreign-looking IDs, not
+// `owner`.
+export function isAccessibleCalendar(
+  calendarId: string,
+  hostEmail: string,
+  accessRole: string | null | undefined,
+): boolean {
   const id = calendarId.toLowerCase();
   const me = hostEmail.toLowerCase();
   if (id === me) return true; // primary
   if (id.endsWith("@group.calendar.google.com")) return true;
   if (id.endsWith("@group.v.calendar.google.com")) return true;
   if (id.endsWith("@import.calendar.google.com")) return true;
-  // Anything else that contains "@" is treated as a foreign user's email and excluded.
-  if (id.includes("@")) return false;
+  // Anything else with an "@" looks like a foreign user. Admit it only when the host has
+  // explicit `writer` access — that means it was deliberately shared (vs. surfaced via
+  // domain-admin delegation, which arrives as `owner`).
+  if (id.includes("@")) return accessRole === "writer";
   return true;
+}
+
+// Legacy alias for callers that haven't migrated to the accessRole-aware signature yet.
+export function isHostOwnedCalendar(calendarId: string, hostEmail: string): boolean {
+  return isAccessibleCalendar(calendarId, hostEmail, null);
 }
 
 // 401 from Google with an expired/revoked refresh token. Surface so callers can mark the host

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getPageContextOrRedirect, shellProps } from "@/lib/page-context";
-import { calendarFor, isGoogleAuthError, isHostOwnedCalendar } from "@/lib/google/client";
+import { calendarFor, isGoogleAuthError, isAccessibleCalendar } from "@/lib/google/client";
 import { prisma } from "@/lib/prisma";
 import { AppShell } from "@/components/app-shell";
 import { buttonVariants } from "@/components/ui/button";
@@ -18,7 +18,7 @@ export default async function CalendarsSettingsPage() {
     const cal = calendarFor(ctx.host.googleRefreshToken);
     const res = await cal.calendarList.list({ maxResults: 100 });
     calendars = (res.data.items ?? [])
-      .filter((c) => c.id && isHostOwnedCalendar(c.id, ctx.host.email))
+      .filter((c) => c.id && isAccessibleCalendar(c.id, ctx.host.email, c.accessRole ?? null))
       .map((c) => ({
         id: c.id ?? "",
         summary: c.summaryOverride ?? c.summary ?? c.id ?? "(unnamed)",

@@ -111,6 +111,14 @@ export function CalendarPickerForm({
                   <p className="truncate text-xs text-muted-foreground">
                     {cal.primary ? "Primary · " : ""}
                     {cal.accessRole ?? "—"}
+                    {/* Shared calendars are identified by an @-email ID. Surface it so the
+                        user can tell two "Mahmud Samandari" rows apart at a glance. */}
+                    {cal.id.includes("@") && !cal.id.endsWith("@group.calendar.google.com")
+                      && !cal.id.endsWith("@group.v.calendar.google.com")
+                      && !cal.id.endsWith("@import.calendar.google.com")
+                      && !cal.primary
+                      ? ` · shared from ${cal.id}`
+                      : ""}
                   </p>
                 </div>
                 <Select
@@ -179,6 +187,27 @@ export function CalendarPickerForm({
             see it, refresh the browser.
           </li>
         </ol>
+        <div className="rounded-md border border-border bg-surface-muted/40 p-3 text-xs">
+          <p className="font-medium text-foreground">
+            Stuck on &quot;See only free/busy&quot;?
+          </p>
+          <p className="mt-1">
+            If you can&apos;t pick &quot;Make changes to events&quot; when sharing a calendar
+            from another Google Workspace, that Workspace&apos;s admin has restricted external
+            sharing. As an admin, fix it under{" "}
+            <a
+              href="https://admin.google.com/ac/apps/calendar/sharing"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline"
+            >
+              admin.google.com → Apps → Google Workspace → Calendar → Sharing settings
+            </a>{" "}
+            → External sharing options for primary calendars → set to{" "}
+            <em>&quot;Share all information, but outsiders cannot change calendars&quot;</em> (read-only,
+            enough for conflict checking) or higher.
+          </p>
+        </div>
         <p className="pt-1 text-xs">
           Soul Suite never modifies which calendars exist on your Google account. Adding,
           removing, or renaming calendars all happens in Google Calendar itself.

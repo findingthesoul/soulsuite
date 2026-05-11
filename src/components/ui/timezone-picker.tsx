@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { Check, ChevronDown, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -128,14 +129,47 @@ export function TimezonePicker({
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState("");
   const [highlight, setHighlight] = React.useState(0);
+  const [popoverRect, setPopoverRect] = React.useState<{
+    top: number;
+    left: number;
+    width: number;
+    placement: "below" | "above";
+    maxHeight: number;
+  } | null>(null);
   const inputRef = React.useRef<HTMLInputElement | null>(null);
   const listRef = React.useRef<HTMLDivElement | null>(null);
   const wrapperRef = React.useRef<HTMLDivElement | null>(null);
+  const popoverRef = React.useRef<HTMLDivElement | null>(null);
+  // Portal mount target — only set after mount to keep SSR happy.
+  const [mounted, setMounted] = React.useState(false);
+  React.useEffect(() => setMounted(true), []);
 
-  // Filter + rank: prefix match wins, then substring, then everything else.
+  // Filter + rank. With an empty query: surface the user's current value first, then their
+  // detected local zone, then the alphabetical list. With a non-empty query: prefix match
+  // wins, then substring. Capped at 200 rows so render stays cheap.
   const filtered = React.useMemo(() => {
     const q = normalise(query.trim());
-    if (!q) return allZones.slice(0, 200);
+    if (!q) {
+      const local = ((): string | null => {
+        try {
+          return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+        } catch {
+          return null;
+        }
+      })();
+      const head: string[] = [];
+      const seen = new Set<string>();
+      function push(tz: string | null | undefined) {
+        if (!tz || seen.has(tz)) return;
+        if (!allZones.includes(tz)) return;
+        head.push(tz);
+        seen.add(tz);
+      }
+      push(value);
+      push(local);
+      const rest = allZones.filter((tz) => !seen.has(tz));
+      return [...head, ...rest].slice(0, 200);
+    }
     const exact: string[] = [];
     const prefix: string[] = [];
     const sub: string[] = [];
@@ -146,16 +180,55 @@ export function TimezonePicker({
       else if (n.includes(q)) sub.push(tz);
     }
     return [...exact, ...prefix, ...sub].slice(0, 200);
-  }, [allZones, query]);
+  }, [allZones, query, value]);
 
-  // Close on outside click.
+  // Close on outside click — accepts clicks inside either the trigger wrapper or the portaled
+  // popover. Without the portal check, every click on a list item bubbles to document and is
+  // treated as "outside" because the popover is no longer a descendant of the wrapper.
   React.useEffect(() => {
     if (!open) return;
     const onDocClick = (e: MouseEvent) => {
-      if (!wrapperRef.current?.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (wrapperRef.current?.contains(t)) return;
+      if (popoverRef.current?.contains(t)) return;
+      setOpen(false);
     };
     document.addEventListener("mousedown", onDocClick);
     return () => document.removeEventListener("mousedown", onDocClick);
+  }, [open]);
+
+  // Position the portaled popover next to the input. Recomputes on scroll + resize so the
+  // popover follows when the parent panel scrolls (and we keep it pinned otherwise).
+  React.useEffect(() => {
+    if (!open) {
+      setPopoverRect(null);
+      return;
+    }
+    function reposition() {
+      const el = inputRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - r.bottom - 8;
+      const spaceAbove = r.top - 8;
+      const desired = 256; // matches max-h-64
+      const flipUp = spaceBelow < 180 && spaceAbove > spaceBelow;
+      const maxHeight = Math.min(desired, Math.max(120, flipUp ? spaceAbove : spaceBelow));
+      setPopoverRect({
+        top: flipUp ? r.top + window.scrollY - maxHeight - 4 : r.bottom + window.scrollY + 4,
+        left: r.left + window.scrollX,
+        width: r.width,
+        placement: flipUp ? "above" : "below",
+        maxHeight,
+      });
+    }
+    reposition();
+    const opts = { passive: true } as AddEventListenerOptions;
+    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("resize", reposition, opts);
+    return () => {
+      window.removeEventListener("scroll", reposition, true);
+      window.removeEventListener("resize", reposition, opts);
+    };
   }, [open]);
 
   // Keep highlighted item in view as the user arrows through.
@@ -236,59 +309,69 @@ export function TimezonePicker({
       />
       <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
 
-      {open && filtered.length > 0 && (
-        <div
-          ref={listRef}
-          id={id ? `${id}-list` : undefined}
-          role="listbox"
-          className="absolute z-30 mt-1 max-h-64 w-full overflow-auto rounded-md border border-border bg-surface shadow-md"
-        >
-          {filtered.map((tz, idx) => {
-            const off = formatOffset(offsetMinutes(tz, now));
-            const isSelected = tz === value;
-            const isHighlighted = idx === highlight;
-            return (
-              <button
-                key={tz}
-                type="button"
-                role="option"
-                aria-selected={isSelected}
-                data-idx={idx}
-                onMouseEnter={() => setHighlight(idx)}
-                onMouseDown={(e) => {
-                  // mousedown so we commit before the input's blur closes the popover.
-                  e.preventDefault();
-                  commit(tz);
-                }}
-                className={cn(
-                  "flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm",
-                  isHighlighted ? "bg-surface-muted" : "",
-                  "hover:bg-surface-muted",
-                )}
-              >
-                <span className="flex items-center gap-2 min-w-0">
-                  {isSelected ? (
-                    <Check className="h-3.5 w-3.5 text-foreground shrink-0" />
-                  ) : (
-                    <span className="h-3.5 w-3.5 shrink-0" />
-                  )}
-                  <span className="truncate text-foreground">{tz}</span>
-                </span>
-                {off && (
-                  <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
-                    {off}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      )}
-      {open && filtered.length === 0 && (
-        <div className="absolute z-30 mt-1 w-full rounded-md border border-border bg-surface shadow-md p-3 text-sm text-muted-foreground">
-          No matching time zones.
-        </div>
-      )}
+      {open && mounted && popoverRect &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            id={id ? `${id}-list` : undefined}
+            role="listbox"
+            style={{
+              position: "absolute",
+              top: popoverRect.top,
+              left: popoverRect.left,
+              width: popoverRect.width,
+              maxHeight: popoverRect.maxHeight,
+            }}
+            className="z-[100] overflow-auto rounded-md border border-border bg-surface shadow-md"
+          >
+            {filtered.length > 0 ? (
+              <div ref={listRef}>
+                {filtered.map((tz, idx) => {
+                  const off = formatOffset(offsetMinutes(tz, now));
+                  const isSelected = tz === value;
+                  const isHighlighted = idx === highlight;
+                  return (
+                    <button
+                      key={tz}
+                      type="button"
+                      role="option"
+                      aria-selected={isSelected}
+                      data-idx={idx}
+                      onMouseEnter={() => setHighlight(idx)}
+                      onMouseDown={(e) => {
+                        // mousedown so the commit beats the input's blur.
+                        e.preventDefault();
+                        commit(tz);
+                      }}
+                      className={cn(
+                        "flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm",
+                        isHighlighted ? "bg-surface-muted" : "",
+                        "hover:bg-surface-muted",
+                      )}
+                    >
+                      <span className="flex items-center gap-2 min-w-0">
+                        {isSelected ? (
+                          <Check className="h-3.5 w-3.5 text-foreground shrink-0" />
+                        ) : (
+                          <span className="h-3.5 w-3.5 shrink-0" />
+                        )}
+                        <span className="truncate text-foreground">{tz}</span>
+                      </span>
+                      {off && (
+                        <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
+                          {off}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="p-3 text-sm text-muted-foreground">No matching time zones.</div>
+            )}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

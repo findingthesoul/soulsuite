@@ -10,6 +10,7 @@ export interface AppShellProps {
   brandColor?: string | null;
   hasWorkspace?: boolean;
   canManageWorkspace?: boolean;
+  isSuperAdmin?: boolean;
   children: React.ReactNode;
 }
 
@@ -20,6 +21,7 @@ export function AppShell({
   brandColor,
   hasWorkspace = false,
   canManageWorkspace = false,
+  isSuperAdmin = false,
   children,
 }: AppShellProps) {
   // Brand color is exposed as `--brand` for components that opt in (e.g. logo bg). It does NOT
@@ -37,6 +39,7 @@ export function AppShell({
         brandColor={brandColor}
         hasWorkspace={hasWorkspace}
         canManageWorkspace={canManageWorkspace}
+        isSuperAdmin={isSuperAdmin}
       />
 
       {/* Main area */}

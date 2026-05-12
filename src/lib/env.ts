@@ -19,7 +19,16 @@ const serverSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   GOOGLE_CLIENT_ID: z.string().min(1),
   GOOGLE_CLIENT_SECRET: z.string().min(1),
-  WORKSPACE_PRIMARY_EMAIL_DOMAIN: z.string().min(1),
+  // Bootstrap-only: when no Workspace rows exist yet, the first sign-in from this domain
+  // creates the seed Workspace and becomes its OWNER. After multi-tenancy lands (1.8.0)
+  // this is no longer required at boot — additional organisations are provisioned by a
+  // super-admin from /admin/organisations. Kept optional so existing single-tenant deploys
+  // continue to work, and so the first-install path is still trivial.
+  WORKSPACE_PRIMARY_EMAIL_DOMAIN: z.string().min(1).optional(),
+  // Comma-separated emails that get Host.isSuperAdmin = true on sign-in. Super-admins can
+  // provision new organisations from /admin/organisations. Empty / unset disables the admin
+  // surface; any email previously flagged stays flagged until manually cleared in the DB.
+  SUPER_ADMIN_EMAILS: z.string().optional(),
   APP_TOKEN_SECRET: z.string().min(16),
   // Email — both optional. When unset, email-sending is a no-op (logged in dev). Set both
   // in production after configuring Resend + DNS for the sender domain.
@@ -65,6 +74,7 @@ export function serverEnv() {
       ZOOM_CLIENT_SECRET: process.env.ZOOM_CLIENT_SECRET,
       STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
       STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
+      SUPER_ADMIN_EMAILS: process.env.SUPER_ADMIN_EMAILS,
     });
   }
   return _serverEnv;

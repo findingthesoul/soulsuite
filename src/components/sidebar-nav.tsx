@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, FolderOpen, CalendarDays, Inbox, Clock, Users, BookUser, CreditCard, HelpCircle } from "lucide-react";
+import { LayoutDashboard, FolderOpen, CalendarDays, Inbox, Clock, Users, BookUser, CreditCard, HelpCircle, Building2 } from "lucide-react";
 import { version as APP_VERSION } from "../../package.json";
 
 const NAV_ITEMS: {
@@ -43,6 +43,7 @@ interface Props {
   overlay?: boolean; // hover mode — labels appear on group-hover
   hasWorkspace?: boolean;
   canManageWorkspace?: boolean;
+  isSuperAdmin?: boolean;
 }
 
 export function SidebarNav({
@@ -50,6 +51,7 @@ export function SidebarNav({
   overlay = false,
   hasWorkspace = false,
   canManageWorkspace = false,
+  isSuperAdmin = false,
 }: Props) {
   const pathname = usePathname();
 
@@ -118,6 +120,24 @@ export function SidebarNav({
                 <span className={labelClass()}>{label}</span>
               </Link>
             ))}
+          </>
+        )}
+
+        {isSuperAdmin && (
+          <>
+            <div className="pt-4 pb-1">
+              <p className={`px-3 text-xs font-medium text-subtle-foreground uppercase tracking-wide ${sectionLabelClass()}`}>
+                Soul Suite
+              </p>
+            </div>
+            <Link
+              href="/admin/organisations"
+              className={navItemClass("/admin/organisations", false)}
+              title="Organisations"
+            >
+              <Building2 className="h-4 w-4 shrink-0" />
+              <span className={labelClass()}>Organisations</span>
+            </Link>
           </>
         )}
       </nav>

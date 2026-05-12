@@ -1,7 +1,7 @@
 import { WorkspaceRole, ProjectRole, type Host, type Workspace } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { serverEnv } from "@/lib/env";
-import { isWorkspaceDomain } from "@/lib/auth";
+import { domainOf } from "@/lib/auth";
 
 // Outcome of post-sign-in routing. The callback uses this to decide where to redirect.
 export type BootstrapOutcome =
@@ -11,22 +11,32 @@ export type BootstrapOutcome =
   | { kind: "needs-access-request"; host: Host }
   | { kind: "rejected"; reason: string };
 
-// V1: single workspace. First @soul.com sign-in creates it and becomes OWNER.
-// The schema is multi-tenant, but the UI doesn't expose workspace selection yet.
-async function getOrCreatePrimaryWorkspace(): Promise<Workspace | null> {
-  return prisma.workspace.findFirst({ orderBy: { createdAt: "asc" } });
+// Look up the workspace this email's domain belongs to. Multi-tenant: each Workspace owns
+// exactly one primaryEmailDomain. Returns null when no organisation has registered the domain.
+export async function workspaceForEmail(email: string): Promise<Workspace | null> {
+  const domain = domainOf(email);
+  if (!domain) return null;
+  return prisma.workspace.findUnique({ where: { primaryEmailDomain: domain } });
 }
 
-async function bootstrapPrimaryWorkspace(host: Host): Promise<Workspace> {
+// Bootstrap path: when no Workspace rows exist AND the signing-in user's domain matches the
+// seed env var, create the first workspace and make them OWNER. Past that, /admin/organisations
+// is the canonical way to add organisations.
+async function bootstrapSeedWorkspace(host: Host): Promise<Workspace | null> {
   const env = serverEnv();
+  const seed = env.WORKSPACE_PRIMARY_EMAIL_DOMAIN?.toLowerCase();
+  const hostDomain = domainOf(host.email);
+  if (!seed || !hostDomain || hostDomain !== seed) return null;
   return prisma.$transaction(async (tx) => {
-    const existing = await tx.workspace.findFirst({ orderBy: { createdAt: "asc" } });
+    const existing = await tx.workspace.findFirst({});
     if (existing) return existing;
     const workspace = await tx.workspace.create({
       data: {
-        name: "Soul",
-        slug: "soul",
-        primaryEmailDomain: env.WORKSPACE_PRIMARY_EMAIL_DOMAIN,
+        // First-install niceties: derive a readable name from the domain ("acme.com" → "Acme").
+        // Super-admins can rename later under /settings/workspace.
+        name: prettyNameFromDomain(seed),
+        slug: slugFromDomain(seed),
+        primaryEmailDomain: seed,
       },
     });
     await tx.workspaceMember.create({
@@ -36,20 +46,21 @@ async function bootstrapPrimaryWorkspace(host: Host): Promise<Workspace> {
   });
 }
 
+function prettyNameFromDomain(domain: string): string {
+  const root = domain.split(".")[0] ?? domain;
+  return root.charAt(0).toUpperCase() + root.slice(1);
+}
+
+function slugFromDomain(domain: string): string {
+  return domain.split(".")[0]?.toLowerCase().replace(/[^a-z0-9-]/g, "-") || "workspace";
+}
+
 // Walks the post-sign-in decision tree. Pure function over DB state — no redirects here.
 export async function resolvePostSignIn(host: Host): Promise<BootstrapOutcome> {
-  const matchesDomain = isWorkspaceDomain(host.email);
-  const workspace = await getOrCreatePrimaryWorkspace();
+  const workspace = await workspaceForEmail(host.email);
 
-  // Domain match: workspace member path.
-  if (matchesDomain) {
-    // First @soul.com user ever — bootstrap workspace + make them owner.
-    if (!workspace) {
-      const created = await bootstrapPrimaryWorkspace(host);
-      return needsOnboardingOrReady(host, created);
-    }
-
-    // Already a member?
+  // Workspace registered for this domain → membership path.
+  if (workspace) {
     const membership = await prisma.workspaceMember.findUnique({
       where: { workspaceId_hostId: { workspaceId: workspace.id, hostId: host.id } },
     });
@@ -70,12 +81,17 @@ export async function resolvePostSignIn(host: Host): Promise<BootstrapOutcome> {
       return needsOnboardingOrReady(host, workspace);
     }
 
+    // Domain matches but no membership/invite — route to /request-access so a workspace
+    // owner can decide whether to admit. Preserves the v1 behaviour and keeps the door
+    // closed by default for orgs that don't want auto-join.
     return { kind: "needs-access-request", host };
   }
 
-  // External collaborator path: must have a pending project invite.
-  if (!workspace) return { kind: "rejected", reason: "Workspace has not been set up yet." };
+  // No workspace for this domain yet. Try the first-install bootstrap.
+  const bootstrapped = await bootstrapSeedWorkspace(host);
+  if (bootstrapped) return needsOnboardingOrReady(host, bootstrapped);
 
+  // External collaborator path: must have a pending project invite or an existing membership.
   const projectInvite = await prisma.invite.findFirst({
     where: {
       kind: "PROJECT",
@@ -88,12 +104,13 @@ export async function resolvePostSignIn(host: Host): Promise<BootstrapOutcome> {
     await acceptProjectInvite(host, projectInvite.id, projectInvite.projectId!, projectInvite.role as ProjectRole);
     return { kind: "external-collaborator", host };
   }
-
-  // Already a project member from a previous invite?
   const anyProjectMembership = await prisma.projectMember.findFirst({ where: { hostId: host.id } });
   if (anyProjectMembership) return { kind: "external-collaborator", host };
 
-  return { kind: "rejected", reason: `Sign-in requires either an @${serverEnv().WORKSPACE_PRIMARY_EMAIL_DOMAIN} email or a project invite.` };
+  return {
+    kind: "rejected",
+    reason: "Your email domain isn't on Soul Suite yet. Ask your organisation admin to set it up, or sign in via a project invite.",
+  };
 }
 
 async function acceptWorkspaceInvite(host: Host, workspace: Workspace, inviteId: string, role: WorkspaceRole) {
@@ -109,7 +126,12 @@ async function acceptWorkspaceInvite(host: Host, workspace: Workspace, inviteId:
 }
 
 async function acceptProjectInvite(host: Host, inviteId: string, projectId: string, role: ProjectRole) {
-  const isExternal = !isWorkspaceDomain(host.email);
+  // External = email domain doesn't match ANY workspace's primaryEmailDomain. Internal
+  // collaborators who later get invited to a different workspace's project are still
+  // technically "external" to that workspace — keep it simple and flag isExternal=true unless
+  // the email's domain matches some registered workspace.
+  const matchingWorkspace = await workspaceForEmail(host.email);
+  const isExternal = !matchingWorkspace;
   await prisma.$transaction([
     prisma.projectMember.create({
       data: { projectId, hostId: host.id, role, isExternal },

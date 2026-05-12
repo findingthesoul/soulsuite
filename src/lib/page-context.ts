@@ -66,5 +66,6 @@ export function shellProps(ctx: PageContext) {
     brandColor: ctx.workspace?.brandColor ?? null,
     hasWorkspace: !!ctx.workspace,
     canManageWorkspace: ctx.workspace ? canManageWorkspace(ctx.workspace.role) : false,
+    isSuperAdmin: ctx.host.isSuperAdmin,
   };
 }

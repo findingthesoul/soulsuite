@@ -25,7 +25,9 @@ model Workspace {
   id                 String   @id @default(cuid())
   name               String
   slug               String   @unique
-  primaryEmailDomain String
+  // One workspace per email domain. Sign-in looks up the workspace via this column so a user
+  // with foo@acme.com lands in the Acme workspace and bar@soul.com lands in the Soul one.
+  primaryEmailDomain String   @unique
   // Branding — surfaced in the app header and (later) public booking pages.
   logoUrl            String?
   brandColor         String? // hex like "#1c1917"
@@ -128,6 +130,11 @@ model Host {
   // Default for the "require approval" flag on newly-created meeting types. Existing MTs are
   // not retroactively changed when this flips — see MeetingType.requireApproval.
   requireApprovalDefault Boolean @default(false)
+  // Soul Suite super-admin — can provision new organisations (workspaces) at /admin. Set on
+  // first sign-in from any email listed in SUPER_ADMIN_EMAILS, and unset if the email is later
+  // removed from that env var. Decoupled from workspace OWNER/ADMIN roles, which are scoped
+  // to a single workspace.
+  isSuperAdmin       Boolean   @default(false)
   createdAt          DateTime  @default(now())
 
   calendars            Calendar[]

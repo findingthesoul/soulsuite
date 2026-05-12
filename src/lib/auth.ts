@@ -26,13 +26,38 @@ export const getCurrentHost = cache(async (): Promise<Host | null> => {
   return prisma.host.findUnique({ where: { authUserId: user.id } });
 });
 
-// Domain check used during workspace + project bootstrap. Compares the email's host part
-// (case-insensitive) to WORKSPACE_PRIMARY_EMAIL_DOMAIN.
+// Extracts the lowercase email domain ("foo@acme.com" → "acme.com"). Returns null for inputs
+// without an @. Used by the multi-tenant workspace lookup.
+export function domainOf(email: string): string | null {
+  const at = email.lastIndexOf("@");
+  if (at < 0) return null;
+  return email.slice(at + 1).toLowerCase();
+}
+
+// Legacy single-tenant check — true when the email's domain matches the env-var seed domain.
+// Kept only for the first-install bootstrap path; routine sign-in resolves the workspace by
+// looking up Workspace.primaryEmailDomain instead.
 export function isWorkspaceDomain(email: string): boolean {
   const env = serverEnv();
-  const at = email.lastIndexOf("@");
-  if (at < 0) return false;
-  return email.slice(at + 1).toLowerCase() === env.WORKSPACE_PRIMARY_EMAIL_DOMAIN.toLowerCase();
+  const domain = domainOf(email);
+  const seed = env.WORKSPACE_PRIMARY_EMAIL_DOMAIN?.toLowerCase();
+  if (!domain || !seed) return false;
+  return domain === seed;
+}
+
+// Parses SUPER_ADMIN_EMAILS into a normalised lowercase set.
+function superAdminEmails(): Set<string> {
+  const raw = serverEnv().SUPER_ADMIN_EMAILS ?? "";
+  const out = new Set<string>();
+  for (const part of raw.split(",")) {
+    const t = part.trim().toLowerCase();
+    if (t) out.add(t);
+  }
+  return out;
+}
+
+export function isSuperAdminEmail(email: string): boolean {
+  return superAdminEmails().has(email.toLowerCase());
 }
 
 // Idempotently creates the Host row for a freshly authenticated user, capturing the Google
@@ -58,14 +83,22 @@ export async function ensureHostFromAuthUser(
     (user.user_metadata?.name as string | undefined) ??
     email.split("@")[0];
 
+  // Sync the super-admin flag from SUPER_ADMIN_EMAILS on every sign-in so removing an email
+  // from the env var revokes admin access on next visit. Adding an email grants it.
+  const shouldBeSuperAdmin = isSuperAdminEmail(email);
+
   const existing = await prisma.host.findUnique({ where: { authUserId: user.id } });
   if (existing) {
+    const patch: { googleRefreshToken?: string; isSuperAdmin?: boolean } = {};
     // Refresh the cached token whenever Supabase has a new one. Don't clobber a good token with null.
     if (refreshToken && refreshToken !== existing.googleRefreshToken) {
-      return prisma.host.update({
-        where: { id: existing.id },
-        data: { googleRefreshToken: refreshToken },
-      });
+      patch.googleRefreshToken = refreshToken;
+    }
+    if (existing.isSuperAdmin !== shouldBeSuperAdmin) {
+      patch.isSuperAdmin = shouldBeSuperAdmin;
+    }
+    if (Object.keys(patch).length > 0) {
+      return prisma.host.update({ where: { id: existing.id }, data: patch });
     }
     return existing;
   }
@@ -81,6 +114,7 @@ export async function ensureHostFromAuthUser(
         authUserId: user.id,
         name: claimable.name || name,
         googleRefreshToken: refreshToken ?? claimable.googleRefreshToken,
+        isSuperAdmin: shouldBeSuperAdmin,
       },
     });
   }
@@ -93,6 +127,7 @@ export async function ensureHostFromAuthUser(
       name,
       slug,
       googleRefreshToken: refreshToken,
+      isSuperAdmin: shouldBeSuperAdmin,
     },
   });
 }

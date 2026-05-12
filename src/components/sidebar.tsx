@@ -12,6 +12,7 @@ interface Props {
   brandColor?: string | null;
   hasWorkspace?: boolean;
   canManageWorkspace?: boolean;
+  isSuperAdmin?: boolean;
 }
 
 export function Sidebar({
@@ -20,6 +21,7 @@ export function Sidebar({
   brandColor,
   hasWorkspace = false,
   canManageWorkspace = false,
+  isSuperAdmin = false,
 }: Props) {
   const { mode } = useSidebar();
   const isCollapsed = mode === "collapsed" || mode === "hover";
@@ -81,6 +83,7 @@ export function Sidebar({
           overlay={isOverlay}
           hasWorkspace={hasWorkspace}
           canManageWorkspace={canManageWorkspace}
+          isSuperAdmin={isSuperAdmin}
         />
       </aside>
 

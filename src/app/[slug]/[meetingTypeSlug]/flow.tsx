@@ -173,6 +173,33 @@ export function BookingFlow({
     if (detected && detected !== host.timezone) setTz(detected);
   }, [host.timezone]);
 
+  // 24h ("h23") vs 12h-AM/PM ("h12"). Default is 24h to keep server-rendered HTML predictable
+  // (matches the format we pin to en-GB for SSR). Post-mount we read the visitor's saved choice
+  // or fall back to their locale's natural hourCycle. Persisted to localStorage so the picker
+  // sticks across visits on the same browser.
+  const [clock, setClock] = useState<"24" | "12">("24");
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem("soul-suite-clock");
+      if (saved === "12" || saved === "24") {
+        setClock(saved);
+        return;
+      }
+      const hc = Intl.DateTimeFormat().resolvedOptions().hourCycle ?? "";
+      if (hc === "h11" || hc === "h12") setClock("12");
+    } catch {
+      // localStorage unavailable / disabled — ignore.
+    }
+  }, []);
+  function changeClock(next: "12" | "24") {
+    setClock(next);
+    try {
+      window.localStorage.setItem("soul-suite-clock", next);
+    } catch {
+      // ignore
+    }
+  }
+
   // Group slots by their local date in the invitee's tz, then derive what dates are bookable
   // and which calendar month to display first.
   const slotsByDate = useMemo(() => groupByLocalDate(initialSlots, tz), [initialSlots, tz]);
@@ -260,6 +287,8 @@ export function BookingFlow({
                 <PickPanel
                   tz={tz}
                   setTz={setTz}
+                  clock={clock}
+                  setClock={changeClock}
                   displayed={displayed}
                   setDisplayed={setDisplayed}
                   availableDates={availableDates}
@@ -275,6 +304,7 @@ export function BookingFlow({
                 <DetailsPanel
                   slot={stagedSlot}
                   tz={tz}
+                  clock={clock}
                   meetingType={meetingType}
                   host={host}
                   intakeFields={intakeFields}
@@ -300,6 +330,7 @@ export function BookingFlow({
                 <BillingPanel
                   slot={stagedSlot}
                   tz={tz}
+                  clock={clock}
                   meetingType={meetingType}
                   invoiceForm={invoiceForm}
                   setInvoiceForm={setInvoiceForm}
@@ -419,6 +450,8 @@ function EventPanel({
 function PickPanel({
   tz,
   setTz,
+  clock,
+  setClock,
   displayed,
   setDisplayed,
   availableDates,
@@ -431,6 +464,8 @@ function PickPanel({
 }: {
   tz: string;
   setTz: (tz: string) => void;
+  clock: "12" | "24";
+  setClock: (c: "12" | "24") => void;
   displayed: { year: number; month: number };
   setDisplayed: (d: { year: number; month: number }) => void;
   availableDates: Set<string>;
@@ -482,7 +517,7 @@ function PickPanel({
                           : "border-border bg-surface text-foreground hover:bg-surface-muted hover:border-border-strong",
                       )}
                     >
-                      {formatTime(slot.startsAt, tz)}
+                      {formatTime(slot.startsAt, tz, clock)}
                     </button>
                     {isStaged && (
                       <Button size="md" onClick={() => onConfirm(slot)} className="shrink-0">
@@ -502,6 +537,42 @@ function PickPanel({
         <span className="text-muted-foreground shrink-0">Time zone:</span>
         <div className="w-full sm:w-72">
           <TimezonePicker value={tz} onChange={setTz} />
+        </div>
+
+        {/* 12h / 24h toggle — segmented two-button group. Choice persists per-browser. */}
+        <div
+          role="radiogroup"
+          aria-label="Time format"
+          className="inline-flex items-center rounded-md border border-border bg-surface p-0.5"
+        >
+          <button
+            type="button"
+            role="radio"
+            aria-checked={clock === "24"}
+            onClick={() => setClock("24")}
+            className={cn(
+              "px-2.5 py-1 text-xs font-medium rounded-sm transition-colors",
+              clock === "24"
+                ? "bg-foreground text-background"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            24h
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={clock === "12"}
+            onClick={() => setClock("12")}
+            className={cn(
+              "px-2.5 py-1 text-xs font-medium rounded-sm transition-colors",
+              clock === "12"
+                ? "bg-foreground text-background"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            AM/PM
+          </button>
         </div>
       </div>
     </div>
@@ -655,6 +726,7 @@ function DayCell({
 function DetailsPanel({
   slot,
   tz,
+  clock,
   meetingType,
   host,
   intakeFields,
@@ -672,6 +744,7 @@ function DetailsPanel({
 }: {
   slot: SerializedSlot | null;
   tz: string;
+  clock: "12" | "24";
   meetingType: MeetingType;
   host: Host;
   intakeFields: IntakeField[];
@@ -758,8 +831,8 @@ function DetailsPanel({
         <h2 className="mt-3 text-base font-semibold tracking-tight">Confirm your details</h2>
         {slot && (
           <p className="mt-1 text-sm text-muted-foreground">
-            {formatLongDate(slot.startsAt.slice(0, 10), tz)} · {formatTime(slot.startsAt, tz)} —{" "}
-            {formatTime(slot.endsAt, tz)}
+            {formatLongDate(slot.startsAt.slice(0, 10), tz)} · {formatTime(slot.startsAt, tz, clock)} —{" "}
+            {formatTime(slot.endsAt, tz, clock)}
           </p>
         )}
       </div>
@@ -811,6 +884,7 @@ function DetailsPanel({
 function BillingPanel({
   slot,
   tz,
+  clock,
   meetingType,
   invoiceForm,
   setInvoiceForm,
@@ -824,6 +898,7 @@ function BillingPanel({
 }: {
   slot: SerializedSlot | null;
   tz: string;
+  clock: "12" | "24";
   meetingType: MeetingType;
   invoiceForm: InvoiceFormState;
   setInvoiceForm: Dispatch<SetStateAction<InvoiceFormState>>;
@@ -900,8 +975,8 @@ function BillingPanel({
         <h2 className="mt-3 text-base font-semibold tracking-tight">Billing details</h2>
         {slot && (
           <p className="mt-1 text-sm text-muted-foreground">
-            {formatLongDate(slot.startsAt.slice(0, 10), tz)} · {formatTime(slot.startsAt, tz)} —{" "}
-            {formatTime(slot.endsAt, tz)}
+            {formatLongDate(slot.startsAt.slice(0, 10), tz)} · {formatTime(slot.startsAt, tz, clock)} —{" "}
+            {formatTime(slot.endsAt, tz, clock)}
           </p>
         )}
         <p className="mt-2 text-xs text-muted-foreground">
@@ -1060,12 +1135,12 @@ function groupByLocalDate(slots: SerializedSlot[], tz: string): Record<string, S
 // of the visitor's browser locale. Format is unambiguous ("Friday 1 May", "11:45"). Switching
 // to the visitor's locale post-mount is possible but requires more state plumbing — defer.
 
-function formatTime(iso: string, tz: string): string {
+function formatTime(iso: string, tz: string, clock: "12" | "24" = "24"): string {
   return new Intl.DateTimeFormat("en-GB", {
     timeZone: tz,
     hour: "2-digit",
     minute: "2-digit",
-    hourCycle: "h23",
+    hourCycle: clock === "12" ? "h12" : "h23",
   }).format(new Date(iso));
 }
 

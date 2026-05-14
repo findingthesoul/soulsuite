@@ -13,6 +13,7 @@ import { BookingDateTime } from "./bookings/client";
 import { PrefetchLink } from "@/components/prefetch-link";
 import { CopyLinkButton, OpenBookingLink } from "@/components/copy-link-button";
 import { ApprovalButtons } from "./bookings/approval-buttons";
+import { visibleToHostWhere } from "@/lib/bookings/visibility";
 
 export default async function DashboardPage() {
   const ctx = await getPageContextOrRedirect();
@@ -75,9 +76,11 @@ async function TodaySection({ host, previousSeenAt }: { host: Host; previousSeen
   todayEnd.setUTCHours(23, 59, 59, 999);
   const bookings = await prisma.booking.findMany({
     where: {
-      hostId: host.id,
-      status: { in: ["CONFIRMED", "RESCHEDULED"] },
-      startsAt: { gte: now, lte: todayEnd },
+      AND: [
+        visibleToHostWhere(host.id),
+        { status: { in: ["CONFIRMED", "RESCHEDULED"] } },
+        { startsAt: { gte: now, lte: todayEnd } },
+      ],
     },
     select: bookingRowSelect,
     orderBy: { startsAt: "asc" },
@@ -117,9 +120,11 @@ async function UpcomingSection({ host, previousSeenAt }: { host: Host; previousS
   todayEnd.setUTCHours(23, 59, 59, 999);
   const bookings = await prisma.booking.findMany({
     where: {
-      hostId: host.id,
-      status: { in: ["CONFIRMED", "RESCHEDULED"] },
-      startsAt: { gt: todayEnd },
+      AND: [
+        visibleToHostWhere(host.id),
+        { status: { in: ["CONFIRMED", "RESCHEDULED"] } },
+        { startsAt: { gt: todayEnd } },
+      ],
     },
     select: bookingRowSelect,
     orderBy: { startsAt: "asc" },

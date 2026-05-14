@@ -11,6 +11,7 @@ import { PersistSearchParams } from "@/components/persist-search-params";
 import { PrefetchLink } from "@/components/prefetch-link";
 import { AltLocationButton } from "./alt-location-button";
 import { ApprovalButtons } from "./approval-buttons";
+import { visibleToHostWhere } from "@/lib/bookings/visibility";
 
 type RangeFilter = "upcoming" | "past" | "all";
 type ScopeFilter = "all" | "personal" | string; // string = project id
@@ -46,8 +47,11 @@ export default async function BookingsPage({
   const monthGridStart = mondayOnOrBefore(monthOfStart);
   const monthGridEnd = new Date(monthGridStart.getTime() + 42 * 24 * 3600 * 1000);
 
+  // "Visible to me" = bookings where I'm the host of record OR I'm a co-host on a COLLECTIVE
+  // meeting type. COLLECTIVE assigns a single Booking.hostId (the conferencing host) but the
+  // meeting genuinely belongs to every assigned host, so the other hosts need it in their list.
   const baseScopeWhere = {
-    hostId: ctx.host.id,
+    ...visibleToHostWhere(ctx.host.id),
     ...(scope === "personal" && { projectId: null }),
     ...(scope !== "all" && scope !== "personal" && { projectId: scope }),
     // Hide cancelled rows by default — the checkbox in the filter bar opts back in. Pending

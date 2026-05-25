@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, FolderOpen, CalendarDays, Inbox, Clock, Users, BookUser, CreditCard, HelpCircle, Building2 } from "lucide-react";
+import { LayoutDashboard, FolderOpen, CalendarDays, Inbox, Clock, Users, BookUser, CreditCard, HelpCircle, Building2, Mail } from "lucide-react";
 import { version as APP_VERSION } from "../../package.json";
 
 const NAV_ITEMS: {
@@ -137,6 +137,14 @@ export function SidebarNav({
             >
               <Building2 className="h-4 w-4 shrink-0" />
               <span className={labelClass()}>Organisations</span>
+            </Link>
+            <Link
+              href="/admin/email-diagnostics"
+              className={navItemClass("/admin/email-diagnostics", false)}
+              title="Email diagnostics"
+            >
+              <Mail className="h-4 w-4 shrink-0" />
+              <span className={labelClass()}>Email diagnostics</span>
             </Link>
           </>
         )}

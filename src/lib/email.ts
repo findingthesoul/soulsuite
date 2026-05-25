@@ -1,5 +1,6 @@
 import { Resend } from "resend";
 import { serverEnv, publicEnv } from "@/lib/env";
+import { prisma } from "@/lib/prisma";
 
 // Email-sending wrapper. When RESEND_API_KEY isn't set we log instead of sending — keeps dev
 // painless and means production is just "add the key and a verified sender". Failures here
@@ -24,6 +25,10 @@ export interface SendEmailArgs {
   fromName?: string;
   // Replies route here — typically the organising host's email so they hear back directly.
   replyTo?: string;
+  // Optional metadata persisted on the EmailLog row so /admin/email-diagnostics can group
+  // attempts by booking / recipient host.
+  bookingId?: string;
+  hostId?: string;
 }
 
 export async function sendEmail(args: SendEmailArgs): Promise<{ ok: boolean; reason?: string }> {
@@ -31,19 +36,43 @@ export async function sendEmail(args: SendEmailArgs): Promise<{ ok: boolean; rea
   const c = client();
   const recipients = Array.isArray(args.to) ? args.to : [args.to];
 
+  // Construct From header now so we log the same value whether the send happens or not.
+  const from = args.fromName
+    ? `${stripDisplayName(args.fromName)} via Soul Suite <${env.EMAIL_FROM ?? "unset"}>`
+    : env.EMAIL_FROM ?? "unset";
+
+  async function record(status: "SENT" | "FAILED" | "SKIPPED", reason: string | null) {
+    // One row per recipient so per-address filters in the diagnostics page work cleanly.
+    // Best-effort — never let a logging failure block the caller.
+    try {
+      await prisma.emailLog.createMany({
+        data: recipients.map((to) => ({
+          toEmail: to,
+          fromHeader: from,
+          subject: args.subject,
+          status,
+          reason,
+          bookingId: args.bookingId,
+          hostId: args.hostId,
+        })),
+      });
+    } catch (err) {
+      console.error("[email] log persist failed", err);
+    }
+  }
+
   if (!c || !env.EMAIL_FROM) {
     // Dev / unconfigured: log so you can eyeball the output during local testing.
     console.log("[email] (skipped — no Resend key/from)", {
       to: recipients,
       subject: args.subject,
     });
+    await record(
+      "SKIPPED",
+      !env.RESEND_API_KEY ? "RESEND_API_KEY unset" : "EMAIL_FROM unset",
+    );
     return { ok: false, reason: "not configured" };
   }
-
-  // Construct From header: `${name} via Soul Suite <verified@domain>` when a name is given.
-  const from = args.fromName
-    ? `${stripDisplayName(args.fromName)} via Soul Suite <${env.EMAIL_FROM}>`
-    : env.EMAIL_FROM;
 
   try {
     const result = await c.emails.send({
@@ -56,12 +85,16 @@ export async function sendEmail(args: SendEmailArgs): Promise<{ ok: boolean; rea
     });
     if (result.error) {
       console.error("[email] resend error", result.error);
+      await record("FAILED", result.error.message);
       return { ok: false, reason: result.error.message };
     }
+    await record("SENT", null);
     return { ok: true };
   } catch (err) {
     console.error("[email] send failed", err);
-    return { ok: false, reason: err instanceof Error ? err.message : "unknown error" };
+    const reason = err instanceof Error ? err.message : "unknown error";
+    await record("FAILED", reason);
+    return { ok: false, reason };
   }
 }
 

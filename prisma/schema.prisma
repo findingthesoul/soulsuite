@@ -632,3 +632,35 @@ model WorkspaceInvoiceCounter {
 
   @@id([workspaceId, year])
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Email send log — one row per sendEmail() attempt. Used by /admin/email-diagnostics
+// to spot misconfigured Resend domains, bouncing recipients, etc. Older rows are pruned
+// by a future cron once we wire one up; for now we keep everything.
+// ────────────────────────────────────────────────────────────────────────────
+
+model EmailLog {
+  id         String   @id @default(cuid())
+  toEmail    String
+  fromHeader String
+  subject    String
+  status     EmailStatus
+  reason     String?    // failure message from Resend / our send wrapper, when status = FAILED or SKIPPED
+  // Soft FK to Booking when this email was triggered by a booking. Nullable because invites,
+  // approval emails, etc. send before / outside any booking row.
+  bookingId  String?
+  // Soft FK to the recipient Host (when the email went to a known internal user). Helps the
+  // diagnostics page filter "all attempts to martijn@soul.com" without scanning string columns.
+  hostId     String?
+  createdAt  DateTime @default(now())
+
+  @@index([toEmail, createdAt])
+  @@index([status, createdAt])
+  @@index([bookingId])
+}
+
+enum EmailStatus {
+  SENT
+  FAILED
+  SKIPPED // Resend not configured, missing EMAIL_FROM, or other no-op path.
+}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import React, { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Trash2, Copy, Check, UserPlus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -49,9 +49,8 @@ export function ProjectMembersClient({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
-  // Workspace member picker
-  const [pickHostId, setPickHostId] = useState(candidates[0]?.id ?? "");
-  const [pickRole, setPickRole] = useState<"LEAD" | "MEMBER">("MEMBER");
+  // Add-member error surfaced by the dialog. Selection + role live inside the dialog itself
+  // (per-open) so we just bubble the failure message up here for the parent to render.
   const [addError, setAddError] = useState<string | null>(null);
 
   // External invite
@@ -59,23 +58,6 @@ export function ProjectMembersClient({
   const [inviteRole, setInviteRole] = useState<"LEAD" | "MEMBER">("MEMBER");
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [justCopied, setJustCopied] = useState(false);
-
-  function add() {
-    if (!pickHostId) return;
-    setAddError(null);
-    startTransition(async () => {
-      const res = await fetch(`/api/projects/${projectId}/members`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ hostId: pickHostId, role: pickRole }),
-      });
-      if (!res.ok) {
-        setAddError((await res.text()) || "Failed to add");
-        return;
-      }
-      router.refresh();
-    });
-  }
 
   function remove(memberId: string) {
     if (!confirm("Remove this member from the project?")) return;
@@ -165,19 +147,27 @@ export function ProjectMembersClient({
         addError={addError}
         inviteError={inviteError}
         justCopied={justCopied}
-        onAdd={(hostId, role) => {
-          setPickHostId(hostId);
-          setPickRole(role);
+        onAdd={(hostIds, role) => {
+          if (hostIds.length === 0) return;
           setAddError(null);
-          // Use the supplied values directly — `add()` reads from state which won't have updated yet.
+          // Sequential POSTs so a partial failure surfaces the *first* error rather than racing
+          // — and so audit logs show one row per addition. For the team sizes we have (handful
+          // at most per add), the latency is fine.
           startTransition(async () => {
-            const res = await fetch(`/api/projects/${projectId}/members`, {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ hostId, role }),
-            });
-            if (!res.ok) {
-              setAddError((await res.text()) || "Failed to add");
+            const failures: string[] = [];
+            for (const hostId of hostIds) {
+              const res = await fetch(`/api/projects/${projectId}/members`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ hostId, role }),
+              });
+              if (!res.ok) {
+                failures.push((await res.text()) || `Failed to add ${hostId}`);
+              }
+            }
+            if (failures.length > 0) {
+              setAddError(failures.join(" · "));
+              router.refresh();
               return;
             }
             setAddOpen(false);
@@ -353,14 +343,40 @@ function AddTeammateDialog({
   addError: string | null;
   inviteError: string | null;
   justCopied: boolean;
-  onAdd: (hostId: string, role: "LEAD" | "MEMBER") => void;
+  onAdd: (hostIds: string[], role: "LEAD" | "MEMBER") => void;
   onInvite: (email: string, role: "LEAD" | "MEMBER") => void;
 }) {
   const [tab, setTab] = useState<"existing" | "new">("existing");
   const [search, setSearch] = useState("");
   const [pickRole, setPickRole] = useState<"LEAD" | "MEMBER">("MEMBER");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<"LEAD" | "MEMBER">("MEMBER");
+
+  // Reset checkboxes whenever the dialog re-opens so a stale selection from a previous use
+  // can't leak into a fresh "Add teammate" session.
+  React.useEffect(() => {
+    if (open) setSelectedIds(new Set());
+  }, [open]);
+
+  function toggle(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function toggleAllVisible(visibleIds: string[], on: boolean) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of visibleIds) {
+        if (on) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+  }
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -419,37 +435,86 @@ function AddTeammateDialog({
                 </Select>
               </div>
 
-              <ul className="rounded-md border border-border divide-y divide-border max-h-[40vh] overflow-y-auto">
-                {filtered.length === 0 ? (
-                  <li className="p-4 text-sm text-muted-foreground text-center">No matches.</li>
-                ) : (
-                  filtered.map((c) => (
-                    <li key={c.id}>
-                      <button
-                        type="button"
-                        onClick={() => onAdd(c.id, pickRole)}
-                        disabled={pending}
-                        className="w-full flex items-center justify-between gap-3 p-3 text-left text-sm hover:bg-surface-muted transition-colors disabled:opacity-50"
+              {(() => {
+                const visibleIds = filtered.map((c) => c.id);
+                const visibleSelected = visibleIds.filter((id) => selectedIds.has(id));
+                const allVisibleSelected =
+                  visibleIds.length > 0 && visibleSelected.length === visibleIds.length;
+                return (
+                  <>
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={allVisibleSelected}
+                          onChange={(e) => toggleAllVisible(visibleIds, e.target.checked)}
+                          className="h-4 w-4 rounded border-border accent-foreground"
+                          disabled={visibleIds.length === 0}
+                        />
+                        Select all{search ? " matching" : ""}
+                      </label>
+                      <span>
+                        {selectedIds.size} selected
+                      </span>
+                    </div>
+
+                    <ul className="rounded-md border border-border divide-y divide-border max-h-[40vh] overflow-y-auto">
+                      {filtered.length === 0 ? (
+                        <li className="p-4 text-sm text-muted-foreground text-center">No matches.</li>
+                      ) : (
+                        filtered.map((c) => {
+                          const checked = selectedIds.has(c.id);
+                          return (
+                            <li key={c.id}>
+                              <label
+                                className={`w-full flex items-center justify-between gap-3 p-3 text-left text-sm transition-colors cursor-pointer ${
+                                  checked ? "bg-surface-muted" : "hover:bg-surface-muted"
+                                } ${pending ? "opacity-50 pointer-events-none" : ""}`}
+                              >
+                                <div className="flex items-center gap-3 min-w-0 flex-1">
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => toggle(c.id)}
+                                    disabled={pending}
+                                    className="h-4 w-4 rounded border-border accent-foreground shrink-0"
+                                  />
+                                  <div className="min-w-0">
+                                    <p className="font-medium text-foreground truncate">{c.name}</p>
+                                    <p className="text-xs text-muted-foreground truncate">{c.email}</p>
+                                  </div>
+                                </div>
+                                <span
+                                  className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide ${
+                                    c.kind === "internal"
+                                      ? "bg-foreground/10 text-foreground"
+                                      : "bg-surface-muted text-muted-foreground"
+                                  }`}
+                                >
+                                  {c.kind}
+                                </span>
+                              </label>
+                            </li>
+                          );
+                        })
+                      )}
+                    </ul>
+                    {addError && <p className="text-sm text-destructive">{addError}</p>}
+                    <div className="flex justify-end pt-2">
+                      <Button
+                        onClick={() => onAdd(Array.from(selectedIds), pickRole)}
+                        disabled={pending || selectedIds.size === 0}
                       >
-                        <div className="min-w-0">
-                          <p className="font-medium text-foreground truncate">{c.name}</p>
-                          <p className="text-xs text-muted-foreground truncate">{c.email}</p>
-                        </div>
-                        <span
-                          className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide ${
-                            c.kind === "internal"
-                              ? "bg-foreground/10 text-foreground"
-                              : "bg-surface-muted text-muted-foreground"
-                          }`}
-                        >
-                          {c.kind}
-                        </span>
-                      </button>
-                    </li>
-                  ))
-                )}
-              </ul>
-              {addError && <p className="text-sm text-destructive">{addError}</p>}
+                        {pending
+                          ? "Adding…"
+                          : selectedIds.size === 0
+                            ? "Add"
+                            : `Add ${selectedIds.size} as ${pickRole === "LEAD" ? "Lead" : "Member"}${selectedIds.size === 1 ? "" : "s"}`}
+                      </Button>
+                    </div>
+                  </>
+                );
+              })()}
             </>
           )
         ) : (

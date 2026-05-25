@@ -175,6 +175,56 @@ export function bookingConfirmationTemplate(b: BookingTemplateInput): { html: st
   return { html, text, subject };
 }
 
+// Host-side notification for a fresh booking. Sent to the booking host + (for COLLECTIVE)
+// every assigned co-host so the calendar invite isn't the only signal a meeting landed.
+// Includes the invitee's email so the host can reply-all without copying out of the Google
+// event description.
+export function newBookingForHostTemplate(args: {
+  recipientName: string;            // name of the host this email goes to
+  isCoHost: boolean;                 // true when sent to a collective co-host, false when sent to the booking host
+  meetingTypeName: string;
+  startsAtIso: string;
+  endsAtIso: string;
+  inviteeName: string;
+  inviteeEmail: string;
+  meetUrl?: string | null;
+  location?: string | null;
+  detailsUrl: string;                // link back to the booking row on /dashboard/bookings/...
+  logoUrl?: string | null;
+}): { html: string; text: string; subject: string } {
+  const when = formatDateRange(args.startsAtIso, args.endsAtIso);
+  const subject = args.isCoHost
+    ? `New collective booking: ${args.meetingTypeName} — ${when}`
+    : `New booking: ${args.meetingTypeName} — ${when}`;
+  const lead = args.isCoHost
+    ? `You're on a collective meeting that just got booked.`
+    : `${escapeHtml(args.inviteeName)} just booked you.`;
+  const html = brandFrame(
+    "New booking",
+    `<p>Hi ${escapeHtml(args.recipientName)},</p>
+    <p>${lead}</p>
+    <table style="border-collapse:collapse;margin:16px 0;font-size:14px">
+      <tr><td style="padding:4px 0;color:#57534e">When</td><td style="padding:4px 0 4px 24px">${escapeHtml(when)}</td></tr>
+      <tr><td style="padding:4px 0;color:#57534e">What</td><td style="padding:4px 0 4px 24px">${escapeHtml(args.meetingTypeName)}</td></tr>
+      <tr><td style="padding:4px 0;color:#57534e">With</td><td style="padding:4px 0 4px 24px">${escapeHtml(args.inviteeName)} &lt;${escapeHtml(args.inviteeEmail)}&gt;</td></tr>
+      ${args.location ? `<tr><td style="padding:4px 0;color:#57534e">Location</td><td style="padding:4px 0 4px 24px">${escapeHtml(args.location)}</td></tr>` : ""}
+      ${args.meetUrl ? `<tr><td style="padding:4px 0;color:#57534e">Join</td><td style="padding:4px 0 4px 24px"><a href="${escapeAttr(args.meetUrl)}">${escapeHtml(args.meetUrl)}</a></td></tr>` : ""}
+    </table>
+    <p style="margin-top:20px">
+      <a href="${escapeAttr(args.detailsUrl)}" style="display:inline-block;padding:8px 14px;background:#1c1917;color:#fafafa;border-radius:6px;text-decoration:none">Open in Soul Suite</a>
+    </p>`,
+    args.logoUrl,
+  );
+  const text =
+    `${args.isCoHost ? "New collective booking" : "New booking"}: ${args.meetingTypeName}\n` +
+    `When: ${when}\n` +
+    `With: ${args.inviteeName} <${args.inviteeEmail}>\n` +
+    (args.location ? `Location: ${args.location}\n` : "") +
+    (args.meetUrl ? `Join: ${args.meetUrl}\n` : "") +
+    `\nOpen: ${args.detailsUrl}\n`;
+  return { html, text, subject };
+}
+
 export function bookingCancellationTemplate(b: BookingTemplateInput): { html: string; text: string; subject: string } {
   const when = formatDateRange(b.startsAtIso, b.endsAtIso);
   const subject = `Cancelled: ${b.meetingTypeName} — ${when}`;

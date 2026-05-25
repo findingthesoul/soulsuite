@@ -19,7 +19,12 @@ import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { calendarFor, isGoogleAuthError } from "@/lib/google/client";
 import { bustFreebusyCacheForHost } from "@/lib/availability/freebusy";
-import { sendEmail, bookingConfirmationTemplate, appUrl } from "@/lib/email";
+import {
+  sendEmail,
+  bookingConfirmationTemplate,
+  newBookingForHostTemplate,
+  appUrl,
+} from "@/lib/email";
 import { getEmailLogoUrl } from "@/lib/branding";
 import { getZoomAccessTokenForHost } from "@/lib/zoom/host";
 import { createZoomMeeting, ZoomAlternativeHostsError } from "@/lib/zoom/client";
@@ -319,6 +324,56 @@ export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResul
     fromName: host.name,
     replyTo: host.email,
   });
+
+  // Host-side notification. Always email the booking host so they're not relying on Gmail's
+  // "an event was added to your calendar" notice. For COLLECTIVE meetings, also email every
+  // co-host — they got the silent Google event invite but no Soul Suite signal before this.
+  const detailsUrl = appUrl(`/dashboard/bookings/${booking.id}`);
+  const locationForHost =
+    booking.alternativeLocation ?? (isInPerson ? meetingType.defaultLocation ?? null : null);
+  const hostNotification = newBookingForHostTemplate({
+    recipientName: host.name,
+    isCoHost: false,
+    meetingTypeName: meetingType.name,
+    startsAtIso: startsAt.toISOString(),
+    endsAtIso: endsAt.toISOString(),
+    inviteeName: booking.inviteeName,
+    inviteeEmail: booking.inviteeEmail,
+    meetUrl: bookingMeetUrl,
+    location: locationForHost,
+    detailsUrl,
+    logoUrl,
+  });
+  void sendEmail({
+    to: host.email,
+    subject: hostNotification.subject,
+    html: hostNotification.html,
+    text: hostNotification.text,
+    replyTo: booking.inviteeEmail,
+  });
+  // Co-hosts (only set for COLLECTIVE — for SINGLE / ROUND_ROBIN the array is empty).
+  for (const co of coHosts) {
+    const tpl = newBookingForHostTemplate({
+      recipientName: co.name,
+      isCoHost: true,
+      meetingTypeName: meetingType.name,
+      startsAtIso: startsAt.toISOString(),
+      endsAtIso: endsAt.toISOString(),
+      inviteeName: booking.inviteeName,
+      inviteeEmail: booking.inviteeEmail,
+      meetUrl: bookingMeetUrl,
+      location: locationForHost,
+      detailsUrl,
+      logoUrl,
+    });
+    void sendEmail({
+      to: co.email,
+      subject: tpl.subject,
+      html: tpl.html,
+      text: tpl.text,
+      replyTo: booking.inviteeEmail,
+    });
+  }
 
   bustFreebusyCacheForHost(host.id);
 

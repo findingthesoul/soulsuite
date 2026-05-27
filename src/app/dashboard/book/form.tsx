@@ -365,24 +365,49 @@ export function BookForm({
           )}
         </div>
 
-        {/* When — date + slot list. */}
+        {/* When — dates on the left, times for the selected date on the right. Mirrors the
+            public booking page so the host's mental model is the same. While availability
+            is loading, both columns render with skeleton pills the user can't click. */}
         <div className="space-y-2">
-          <Label>When</Label>
-          {slotsLoading && (
-            <p className="text-xs text-muted-foreground">Loading availability…</p>
-          )}
-          {!slotsLoading && availableDates.length === 0 && (
+          <div className="flex items-center justify-between">
+            <Label>When</Label>
+            {slotsLoading && (
+              <span className="text-xs text-muted-foreground">Loading availability…</span>
+            )}
+          </div>
+          {slotsLoading ? (
+            <div className="grid grid-cols-1 sm:grid-cols-[200px_1fr] gap-3">
+              <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1 opacity-50 pointer-events-none">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="rounded-md border border-border bg-surface-muted h-9 animate-pulse"
+                  />
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-1.5 opacity-50 pointer-events-none">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="rounded-md border border-border bg-surface-muted h-9 w-20 animate-pulse"
+                  />
+                ))}
+              </div>
+            </div>
+          ) : availableDates.length === 0 ? (
             <p className="text-xs text-muted-foreground">
               No availability in the next 14 days. Check your working hours and calendar
               conflicts in <a href="/settings/availability" className="underline">Settings</a>.
             </p>
-          )}
-          {availableDates.length > 0 && (
-            <>
-              <div className="flex flex-wrap gap-1.5">
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-[200px_1fr] gap-3">
+              {/* Dates column — stacks vertically on the left, scrolls if the host has lots
+                  of consecutive availability. */}
+              <div className="flex flex-col gap-1.5 max-h-64 overflow-y-auto pr-1">
                 {availableDates.slice(0, 14).map((dateKey) => {
                   const d = new Date(`${dateKey}T12:00:00`);
                   const active = dateKey === selectedDate;
+                  const count = slotsByDate.get(dateKey)?.length ?? 0;
                   return (
                     <button
                       key={dateKey}
@@ -391,47 +416,55 @@ export function BookForm({
                         setSelectedDate(dateKey);
                         setSelectedStartsAt(null);
                       }}
-                      className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                      className={`text-left rounded-md px-3 py-2 text-xs font-medium transition-colors flex items-center justify-between gap-3 ${
                         active
                           ? "bg-foreground text-background"
-                          : "border border-border bg-surface text-muted-foreground hover:text-foreground"
+                          : "border border-border bg-surface text-foreground hover:bg-surface-muted"
                       }`}
                     >
-                      {d.toLocaleDateString(undefined, {
-                        weekday: "short",
-                        day: "numeric",
-                        month: "short",
-                      })}
+                      <span>
+                        {d.toLocaleDateString(undefined, {
+                          weekday: "short",
+                          day: "numeric",
+                          month: "short",
+                        })}
+                      </span>
+                      <span className={active ? "opacity-70" : "text-muted-foreground"}>
+                        {count}
+                      </span>
                     </button>
                   );
                 })}
               </div>
-              {selectedDate && slotsByDate.get(selectedDate) && (
-                <div className="flex flex-wrap gap-1.5 pt-1">
-                  {slotsByDate.get(selectedDate)!.map((s) => {
-                    const active = selectedStartsAt === s.startsAt;
-                    const label = new Date(s.startsAt).toLocaleTimeString(undefined, {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    });
-                    return (
-                      <button
-                        key={s.startsAt}
-                        type="button"
-                        onClick={() => setSelectedStartsAt(s.startsAt)}
-                        className={`rounded-md px-3 py-1.5 text-sm font-medium tabular-nums transition-colors ${
-                          active
-                            ? "bg-foreground text-background"
-                            : "border border-border bg-surface text-foreground hover:bg-surface-muted"
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </>
+              {/* Slots column — populated from the selected date. */}
+              <div className="flex flex-wrap gap-1.5 content-start">
+                {selectedDate && slotsByDate.get(selectedDate)
+                  ? slotsByDate.get(selectedDate)!.map((s) => {
+                      const active = selectedStartsAt === s.startsAt;
+                      const label = new Date(s.startsAt).toLocaleTimeString(undefined, {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      });
+                      return (
+                        <button
+                          key={s.startsAt}
+                          type="button"
+                          onClick={() => setSelectedStartsAt(s.startsAt)}
+                          className={`rounded-md px-3 py-1.5 text-sm font-medium tabular-nums transition-colors ${
+                            active
+                              ? "bg-foreground text-background"
+                              : "border border-border bg-surface text-foreground hover:bg-surface-muted"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })
+                  : (
+                    <p className="text-xs text-muted-foreground">Pick a date on the left.</p>
+                  )}
+              </div>
+            </div>
           )}
         </div>
 

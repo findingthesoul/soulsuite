@@ -8,10 +8,16 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import {
+  BookingDetailDialog,
+  type BookingDetail,
+} from "@/components/booking-detail-dialog";
 
 interface MtOption {
   id: string;
   label: string;
+  name: string;
+  slug: string;
   durationMinutes: number;
   priceCents: number | null;
   priceCurrency: string | null;
@@ -36,11 +42,13 @@ interface SlotSummary {
 }
 
 export function BookForm({
-  hostName: _hostName,
+  hostName,
+  hostSlug,
   meetingTypes,
   contactSuggestions,
 }: {
   hostName: string;
+  hostSlug: string;
   meetingTypes: MtOption[];
   contactSuggestions: ContactSuggestion[];
 }) {
@@ -70,9 +78,11 @@ export function BookForm({
           | "awaiting-billing-details"
           | "confirmed-awaiting-payment"
           | "confirmed-awaiting-billing";
+        booking: BookingDetail;
       }
     | null
   >(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
   const [pending, startTransition] = useTransition();
 
   const selectedMt = useMemo(
@@ -163,15 +173,51 @@ export function BookForm({
     () => Array.from(slotsByDate.keys()).sort(),
     [slotsByDate],
   );
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  // Default selectedDate to first available whenever the slot list changes.
-  useEffect(() => {
-    if (availableDates.length === 0) {
-      setSelectedDate(null);
-    } else if (!selectedDate || !slotsByDate.has(selectedDate)) {
-      setSelectedDate(availableDates[0]);
+
+  // Group dates by YYYY-MM for the month tab strip. With a 60-day window this is at most
+  // three months, so we can list them all without further nesting. Each month renders the
+  // count of days that have availability — the count next to each day shows slots/day.
+  const monthsByKey = useMemo(() => {
+    const out = new Map<string, { dates: string[]; slotCount: number }>();
+    for (const dateKey of availableDates) {
+      const monthKey = dateKey.slice(0, 7); // "YYYY-MM"
+      const entry = out.get(monthKey) ?? { dates: [], slotCount: 0 };
+      entry.dates.push(dateKey);
+      entry.slotCount += slotsByDate.get(dateKey)?.length ?? 0;
+      out.set(monthKey, entry);
     }
-  }, [availableDates, selectedDate, slotsByDate]);
+    return out;
+  }, [availableDates, slotsByDate]);
+  const availableMonths = useMemo(
+    () => Array.from(monthsByKey.keys()).sort(),
+    [monthsByKey],
+  );
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+
+  // Default selectedMonth + selectedDate to the first available whenever the slot list
+  // changes. Also keep them in sync: if the selected date drifts out of the selected month
+  // (e.g. host picked a different MT), snap to a sensible default.
+  useEffect(() => {
+    if (availableMonths.length === 0) {
+      setSelectedMonth(null);
+      setSelectedDate(null);
+      return;
+    }
+    const month =
+      selectedMonth && monthsByKey.has(selectedMonth)
+        ? selectedMonth
+        : availableMonths[0];
+    if (month !== selectedMonth) setSelectedMonth(month);
+    const monthDates = monthsByKey.get(month)?.dates ?? [];
+    if (monthDates.length === 0) {
+      setSelectedDate(null);
+      return;
+    }
+    if (!selectedDate || !monthDates.includes(selectedDate)) {
+      setSelectedDate(monthDates[0]);
+    }
+  }, [availableMonths, monthsByKey, selectedMonth, selectedDate]);
 
   function pickContact(email: string, idx: number) {
     const c = contactSuggestions.find((x) => x.email === email);
@@ -250,7 +296,60 @@ export function BookForm({
           | "confirmed-awaiting-payment"
           | "confirmed-awaiting-billing";
       };
-      setSuccess({ kind: data.kind });
+
+      // Map the wire status to the dialog's BookingDetail.status. "Confirmed" variants land
+      // as CONFIRMED; the strict "awaiting-payment / awaiting-billing-details" variants land
+      // as PENDING_APPROVAL so the amber pill signals the slot is held but not yet final.
+      const dialogStatus =
+        data.kind === "confirmed" ||
+        data.kind === "confirmed-awaiting-payment" ||
+        data.kind === "confirmed-awaiting-billing"
+          ? ("CONFIRMED" as const)
+          : ("PENDING_APPROVAL" as const);
+      const firstInvitee = invitees[0];
+      const dialogNote =
+        data.kind === "confirmed-awaiting-payment"
+          ? "Calendar invite sent. Invitee got a follow-up email with the Stripe payment link."
+          : data.kind === "confirmed-awaiting-billing"
+            ? "Calendar invite sent. Invitee got a follow-up email with the billing-details form."
+            : data.kind === "awaiting-payment"
+              ? "Slot held — calendar invite goes out once the invitee pays."
+              : data.kind === "awaiting-billing-details"
+                ? "Slot held — calendar invite goes out once the invitee submits billing details."
+                : invitees.length > 1
+                  ? `Calendar invite sent to ${invitees.length} invitees.`
+                  : "Calendar invite sent.";
+
+      const startsAtIso = selectedStartsAt!;
+      const endsAtIso = new Date(
+        new Date(startsAtIso).getTime() + selectedMt.durationMinutes * 60_000,
+      ).toISOString();
+
+      setSuccess({
+        kind: data.kind,
+        booking: {
+          id: data.id,
+          startsAt: startsAtIso,
+          endsAt: endsAtIso,
+          status: dialogStatus,
+          inviteeName: firstInvitee.name.trim(),
+          inviteeEmail: firstInvitee.email.trim(),
+          // We don't know meetUrl / conferencing details until after finalize, but the dialog
+          // tolerates these being null — the host can click "Open booking page" for the full
+          // record once the deploy hits production.
+          meetUrl: null,
+          conferencingProvider: "GOOGLE_MEET",
+          alternativeLocation: null,
+          meetingTypeName: selectedMt.name,
+          meetingTypeSlug: selectedMt.slug,
+          defaultLocation: null,
+          hostName,
+          hostSlug,
+          projectSlug: null,
+          note: dialogNote,
+        },
+      });
+      setDialogOpen(true);
       setInvitees([{ name: "", email: "" }]);
       setNote("");
       setSelectedStartsAt(null);
@@ -456,40 +555,79 @@ export function BookForm({
             </p>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-[200px_1fr] gap-3">
-              {/* Dates column — stacks vertically on the left, scrolls if the host has lots
-                  of consecutive availability. */}
-              <div className="flex flex-col gap-1.5 max-h-64 overflow-y-auto pr-1">
-                {availableDates.map((dateKey) => {
-                  const d = new Date(`${dateKey}T12:00:00`);
-                  const active = dateKey === selectedDate;
-                  const count = slotsByDate.get(dateKey)?.length ?? 0;
-                  return (
-                    <button
-                      key={dateKey}
-                      type="button"
-                      onClick={() => {
-                        setSelectedDate(dateKey);
-                        setSelectedStartsAt(null);
-                      }}
-                      className={`text-left rounded-md px-3 py-2 text-xs font-medium transition-colors flex items-center justify-between gap-3 ${
-                        active
-                          ? "bg-foreground text-background"
-                          : "border border-border bg-surface text-foreground hover:bg-surface-muted"
-                      }`}
-                    >
-                      <span>
-                        {d.toLocaleDateString(undefined, {
-                          weekday: "short",
-                          day: "numeric",
-                          month: "short",
-                        })}
-                      </span>
-                      <span className={active ? "opacity-70" : "text-muted-foreground"}>
-                        {count}
-                      </span>
-                    </button>
-                  );
-                })}
+              {/* Dates column — month tabs above, then the days within the selected month.
+                  With a 60-day window we get at most three months; the tabs keep the list
+                  navigable without scrolling through every day. */}
+              <div className="flex flex-col gap-2">
+                {availableMonths.length > 1 && (
+                  <div className="flex gap-1.5 flex-wrap">
+                    {availableMonths.map((monthKey) => {
+                      const entry = monthsByKey.get(monthKey);
+                      const active = monthKey === selectedMonth;
+                      const d = new Date(`${monthKey}-01T12:00:00`);
+                      return (
+                        <button
+                          key={monthKey}
+                          type="button"
+                          onClick={() => {
+                            setSelectedMonth(monthKey);
+                            setSelectedStartsAt(null);
+                          }}
+                          className={`rounded-md px-2 py-1 text-[11px] font-medium transition-colors flex items-center gap-1.5 ${
+                            active
+                              ? "bg-foreground text-background"
+                              : "border border-border bg-surface text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          <span>
+                            {d.toLocaleDateString(undefined, {
+                              month: "short",
+                              year: "2-digit",
+                            })}
+                          </span>
+                          <span className={active ? "opacity-70" : "text-subtle-foreground"}>
+                            {entry?.slotCount ?? 0}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                <div className="flex flex-col gap-1.5 max-h-64 overflow-y-auto pr-1">
+                  {(selectedMonth ? monthsByKey.get(selectedMonth)?.dates ?? [] : []).map(
+                    (dateKey) => {
+                      const d = new Date(`${dateKey}T12:00:00`);
+                      const active = dateKey === selectedDate;
+                      const count = slotsByDate.get(dateKey)?.length ?? 0;
+                      return (
+                        <button
+                          key={dateKey}
+                          type="button"
+                          onClick={() => {
+                            setSelectedDate(dateKey);
+                            setSelectedStartsAt(null);
+                          }}
+                          className={`text-left rounded-md px-3 py-2 text-xs font-medium transition-colors flex items-center justify-between gap-3 ${
+                            active
+                              ? "bg-foreground text-background"
+                              : "border border-border bg-surface text-foreground hover:bg-surface-muted"
+                          }`}
+                        >
+                          <span>
+                            {d.toLocaleDateString(undefined, {
+                              weekday: "short",
+                              day: "numeric",
+                              month: "short",
+                            })}
+                          </span>
+                          <span className={active ? "opacity-70" : "text-muted-foreground"}>
+                            {count}
+                          </span>
+                        </button>
+                      );
+                    },
+                  )}
+                </div>
               </div>
               {/* Slots column — populated from the selected date. */}
               <div className="flex flex-wrap gap-1.5 content-start">
@@ -538,17 +676,13 @@ export function BookForm({
 
         {error && <p className="text-sm text-destructive">{error}</p>}
         {success && (
-          <p className="text-sm text-foreground">
-            {success.kind === "confirmed"
-              ? `Sent — the calendar invite${invitees.length > 1 ? "s are" : " is"} in the invitee${invitees.length > 1 ? "s'" : "'s"} inbox.`
-              : success.kind === "confirmed-awaiting-payment"
-                ? "Sent — calendar invite + a follow-up email with the Stripe payment link."
-                : success.kind === "confirmed-awaiting-billing"
-                  ? "Sent — calendar invite + a follow-up email with the billing-details form."
-                  : success.kind === "awaiting-billing-details"
-                    ? "Sent — the invitee got an email with a link to confirm their billing details. The slot is held until they submit."
-                    : "Sent — the invitee got an email with the payment link. The slot is held until they pay."}
-          </p>
+          <button
+            type="button"
+            onClick={() => setDialogOpen(true)}
+            className="text-sm text-foreground underline hover:no-underline"
+          >
+            Sent — view booking details
+          </button>
         )}
 
         <div className="flex justify-end pt-1">
@@ -565,6 +699,11 @@ export function BookForm({
           </Button>
         </div>
       </CardContent>
+      <BookingDetailDialog
+        booking={success?.booking ?? null}
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+      />
     </Card>
   );
 }

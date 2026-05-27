@@ -8,9 +8,10 @@ import { BookingDateTime } from "./client";
 import { WeekGrid } from "./week-grid";
 import { MonthGrid } from "./month-grid";
 import { PersistSearchParams } from "@/components/persist-search-params";
-import { PrefetchLink } from "@/components/prefetch-link";
 import { AltLocationButton } from "./alt-location-button";
 import { ApprovalButtons } from "./approval-buttons";
+import { BookingRowOpener } from "./row-opener";
+import type { BookingDetail } from "@/components/booking-detail-dialog";
 import { visibleToHostWhere } from "@/lib/bookings/visibility";
 
 type RangeFilter = "upcoming" | "past" | "all";
@@ -86,12 +87,14 @@ export default async function BookingsPage({
         startsAt: true,
         endsAt: true,
         inviteeName: true,
+        inviteeEmail: true,
         status: true,
         alternativeLocation: true,
         conferencingProvider: true,
         meetUrl: true,
         paymentMethod: true,
         paymentStatus: true,
+        host: { select: { name: true, slug: true } },
         meetingType: {
           select: { slug: true, name: true, defaultLocation: true, priceCents: true, priceCurrency: true },
         },
@@ -163,8 +166,6 @@ export default async function BookingsPage({
           <Card>
             <ul className="divide-y divide-border">
               {bookings.map((b) => {
-                const publicSlug = b.project ? b.project.slug : ctx.host.slug;
-                const href = `/${publicSlug}/${b.meetingType.slug}/confirmed/${b.id}`;
                 const isHostOwn = b.hostId === ctx.host.id;
                 const isUpcoming = b.startsAt.getTime() >= now.getTime();
                 const showAlt = isHostOwn && isUpcoming && b.status !== "CANCELLED";
@@ -173,11 +174,28 @@ export default async function BookingsPage({
                   b.conferencingProvider === "IN_PERSON"
                     ? b.meetingType.defaultLocation
                     : b.meetUrl;
+                const dialogBooking: BookingDetail = {
+                  id: b.id,
+                  startsAt: b.startsAt.toISOString(),
+                  endsAt: b.endsAt.toISOString(),
+                  status: b.status,
+                  inviteeName: b.inviteeName,
+                  inviteeEmail: b.inviteeEmail,
+                  meetUrl: b.meetUrl,
+                  conferencingProvider: b.conferencingProvider,
+                  alternativeLocation: b.alternativeLocation,
+                  meetingTypeName: b.meetingType.name,
+                  meetingTypeSlug: b.meetingType.slug,
+                  defaultLocation: b.meetingType.defaultLocation,
+                  hostName: b.host.name,
+                  hostSlug: b.host.slug,
+                  projectSlug: b.project?.slug ?? null,
+                };
                 return (
                   <li key={b.id} className="flex items-center gap-3 hover:bg-surface-muted transition-colors">
-                    <PrefetchLink
-                      href={href}
-                      className="flex items-center justify-between gap-4 px-4 py-3 flex-1 min-w-0"
+                    <BookingRowOpener
+                      booking={dialogBooking}
+                      className="flex items-center justify-between gap-4 px-4 py-3 flex-1 min-w-0 text-left"
                     >
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium text-foreground truncate">
@@ -201,7 +219,7 @@ export default async function BookingsPage({
                         />
                         <StatusPill status={b.status} />
                       </div>
-                    </PrefetchLink>
+                    </BookingRowOpener>
                     {b.status === "PENDING_APPROVAL" && isHostOwn && (
                       <div className="pr-3">
                         <ApprovalButtons bookingId={b.id} />

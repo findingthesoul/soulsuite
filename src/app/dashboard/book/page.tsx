@@ -68,12 +68,17 @@ export default async function BookPage() {
         </header>
         <BookForm
           hostName={host.name}
+          hostSlug={host.slug}
           meetingTypes={meetingTypes.map((mt) => ({
             id: mt.id,
             label:
               mt.scope === "PROJECT" && mt.project
                 ? `${mt.project.name} · ${mt.name}`
                 : mt.name,
+            // Bare name + slug for the post-submit booking dialog. label is the dropdown
+            // value (carries the project prefix); name is just the MT name.
+            name: mt.name,
+            slug: mt.slug,
             durationMinutes: mt.durationMinutes,
             priceCents: mt.priceCents,
             priceCurrency: mt.priceCurrency,

@@ -488,6 +488,10 @@ model Booking {
   approvalToken          String?              @unique
   approvedAt             DateTime?
   approvalDecidedByHostId String?
+  // Used when a host-initiated INVOICE booking is created without billing details — the
+  // invitee receives a link containing this token and submits their details on /billing/[id].
+  // Cleared (set null) once the booking is finalised so the link can't be reused.
+  invoiceDetailsToken    String?              @unique
   createdAt            DateTime             @default(now())
 
   meetingType       MeetingType @relation(fields: [meetingTypeId], references: [id])

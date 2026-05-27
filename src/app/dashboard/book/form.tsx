@@ -64,16 +64,16 @@ export function BookForm({
     () => meetingTypes.find((mt) => mt.id === mtId) ?? null,
     [meetingTypes, mtId],
   );
-  const invoiceBlocked =
-    selectedMt &&
-    (selectedMt.priceCents ?? 0) > 0 &&
-    selectedMt.paymentMethod === "INVOICE";
   const isPaid = Boolean(selectedMt && (selectedMt.priceCents ?? 0) > 0);
+  const isInvoiceMt =
+    isPaid && selectedMt?.paymentMethod === "INVOICE";
   const priceLabel =
     selectedMt && isPaid && selectedMt.priceCurrency && selectedMt.priceCents
       ? formatPriceClient(selectedMt.priceCents, selectedMt.priceCurrency)
       : null;
   const allowsGroup = (selectedMt?.maxInvitees ?? 1) > 1;
+  // Paid+charge collapses to single-invitee for both Stripe and INVOICE rails: billing /
+  // payment is per-person, so we don't let the host bundle more than one.
   const canAddInvitee =
     allowsGroup && invitees.length < (selectedMt?.maxInvitees ?? 1) && !(isPaid && chargeInvitee);
 
@@ -176,11 +176,6 @@ export function BookForm({
     setError(null);
     setSuccess(null);
     if (!selectedMt) return setError("Pick a meeting type.");
-    if (invoiceBlocked) {
-      return setError(
-        "Invoice meeting types can't be host-initiated yet. Send the invitee your public link instead.",
-      );
-    }
     if (invitees.length === 0) return setError("Add at least one invitee.");
     for (let i = 0; i < invitees.length; i++) {
       const inv = invitees[i];
@@ -265,8 +260,10 @@ export function BookForm({
           </Select>
         </div>
 
-        {/* PAID toggle — visible only when the MT has a price. Default OFF = comp'd. */}
-        {!invoiceBlocked && isPaid && priceLabel && (
+        {/* PAID toggle — visible only when the MT has a price. Default OFF = comp'd.
+            For INVOICE MTs the on-state sends an invoice-details link; for STRIPE the
+            invitee gets a Stripe Checkout URL. */}
+        {isPaid && priceLabel && (
           <div className="rounded-md border border-border p-3 space-y-2">
             <label className="flex items-start gap-3 cursor-pointer">
               <input
@@ -292,7 +289,9 @@ export function BookForm({
                 </span>
                 <span className="block text-xs text-muted-foreground mt-1">
                   {chargeInvitee
-                    ? "Invitee gets a Stripe payment link; the calendar invite goes out after they pay."
+                    ? isInvoiceMt
+                      ? "Invitee gets a link to fill in billing details; the calendar invite goes out after they submit, and you invoice them separately."
+                      : "Invitee gets a Stripe payment link; the calendar invite goes out after they pay."
                     : "Complimentary — invitee gets the calendar invite immediately, no charge."}
                 </span>
               </span>
@@ -449,30 +448,25 @@ export function BookForm({
           />
         </div>
 
-        {invoiceBlocked && (
-          <p className="text-xs text-destructive">
-            Invoice-method paid meeting types can&apos;t be host-initiated. Use the public booking
-            link for those.
-          </p>
-        )}
         {error && <p className="text-sm text-destructive">{error}</p>}
         {success && (
           <p className="text-sm text-foreground">
             {success.kind === "confirmed"
               ? `Sent — the calendar invite${invitees.length > 1 ? "s are" : " is"} in the invitee${invitees.length > 1 ? "s'" : "'s"} inbox.`
-              : "Sent — the invitee got an email with the payment link."}
+              : isInvoiceMt
+                ? "Sent — the invitee got an email with a link to confirm their billing details."
+                : "Sent — the invitee got an email with the payment link."}
           </p>
         )}
 
         <div className="flex justify-end pt-1">
-          <Button
-            onClick={submit}
-            disabled={pending || Boolean(invoiceBlocked) || !selectedStartsAt}
-          >
+          <Button onClick={submit} disabled={pending || !selectedStartsAt}>
             {pending
               ? "Sending…"
               : isPaid && chargeInvitee
-                ? "Send payment link"
+                ? isInvoiceMt
+                  ? "Send billing form"
+                  : "Send payment link"
                 : invitees.length > 1
                   ? `Send invites (${invitees.length})`
                   : "Send invite"}

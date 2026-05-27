@@ -16,7 +16,7 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { getCurrentHost } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -28,6 +28,7 @@ import {
   appUrl,
   bookingConfirmationTemplate,
   hostInitiatedFreeTemplate,
+  hostInitiatedInvoiceTemplate,
   hostInitiatedPaymentTemplate,
   sendEmailAfterResponse,
 } from "@/lib/email";
@@ -124,14 +125,10 @@ export async function POST(request: NextRequest) {
     hostId = caller.id;
   }
 
-  // Invoice-method paid MTs need billing details we can't reasonably collect on the invitee's
-  // behalf. Refuse cleanly so the host can send them the public link instead.
-  if ((meetingType.priceCents ?? 0) > 0 && meetingType.paymentMethod === "INVOICE") {
-    return new NextResponse(
-      "Invoice-method paid meeting types can't be host-initiated yet. Send the invitee your public booking link instead.",
-      { status: 400 },
-    );
-  }
+  // Invoice-method paid MTs ARE supported via a deferred-billing flow: we create the booking
+  // row with an `invoiceDetailsToken`, email the invitee a link to /billing/[id]?token=…,
+  // and finalise (Google event + standard confirmation) when they submit. Multi-invitee +
+  // INVOICE is rejected below because billing details are per-person, not per-meeting.
   if (meetingType.paymentMethod === "ADYEN") {
     return new NextResponse(
       "Adyen meeting types can't be host-initiated.",
@@ -206,15 +203,19 @@ export async function POST(request: NextRequest) {
       .slice(0, 32)}`;
 
   const isPaid = (meetingType.priceCents ?? 0) > 0;
-  // Two-axis decision for paid MTs: priced + host wants to charge → Stripe flow; priced +
-  // complimentary → fall through to the free path with paymentStatus stamped NOT_REQUIRED.
+  // Three-way decision for paid MTs:
+  //   1. priced + chargeInvitee=true + Stripe rail  → Stripe checkout
+  //   2. priced + chargeInvitee=true + INVOICE rail → deferred-billing link
+  //   3. priced + complimentary                     → free branch (paymentStatus NOT_REQUIRED)
   const willCharge = isPaid && body.chargeInvitee === true;
+  const willInvoice = willCharge && meetingType.paymentMethod === "INVOICE";
+  const willStripe = willCharge && meetingType.paymentMethod === "STRIPE";
 
-  // Charging multiple invitees in one booking is ambiguous — one Stripe checkout per invitee
-  // vs. one combined payment, who pays, who gets the receipt. Punt for v1.
+  // Per-invitee billing means we can't bundle multi-invitee with INVOICE. Stripe has the same
+  // constraint for the same reason — punt to the public link in either case.
   if (willCharge && invitees.length > 1) {
     return new NextResponse(
-      "Charging via Stripe is only supported for a single invitee per booking. Untick PAID for the rest, or send them the public booking link.",
+      "Charging is only supported for a single invitee per booking. Untick PAID for the rest, or send them the public booking link.",
       { status: 400 },
     );
   }
@@ -223,11 +224,77 @@ export async function POST(request: NextRequest) {
       ? ({ __hostNote: body.note } as Prisma.InputJsonValue)
       : undefined;
 
+  // ── INVOICE branch (host-initiated, deferred billing) ──
+  // Create the booking with paymentStatus=PENDING + an invoiceDetailsToken; no Google event
+  // yet. Email the invitee a link to /billing/[id]?token=… where they fill in the billing
+  // shape (invoiceDetailsSchema). That submission flips the booking to INVOICE_PENDING and
+  // runs finalize, which creates the Google event + sends the standard confirmation. After
+  // that the existing /dashboard/payments invoice flow takes over (mark sent / paid / voided).
+  if (willInvoice) {
+    const sole = invitees[0];
+    const requestId = requestIdForInvitee(sole.email);
+    const invoiceDetailsToken = randomBytes(24).toString("hex");
+    let pendingId: string;
+    try {
+      const created = await prisma.booking.create({
+        data: {
+          meetingTypeId: meetingType.id,
+          hostId: host.id,
+          projectId: meetingType.projectId,
+          inviteeEmail: sole.email,
+          inviteeName: sole.name,
+          inviteeAnswers: noteAnswer,
+          startsAt,
+          endsAt,
+          requestId,
+          status: "CONFIRMED",
+          paymentMethod: "INVOICE",
+          paymentStatus: "PENDING",
+          invoiceDetailsToken,
+        },
+      });
+      pendingId = created.id;
+    } catch (err) {
+      if (err && typeof err === "object" && (err as { code?: string }).code === "P2002") {
+        const existing = await prisma.booking.findUnique({ where: { requestId } });
+        if (existing) {
+          return NextResponse.json({ id: existing.id, alreadyExists: true });
+        }
+      }
+      throw err;
+    }
+    const logoUrl = await getEmailLogoUrl();
+    const baseUrl = publicEnv.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
+    const billingFormUrl = `${baseUrl}/billing/${pendingId}?token=${invoiceDetailsToken}`;
+    const tmpl = hostInitiatedInvoiceTemplate({
+      hostName: host.name,
+      meetingTypeName: meetingType.name,
+      startsAtIso: startsAt.toISOString(),
+      endsAtIso: endsAt.toISOString(),
+      inviteeName: sole.name,
+      formattedPrice: formatPrice(meetingType.priceCents!, meetingType.priceCurrency ?? "eur"),
+      billingFormUrl,
+      note: body.note ?? null,
+      logoUrl,
+    });
+    sendEmailAfterResponse({
+      to: sole.email,
+      subject: tmpl.subject,
+      html: tmpl.html,
+      text: tmpl.text,
+      fromName: host.name,
+      replyTo: host.email,
+      hostId: host.id,
+      bookingId: pendingId,
+    });
+    return NextResponse.json({ id: pendingId, kind: "awaiting-billing-details" });
+  }
+
   // ── Paid Stripe branch ──
-  // Only taken when the host explicitly opted in via chargeInvitee. Otherwise paid MTs fall
-  // through to the free branch below — the booking is comp'd, paymentStatus stays NOT_REQUIRED,
-  // and the invitee gets the standard confirmation email with no payment step.
-  if (willCharge) {
+  // Only taken when the host opted in via chargeInvitee AND the MT uses the Stripe rail.
+  // Paid+INVOICE took the branch above; complimentary paid MTs fall through to the free branch
+  // below with paymentStatus stamped NOT_REQUIRED.
+  if (willStripe) {
     if (!isStripeConfigured()) {
       return new NextResponse("Payments are not configured on this server.", { status: 503 });
     }

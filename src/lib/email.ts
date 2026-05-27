@@ -868,6 +868,53 @@ export function hostInitiatedFreeTemplate(args: {
   return { html, text, subject };
 }
 
+// Host-initiated invitation: paid INVOICE meeting type. The invitee clicks the link, fills
+// billing details, and the booking finalises (Google event + standard confirmation). The
+// host invoices them manually later — same downstream flow as a normal INVOICE booking.
+export function hostInitiatedInvoiceTemplate(args: {
+  hostName: string;
+  meetingTypeName: string;
+  startsAtIso: string;
+  endsAtIso: string;
+  inviteeName: string;
+  formattedPrice: string;
+  billingFormUrl: string;
+  note?: string | null;
+  logoUrl?: string | null;
+}): { html: string; text: string; subject: string } {
+  const when = formatDateRange(args.startsAtIso, args.endsAtIso);
+  const subject = `${args.hostName} invited you — confirm billing for ${args.meetingTypeName}`;
+  const noteBlock = args.note
+    ? `<div style="margin:16px 0;padding:14px 16px;border:1px solid #e7e5e4;border-radius:8px;background:#fafaf9">
+        <p style="margin:0 0 4px;font-size:12px;color:#a8a29e;text-transform:uppercase;letter-spacing:0.04em">Note from ${escapeHtml(args.hostName)}</p>
+        <p style="margin:0;font-size:14px;white-space:pre-line">${escapeHtml(args.note)}</p>
+      </div>`
+    : "";
+  const html = brandFrame(
+    "Confirm your booking",
+    `<p>Hi ${escapeHtml(args.inviteeName)},</p>
+    <p><strong>${escapeHtml(args.hostName)}</strong> has set up a meeting with you that will be billed by invoice. The slot is held — fill in your billing details to confirm.</p>
+    <table style="border-collapse:collapse;margin:16px 0;font-size:14px">
+      <tr><td style="padding:4px 0;color:#57534e">When</td><td style="padding:4px 0 4px 24px">${escapeHtml(when)}</td></tr>
+      <tr><td style="padding:4px 0;color:#57534e">What</td><td style="padding:4px 0 4px 24px">${escapeHtml(args.meetingTypeName)}</td></tr>
+      <tr><td style="padding:4px 0;color:#57534e">Price</td><td style="padding:4px 0 4px 24px">${escapeHtml(args.formattedPrice)}</td></tr>
+    </table>
+    ${noteBlock}
+    <p style="margin:24px 0">
+      <a href="${escapeAttr(args.billingFormUrl)}" style="display:inline-block;padding:12px 22px;background:#1c1917;color:#fafafa;border-radius:6px;text-decoration:none;font-weight:600">Confirm billing details</a>
+    </p>
+    <p style="font-size:12px;color:#a8a29e">You&apos;ll receive a separate invoice from ${escapeHtml(args.hostName)} after the meeting is confirmed.</p>`,
+    args.logoUrl,
+  );
+  const text =
+    `${args.hostName} has set up a meeting with you: ${args.meetingTypeName}\n` +
+    `When: ${when}\n` +
+    `Price: ${args.formattedPrice}\n\n` +
+    (args.note ? `Note from ${args.hostName}:\n${args.note}\n\n` : "") +
+    `Confirm billing details: ${args.billingFormUrl}\n`;
+  return { html, text, subject };
+}
+
 // Host-initiated invitation: paid meeting type. Carries a Stripe Checkout URL the invitee
 // clicks to pay — the existing webhook fires on payment.completed and finalises the booking
 // (Google event + standard confirmation email), so this template is purely the "please pay

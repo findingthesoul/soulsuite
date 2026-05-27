@@ -44,6 +44,10 @@ const serverSchema = z.object({
   // time so dev environments without Stripe can still run.
   STRIPE_SECRET_KEY: z.string().min(1).optional(),
   STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
+  // Required header value for /api/cron/* endpoints. Vercel Cron sends this as a static
+  // bearer that we verify before doing any work. Unset disables cron processing (the endpoint
+  // returns 503 so a misconfigured Vercel cron fails loudly instead of silently sending mail).
+  CRON_SECRET: z.string().min(16).optional(),
 });
 
 export const publicEnv = publicSchema.parse({
@@ -75,6 +79,7 @@ export function serverEnv() {
       STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
       STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
       SUPER_ADMIN_EMAILS: process.env.SUPER_ADMIN_EMAILS,
+      CRON_SECRET: process.env.CRON_SECRET,
     });
   }
   return _serverEnv;

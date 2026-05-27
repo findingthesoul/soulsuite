@@ -8,6 +8,12 @@ import { prisma } from "@/lib/prisma";
 import { calendarFor, isGoogleAuthError } from "@/lib/google/client";
 import type { ProposedSlot } from "@/lib/polls";
 import { upsertContactFromBooking } from "@/lib/contacts";
+import {
+  appUrl,
+  pollFinalizedInviteeTemplate,
+  sendEmailAfterResponse,
+} from "@/lib/email";
+import { getEmailLogoUrl } from "@/lib/branding";
 
 const patchSchema = z.union([
   z.object({ action: z.literal("cancel") }),
@@ -16,6 +22,10 @@ const patchSchema = z.union([
     slotId: z.string().min(1),
     // Optional: a placeholder MeetingType to anchor the booking onto. For v1, we create an
     // ephemeral PERSONAL meeting type with a unique slug to satisfy the Booking FK.
+  }),
+  z.object({
+    action: z.literal("updateSettings"),
+    notifyMode: z.enum(["FINAL_ONLY", "EVERY_VOTE", "DAILY_DIGEST", "NEVER"]),
   }),
 ]);
 
@@ -42,6 +52,17 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   if (body.action === "cancel") {
     await prisma.poll.update({ where: { id }, data: { status: PollStatus.CANCELLED } });
+    return NextResponse.json({ ok: true });
+  }
+
+  // Update settings: changes notifyMode without touching status/slots. Same auth (owner +
+  // OPEN) — we don't let owners flip notification mode after the poll closes since there's
+  // nothing left to notify about.
+  if (body.action === "updateSettings") {
+    await prisma.poll.update({
+      where: { id },
+      data: { notifyMode: body.notifyMode },
+    });
     return NextResponse.json({ ok: true });
   }
 
@@ -189,6 +210,33 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   } catch (err) {
     console.error("[poll] contact upsert failed", err);
   }
+
+  // Notify every invitee that the slot is set. The Google event Sjoerd just inserted carries
+  // them as attendees, so they'll also get Google's native invite — this email is the
+  // Soul-Suite branded heads-up that sets expectations and references the poll name.
+  const logoUrl = await getEmailLogoUrl();
+  const pollDetailUrl = appUrl(`/dashboard/polls/${poll.id}`);
+  sendEmailAfterResponse(
+    inviteeEmails.map((email) => {
+      const tmpl = pollFinalizedInviteeTemplate({
+        ownerName: fullHost.name,
+        pollName: poll.name,
+        startsAtIso: startsAt.toISOString(),
+        endsAtIso: endsAt.toISOString(),
+        inviteeEmail: email,
+        pollDetailUrl,
+        logoUrl,
+      });
+      return {
+        to: email,
+        subject: tmpl.subject,
+        html: tmpl.html,
+        text: tmpl.text,
+        fromName: fullHost.name,
+        replyTo: fullHost.email,
+      };
+    }),
+  );
 
   return NextResponse.json({ ok: true });
 }

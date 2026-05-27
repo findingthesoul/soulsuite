@@ -20,18 +20,22 @@ interface Tally {
   pending: number;
 }
 
+type NotifyMode = "FINAL_ONLY" | "EVERY_VOTE" | "DAILY_DIGEST" | "NEVER";
+
 export function PollDetailClient({
   pollId,
   status,
   slots,
   tally,
   responses,
+  notifyMode: initialNotifyMode,
 }: {
   pollId: string;
   status: "OPEN" | "FINALIZED" | "CANCELLED";
   slots: ProposedSlot[];
   tally: Record<string, Tally>;
   responses: ResponseRow[];
+  notifyMode: NotifyMode;
 }) {
   const router = useRouter();
   const [tz, setTz] = useState("UTC");
@@ -40,6 +44,26 @@ export function PollDetailClient({
   const [picked, setPicked] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [notifyMode, setNotifyMode] = useState<NotifyMode>(initialNotifyMode);
+  const [notifyPending, startNotifyTransition] = useTransition();
+
+  function changeNotifyMode(next: NotifyMode) {
+    setNotifyMode(next);
+    startNotifyTransition(async () => {
+      const res = await fetch(`/api/polls/${pollId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "updateSettings", notifyMode: next }),
+      });
+      if (!res.ok) {
+        // Roll back the local toggle so the UI matches the server.
+        setNotifyMode(initialNotifyMode);
+        alert((await res.text()) || "Couldn't update notification mode.");
+        return;
+      }
+      router.refresh();
+    });
+  }
 
   function finalize() {
     if (!picked) return;
@@ -121,6 +145,59 @@ export function PollDetailClient({
           </ul>
         </CardContent>
       </Card>
+
+      {isOpen && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Email me about votes</CardTitle>
+            <CardDescription>
+              You can change this any time while the poll is open.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            {[
+              {
+                key: "FINAL_ONLY" as const,
+                label: "When everyone has voted",
+                hint: "One email when the last invitee submits.",
+              },
+              {
+                key: "EVERY_VOTE" as const,
+                label: "On every vote",
+                hint: "One email per response.",
+              },
+              {
+                key: "DAILY_DIGEST" as const,
+                label: "Daily digest",
+                hint: "One summary email per 24h while the poll is open.",
+              },
+              {
+                key: "NEVER" as const,
+                label: "Don't email me",
+                hint: "Check the dashboard whenever you want.",
+              },
+            ].map((opt) => (
+              <label
+                key={opt.key}
+                className={`flex items-start gap-2 cursor-pointer ${notifyPending ? "opacity-60" : ""}`}
+              >
+                <input
+                  type="radio"
+                  name="notifyMode"
+                  checked={notifyMode === opt.key}
+                  onChange={() => changeNotifyMode(opt.key)}
+                  disabled={notifyPending}
+                  className="h-4 w-4 mt-0.5 border-border accent-foreground"
+                />
+                <span>
+                  <span className="text-foreground">{opt.label}</span>
+                  <span className="block text-xs text-muted-foreground">{opt.hint}</span>
+                </span>
+              </label>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {isOpen && (
         <>

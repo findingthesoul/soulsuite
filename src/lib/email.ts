@@ -720,6 +720,98 @@ export function pollAllVotedTemplate(args: {
   return { html, text, subject };
 }
 
+// Poll finalised — sent to every invitee when the owner picks a slot. Tells them what they're
+// expected to attend; the actual calendar invite arrives via the Google event the finalize
+// path creates (organiser is the owner, invitees are all the poll's emails).
+export function pollFinalizedInviteeTemplate(args: {
+  ownerName: string;
+  pollName: string;
+  startsAtIso: string;
+  endsAtIso: string;
+  inviteeEmail: string;
+  pollDetailUrl?: string | null;
+  logoUrl?: string | null;
+}): { html: string; text: string; subject: string } {
+  const when = formatDateRange(args.startsAtIso, args.endsAtIso);
+  const subject = `Time's set: ${args.pollName} — ${when}`;
+  const html = brandFrame(
+    "The time is set",
+    `<p>Hi,</p>
+    <p><strong>${escapeHtml(args.ownerName)}</strong> has picked a slot for <strong>${escapeHtml(args.pollName)}</strong>.</p>
+    <table style="border-collapse:collapse;margin:16px 0;font-size:14px">
+      <tr><td style="padding:4px 0;color:#57534e">When</td><td style="padding:4px 0 4px 24px">${escapeHtml(when)}</td></tr>
+    </table>
+    <p style="font-size:13px;color:#57534e">A calendar invite is on its way separately. Look for it in your inbox at ${escapeHtml(args.inviteeEmail)}.</p>`,
+    args.logoUrl,
+  );
+  const text =
+    `${args.ownerName} picked a slot for "${args.pollName}".\n` +
+    `When: ${when}\n\n` +
+    `A calendar invite is on its way to ${args.inviteeEmail}.\n`;
+  return { html, text, subject };
+}
+
+// Vote reminder — sent to invitees who haven't voted yet when the earliest proposed slot is
+// approaching. Throttled by Poll.reminderSentAt so it only fires once per poll.
+export function pollVoteReminderTemplate(args: {
+  ownerName: string;
+  pollName: string;
+  hoursUntilEarliestSlot: number;
+  voteUrl: string;
+  recipientEmail: string;
+  logoUrl?: string | null;
+}): { html: string; text: string; subject: string } {
+  const subject = `Reminder: vote on ${args.pollName}`;
+  const html = brandFrame(
+    "Don't forget to vote",
+    `<p>${escapeHtml(args.ownerName)} is waiting on your vote for <strong>${escapeHtml(args.pollName)}</strong>.</p>
+    <p style="font-size:13px;color:#57534e">The earliest proposed slot is in about ${args.hoursUntilEarliestSlot} hours.</p>
+    <p style="margin:24px 0">
+      <a href="${escapeAttr(args.voteUrl)}" style="display:inline-block;padding:10px 18px;background:#1c1917;color:#fafafa;border-radius:6px;text-decoration:none">Vote on times</a>
+    </p>
+    <p style="font-size:12px;color:#a8a29e">This link is unique to ${escapeHtml(args.recipientEmail)} — keep it private.</p>`,
+    args.logoUrl,
+  );
+  const text =
+    `${args.ownerName} is waiting on your vote for "${args.pollName}".\n` +
+    `Earliest proposed slot is in about ${args.hoursUntilEarliestSlot} hours.\n\n` +
+    `Vote here: ${args.voteUrl}\n`;
+  return { html, text, subject };
+}
+
+// Daily digest — one summary email to the poll owner per 24h while DAILY_DIGEST mode is set.
+// Skipped when there's been no activity since lastNotifiedAt.
+export function pollDigestTemplate(args: {
+  ownerName: string;
+  pollName: string;
+  totalResponses: number;
+  totalInvitees: number;
+  newVotesSinceLast: number;
+  pollUrl: string;
+  logoUrl?: string | null;
+}): { html: string; text: string; subject: string } {
+  const subject = `Daily digest — ${args.pollName}: ${args.totalResponses}/${args.totalInvitees}`;
+  const html = brandFrame(
+    "Poll update",
+    `<p>Hi ${escapeHtml(args.ownerName)},</p>
+    <p>Activity on <strong>${escapeHtml(args.pollName)}</strong> in the last 24 hours:</p>
+    <table style="border-collapse:collapse;margin:16px 0;font-size:14px">
+      <tr><td style="padding:4px 0;color:#57534e">Votes received</td><td style="padding:4px 0 4px 24px"><strong>${args.totalResponses}</strong> of ${args.totalInvitees}</td></tr>
+      <tr><td style="padding:4px 0;color:#57534e">New in last 24h</td><td style="padding:4px 0 4px 24px">${args.newVotesSinceLast}</td></tr>
+    </table>
+    <p style="margin:24px 0">
+      <a href="${escapeAttr(args.pollUrl)}" style="display:inline-block;padding:10px 18px;background:#1c1917;color:#fafafa;border-radius:6px;text-decoration:none">Open poll</a>
+    </p>`,
+    args.logoUrl,
+  );
+  const text =
+    `Daily digest for "${args.pollName}":\n` +
+    `- ${args.totalResponses} of ${args.totalInvitees} have voted.\n` +
+    `- ${args.newVotesSinceLast} new in the last 24h.\n\n` +
+    `Open poll: ${args.pollUrl}\n`;
+  return { html, text, subject };
+}
+
 // Host-initiated invitation: free meeting type. Standard "you're booked" template, but the
 // framing is "<host> invited you" rather than "you booked yourself". Reused for the case
 // where the host picks the slot themselves via /dashboard/book.

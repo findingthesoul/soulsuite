@@ -37,7 +37,10 @@ export const createPollSchema = z
     projectId: z.string().min(1).optional(),
     // Owner-notification mode. Defaults to FINAL_ONLY so the historical behaviour (silent
     // until you check the dashboard) only loosens when the user opts in.
-    notifyMode: z.enum(["FINAL_ONLY", "EVERY_VOTE", "NEVER"]).default("FINAL_ONLY").optional(),
+    notifyMode: z
+      .enum(["FINAL_ONLY", "EVERY_VOTE", "DAILY_DIGEST", "NEVER"])
+      .default("FINAL_ONLY")
+      .optional(),
   })
   .refine(
     (data) => (data.scope === "PROJECT" ? !!data.projectId : true),

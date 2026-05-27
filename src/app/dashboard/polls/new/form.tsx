@@ -37,9 +37,9 @@ export function NewPollForm({ leadProjects }: { leadProjects: LeadProject[] }) {
   const [emailsText, setEmailsText] = useState("");
   const [scope, setScope] = useState<PollScope>("PERSONAL");
   const [projectId, setProjectId] = useState<string>(leadProjects[0]?.id ?? "");
-  const [notifyMode, setNotifyMode] = useState<"FINAL_ONLY" | "EVERY_VOTE" | "NEVER">(
-    "FINAL_ONLY",
-  );
+  const [notifyMode, setNotifyMode] = useState<
+    "FINAL_ONLY" | "EVERY_VOTE" | "DAILY_DIGEST" | "NEVER"
+  >("FINAL_ONLY");
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -318,6 +318,21 @@ export function NewPollForm({ leadProjects }: { leadProjects: LeadProject[] }) {
               <span className="block text-xs text-muted-foreground">
                 One email per response. Good for time-sensitive scheduling, noisier on larger
                 groups.
+              </span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name="notifyMode"
+              checked={notifyMode === "DAILY_DIGEST"}
+              onChange={() => setNotifyMode("DAILY_DIGEST")}
+              className="h-4 w-4 mt-0.5 border-border accent-foreground"
+            />
+            <span>
+              <span className="text-foreground">Daily digest</span>
+              <span className="block text-xs text-muted-foreground">
+                One summary email per 24h while the poll is open.
               </span>
             </span>
           </label>

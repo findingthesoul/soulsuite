@@ -503,11 +503,11 @@ enum PollStatus {
 }
 
 // Poll-owner notification mode. Picked at create time; can be changed later (PATCH on the
-// poll). Per-vote notifications are throttled to one per response row per save — re-voting
-// updates the same PollResponse via its token, so the owner gets a fresh email on every save.
+// poll). DAILY_DIGEST batches activity into one email per 24h via /api/cron/poll-digests.
 enum PollNotifyMode {
   FINAL_ONLY
   EVERY_VOTE
+  DAILY_DIGEST
   NEVER
 }
 
@@ -532,6 +532,9 @@ model Poll {
   // doesn't double-notify and the FINAL_ONLY email only sends once even if everyone re-submits.
   lastNotifiedAt     DateTime?
   allVotedNotifiedAt DateTime?
+  // Stamp set when the cron sends out the "haven't voted yet" reminder to non-voters before
+  // the earliest proposed slot. Once set, the cron won't fire a second reminder on this poll.
+  reminderSentAt     DateTime?
   finalizedSlot      Json?
   finalizedBookingId String?    @unique
   createdAt          DateTime   @default(now())

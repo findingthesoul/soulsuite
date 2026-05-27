@@ -61,7 +61,14 @@ export default async function PollDetailPage({ params }: { params: Promise<{ id:
           </Card>
         )}
 
-        <PollDetailClient pollId={poll.id} status={poll.status} slots={slots} tally={tally} responses={responses} />
+        <PollDetailClient
+          pollId={poll.id}
+          status={poll.status}
+          slots={slots}
+          tally={tally}
+          responses={responses}
+          notifyMode={poll.notifyMode}
+        />
       </div>
     </AppShell>
   );

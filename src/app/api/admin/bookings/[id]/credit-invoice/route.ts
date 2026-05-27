@@ -21,6 +21,8 @@ import { invoiceVoidedTemplate, sendEmailAfterResponse } from "@/lib/email";
 import { getEmailLogoUrl } from "@/lib/branding";
 import { formatPrice } from "@/lib/stripe/client";
 import { invoiceDetailsSchema } from "@/lib/bookings/invoice-details";
+import { resolveRecipientTimezone } from "@/lib/recipient-timezone";
+import { workspaceIdForMeetingType } from "@/lib/contacts";
 
 export async function POST(
   _request: NextRequest,
@@ -67,7 +69,7 @@ export async function POST(
     where: { id: booking.id },
     include: {
       meetingType: { select: { name: true, priceCents: true, priceCurrency: true } },
-      host: { select: { name: true, email: true, stripeAccountId: true, invoiceSource: true } },
+      host: { select: { name: true, email: true, stripeAccountId: true, invoiceSource: true, timezone: true } },
     },
   });
   if (!full) return NextResponse.json({ error: "booking not found" }, { status: 404 });
@@ -113,6 +115,11 @@ export async function POST(
       paymentLinkDeactivated,
       billingEmail: billing.data.billingEmail,
       logoUrl: await getEmailLogoUrl(),
+      timezone: await resolveRecipientTimezone({
+        email: billing.data.billingEmail,
+        workspaceId: await workspaceIdForMeetingType(full.meetingTypeId),
+        fallback: full.host.timezone,
+      }),
     });
     sendEmailAfterResponse({
       to: billing.data.billingEmail,

@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { calendarFor, isGoogleAuthError } from "@/lib/google/client";
 import type { ProposedSlot } from "@/lib/polls";
 import { upsertContactFromBooking } from "@/lib/contacts";
+import { resolveRecipientTimezones } from "@/lib/recipient-timezone";
 import {
   appUrl,
   pollFinalizedInviteeTemplate,
@@ -186,17 +187,17 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   // Auto-build the workspace contact directory from poll attendees. Wrapped so contact
   // failures never fail the finalization — the booking + Google event are already persisted.
+  const wsId =
+    poll.scope === "PROJECT" && poll.projectId
+      ? (await prisma.project.findUnique({
+          where: { id: poll.projectId },
+          select: { workspaceId: true },
+        }))?.workspaceId ?? null
+      : (await prisma.workspaceMember.findFirst({
+          where: { hostId: host.id },
+          select: { workspaceId: true },
+        }))?.workspaceId ?? null;
   try {
-    const wsId =
-      poll.scope === "PROJECT" && poll.projectId
-        ? (await prisma.project.findUnique({
-            where: { id: poll.projectId },
-            select: { workspaceId: true },
-          }))?.workspaceId ?? null
-        : (await prisma.workspaceMember.findFirst({
-            where: { hostId: host.id },
-            select: { workspaceId: true },
-          }))?.workspaceId ?? null;
     if (wsId) {
       for (const email of inviteeEmails) {
         await upsertContactFromBooking({
@@ -216,6 +217,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   // Soul-Suite branded heads-up that sets expectations and references the poll name.
   const logoUrl = await getEmailLogoUrl();
   const pollDetailUrl = appUrl(`/dashboard/polls/${poll.id}`);
+  const inviteeTzMap = await resolveRecipientTimezones(inviteeEmails, wsId);
   sendEmailAfterResponse(
     inviteeEmails.map((email) => {
       const tmpl = pollFinalizedInviteeTemplate({
@@ -226,6 +228,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         inviteeEmail: email,
         pollDetailUrl,
         logoUrl,
+        timezone: inviteeTzMap.get(email.toLowerCase()) ?? fullHost.timezone,
       });
       return {
         to: email,

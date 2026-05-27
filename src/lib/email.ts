@@ -137,6 +137,9 @@ interface BookingTemplateInput {
   meetingTypeName: string;
   startsAtIso: string;
   endsAtIso: string;
+  // Render times in this IANA zone. Resolve via resolveRecipientTimezone in the caller.
+  // Optional for back-compat — defaults to UTC inside formatDateRange when omitted.
+  timezone?: string;
   inviteeName: string;
   inviteeEmail: string;
   cancelUrl: string;
@@ -189,7 +192,7 @@ function brandFrame(title: string, body: string, logoUrl?: string | null): strin
 }
 
 export function bookingConfirmationTemplate(b: BookingTemplateInput): { html: string; text: string; subject: string } {
-  const when = formatDateRange(b.startsAtIso, b.endsAtIso);
+  const when = formatDateRange(b.startsAtIso, b.endsAtIso, b.timezone);
   const subject = `Confirmed: ${b.meetingTypeName} with ${b.hostName} — ${when}`;
   const invoiceBlockHtml = b.invoice
     ? `<div style="margin:20px 0;padding:14px 16px;border:1px solid #e7e5e4;border-radius:8px;background:#fafaf9">
@@ -254,8 +257,9 @@ export function newBookingForHostTemplate(args: {
   location?: string | null;
   detailsUrl: string;                // link back to the booking row on /dashboard/bookings/...
   logoUrl?: string | null;
+  timezone?: string;
 }): { html: string; text: string; subject: string } {
-  const when = formatDateRange(args.startsAtIso, args.endsAtIso);
+  const when = formatDateRange(args.startsAtIso, args.endsAtIso, args.timezone);
   const subject = args.isCoHost
     ? `New collective booking: ${args.meetingTypeName} — ${when}`
     : `New booking: ${args.meetingTypeName} — ${when}`;
@@ -289,7 +293,7 @@ export function newBookingForHostTemplate(args: {
 }
 
 export function bookingCancellationTemplate(b: BookingTemplateInput): { html: string; text: string; subject: string } {
-  const when = formatDateRange(b.startsAtIso, b.endsAtIso);
+  const when = formatDateRange(b.startsAtIso, b.endsAtIso, b.timezone);
   const subject = `Cancelled: ${b.meetingTypeName} — ${when}`;
   const html = brandFrame(
     "Booking cancelled",
@@ -302,7 +306,7 @@ export function bookingCancellationTemplate(b: BookingTemplateInput): { html: st
 }
 
 export function bookingRescheduleTemplate(b: BookingTemplateInput): { html: string; text: string; subject: string } {
-  const when = formatDateRange(b.startsAtIso, b.endsAtIso);
+  const when = formatDateRange(b.startsAtIso, b.endsAtIso, b.timezone);
   const subject = `Rescheduled: ${b.meetingTypeName} — ${when}`;
   const html = brandFrame(
     "Meeting rescheduled",
@@ -336,8 +340,9 @@ export function bookingLocationUpdateTemplate(args: {
   newLocation: string;
   meetUrl?: string | null;
   logoUrl?: string | null;
+  timezone?: string;
 }): { html: string; text: string; subject: string } {
-  const when = formatDateRange(args.startsAtIso, args.endsAtIso);
+  const when = formatDateRange(args.startsAtIso, args.endsAtIso, args.timezone);
   const subject = `Location updated: ${args.meetingTypeName} — ${when}`;
   const html = brandFrame(
     "Location updated",
@@ -436,8 +441,9 @@ export function invoiceEmailTemplate(args: {
     reference?: string;
   };
   logoUrl?: string | null;
+  timezone?: string;
 }): { html: string; text: string; subject: string } {
-  const when = formatDateRange(args.startsAtIso, args.endsAtIso);
+  const when = formatDateRange(args.startsAtIso, args.endsAtIso, args.timezone);
   const subject = `Invoice ${args.invoiceNumber} — ${args.meetingTypeName}`;
   const issuedStr = new Intl.DateTimeFormat("en-GB", {
     timeZone: "UTC",
@@ -536,8 +542,9 @@ export function invoiceVoidedTemplate(args: {
   paymentLinkDeactivated: boolean;
   billingEmail: string;
   logoUrl?: string | null;
+  timezone?: string;
 }): { html: string; text: string; subject: string } {
-  const when = formatDateRange(args.startsAtIso, args.endsAtIso);
+  const when = formatDateRange(args.startsAtIso, args.endsAtIso, args.timezone);
   const subjectLead = args.invoiceNumber
     ? `Invoice ${args.invoiceNumber} cancelled`
     : "Invoice cancelled";
@@ -576,8 +583,9 @@ export function approvalNeededTemplate(args: {
   approveUrl: string;
   declineUrl: string;
   logoUrl?: string | null;
+  timezone?: string;
 }): { html: string; text: string; subject: string } {
-  const when = formatDateRange(args.startsAtIso, args.endsAtIso);
+  const when = formatDateRange(args.startsAtIso, args.endsAtIso, args.timezone);
   const subject = `Approval needed: ${args.inviteeName} requested ${when}`;
   const html = brandFrame(
     "Approval needed",
@@ -609,8 +617,9 @@ export function bookingDeclinedTemplate(args: {
   endsAtIso: string;
   inviteeName: string;
   logoUrl?: string | null;
+  timezone?: string;
 }): { html: string; text: string; subject: string } {
-  const when = formatDateRange(args.startsAtIso, args.endsAtIso);
+  const when = formatDateRange(args.startsAtIso, args.endsAtIso, args.timezone);
   const subject = `Declined: ${args.meetingTypeName} — ${when}`;
   const html = brandFrame(
     "Request declined",
@@ -637,8 +646,9 @@ export function bookingAlternativeRequestedTemplate(args: {
   comment: string | null;
   rebookUrl: string;
   logoUrl?: string | null;
+  timezone?: string;
 }): { html: string; text: string; subject: string } {
-  const when = formatDateRange(args.startsAtIso, args.endsAtIso);
+  const when = formatDateRange(args.startsAtIso, args.endsAtIso, args.timezone);
   const subject = `Could we find another time? ${args.meetingTypeName} — ${when}`;
   const commentBlockHtml = args.comment
     ? `<div style="margin:16px 0;padding:14px 16px;border:1px solid #e7e5e4;border-radius:8px;background:#fafaf9">
@@ -731,8 +741,9 @@ export function pollFinalizedInviteeTemplate(args: {
   inviteeEmail: string;
   pollDetailUrl?: string | null;
   logoUrl?: string | null;
+  timezone?: string;
 }): { html: string; text: string; subject: string } {
-  const when = formatDateRange(args.startsAtIso, args.endsAtIso);
+  const when = formatDateRange(args.startsAtIso, args.endsAtIso, args.timezone);
   const subject = `Time's set: ${args.pollName} — ${when}`;
   const html = brandFrame(
     "The time is set",
@@ -829,8 +840,9 @@ export function hostInitiatedFreeTemplate(args: {
   icalUrl?: string | null;
   note?: string | null;
   logoUrl?: string | null;
+  timezone?: string;
 }): { html: string; text: string; subject: string } {
-  const when = formatDateRange(args.startsAtIso, args.endsAtIso);
+  const when = formatDateRange(args.startsAtIso, args.endsAtIso, args.timezone);
   const subject = `${args.hostName} invited you — ${args.meetingTypeName} ${when}`;
   const noteBlock = args.note
     ? `<div style="margin:16px 0;padding:14px 16px;border:1px solid #e7e5e4;border-radius:8px;background:#fafaf9">
@@ -884,8 +896,9 @@ export function hostInitiatedInvoiceTemplate(args: {
   // When true the calendar invite has already been sent — billing form is a follow-up so the
   // host can invoice. When false (strict mode) the slot is held only until billing is filled.
   reservationConfirmed?: boolean;
+  timezone?: string;
 }): { html: string; text: string; subject: string } {
-  const when = formatDateRange(args.startsAtIso, args.endsAtIso);
+  const when = formatDateRange(args.startsAtIso, args.endsAtIso, args.timezone);
   const subject = args.reservationConfirmed
     ? `${args.hostName} booked you in — billing for ${args.meetingTypeName}`
     : `${args.hostName} invited you — confirm billing for ${args.meetingTypeName}`;
@@ -943,8 +956,9 @@ export function hostInitiatedPaymentTemplate(args: {
   // When true the calendar invite has already been sent — payment is a follow-up. When false
   // (strict mode) the slot is only held until payment lands.
   reservationConfirmed?: boolean;
+  timezone?: string;
 }): { html: string; text: string; subject: string } {
-  const when = formatDateRange(args.startsAtIso, args.endsAtIso);
+  const when = formatDateRange(args.startsAtIso, args.endsAtIso, args.timezone);
   const subject = args.reservationConfirmed
     ? `${args.hostName} booked you in — pay for ${args.meetingTypeName}`
     : `${args.hostName} invited you — pay to confirm ${args.meetingTypeName}`;
@@ -997,23 +1011,38 @@ export function appUrl(path: string): string {
   return `${publicEnv.NEXT_PUBLIC_APP_URL}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
-function formatDateRange(startIso: string, endIso: string): string {
+// Render a start/end pair in a recipient-friendly timezone. Templates pass `timezone` when
+// they know it (resolved via lib/recipient-timezone). When omitted the formatter falls back
+// to UTC so existing callers keep working until they're migrated.
+function formatDateRange(startIso: string, endIso: string, timezone: string = "UTC"): string {
   const start = new Date(startIso);
   const end = new Date(endIso);
+  // Intl rejects unknown timezones at format time. Guard with a try/catch so a typo in a
+  // Contact.timeZone field (or a removed IANA name) can never break email rendering — fall
+  // back to UTC and tag it accordingly.
+  let tz = timezone;
+  try {
+    new Intl.DateTimeFormat("en-GB", { timeZone: tz });
+  } catch {
+    tz = "UTC";
+  }
   const dateFmt = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "UTC",
+    timeZone: tz,
     weekday: "long",
     day: "numeric",
     month: "long",
     year: "numeric",
   });
   const timeFmt = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "UTC",
+    timeZone: tz,
     hour: "2-digit",
     minute: "2-digit",
     hourCycle: "h23",
   });
-  return `${dateFmt.format(start)} · ${timeFmt.format(start)}–${timeFmt.format(end)} (UTC)`;
+  // Render a short tz suffix so the recipient can sanity-check at a glance. For UTC we keep
+  // the plain "(UTC)" label; otherwise show the IANA zone (e.g. "Europe/Amsterdam").
+  const suffix = tz === "UTC" ? "(UTC)" : `(${tz})`;
+  return `${dateFmt.format(start)} · ${timeFmt.format(start)}–${timeFmt.format(end)} ${suffix}`;
 }
 
 function escapeHtml(s: string): string {

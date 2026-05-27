@@ -17,6 +17,7 @@ import {
 } from "@/lib/email";
 import { getEmailLogoUrl } from "@/lib/branding";
 import { upsertContactFromBooking, workspaceIdForMeetingType } from "@/lib/contacts";
+import { resolveRecipientTimezone } from "@/lib/recipient-timezone";
 import { finalizeBooking } from "@/lib/bookings/finalize";
 import { stripeClient, isStripeConfigured } from "@/lib/stripe/client";
 import { invoiceDetailsSchema } from "@/lib/bookings/invoice-details";
@@ -329,6 +330,7 @@ export async function POST(request: NextRequest) {
       approveUrl: appUrl(`/api/bookings/${pendingId}/approve?token=${approvalToken}`),
       declineUrl: appUrl(`/api/bookings/${pendingId}/decline?token=${approvalToken}`),
       logoUrl,
+      timezone: host.timezone,
     });
     sendEmailAfterResponse({
       to: host.email,
@@ -684,6 +686,12 @@ export async function POST(request: NextRequest) {
         select: { slug: true },
       }))?.slug ??
       host.slug;
+    const wsIdGroupTz = await workspaceIdForMeetingType(meetingType.id);
+    const inviteeTzGroup = await resolveRecipientTimezone({
+      email: body.inviteeEmail,
+      workspaceId: wsIdGroupTz,
+      fallback: body.inviteeTimezone || host.timezone,
+    });
     const tmpl = bookingConfirmationTemplate({
       hostName: host.name,
       meetingTypeName: meetingType.name,
@@ -694,6 +702,7 @@ export async function POST(request: NextRequest) {
       cancelUrl: appUrl(`/${slugForUrl}/${meetingType.slug}/confirmed/${bookingId}/cancel`),
       rescheduleUrl: appUrl(`/${slugForUrl}/${meetingType.slug}/confirmed/${bookingId}/reschedule`),
       meetUrl: anchor.meetUrl,
+      timezone: inviteeTzGroup,
     });
     sendEmailAfterResponse({
       to: body.inviteeEmail,

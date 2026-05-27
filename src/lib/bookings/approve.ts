@@ -11,6 +11,8 @@ import {
 } from "@/lib/email";
 import { getEmailLogoUrl } from "@/lib/branding";
 import { publicEnv } from "@/lib/env";
+import { resolveRecipientTimezone } from "@/lib/recipient-timezone";
+import { workspaceIdForMeetingType } from "@/lib/contacts";
 
 export type ApproveResult =
   | { ok: true; status: "ALREADY_CONFIRMED" }
@@ -75,7 +77,7 @@ export async function declinePendingBooking(args: DeclineArgs): Promise<DeclineR
     where: { id: args.bookingId },
     include: {
       meetingType: { select: { name: true } },
-      host: { select: { name: true, email: true } },
+      host: { select: { name: true, email: true, timezone: true } },
     },
   });
   if (!booking) return { ok: false, status: 404, message: "Booking not found" };
@@ -103,6 +105,12 @@ export async function declinePendingBooking(args: DeclineArgs): Promise<DeclineR
     .catch(() => undefined);
 
   const logoUrl = await getEmailLogoUrl();
+  const wsIdDecline = await workspaceIdForMeetingType(booking.meetingTypeId);
+  const inviteeTzDecline = await resolveRecipientTimezone({
+    email: booking.inviteeEmail,
+    workspaceId: wsIdDecline,
+    fallback: booking.host.timezone,
+  });
   const tmpl = bookingDeclinedTemplate({
     hostName: booking.host.name,
     meetingTypeName: booking.meetingType.name,
@@ -110,6 +118,7 @@ export async function declinePendingBooking(args: DeclineArgs): Promise<DeclineR
     endsAtIso: booking.endsAt.toISOString(),
     inviteeName: booking.inviteeName,
     logoUrl,
+    timezone: inviteeTzDecline,
   });
   sendEmailAfterResponse({
     to: booking.inviteeEmail,
@@ -143,7 +152,7 @@ export async function requestAlternativeForPendingBooking(
     where: { id: args.bookingId },
     include: {
       meetingType: { select: { name: true, slug: true } },
-      host: { select: { name: true, email: true, slug: true } },
+      host: { select: { name: true, email: true, slug: true, timezone: true } },
       project: { select: { slug: true } },
     },
   });
@@ -171,6 +180,12 @@ export async function requestAlternativeForPendingBooking(
   const baseUrl = publicEnv.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
   const rebookUrl = `${baseUrl}/${slug}/${booking.meetingType.slug}`;
   const logoUrl = await getEmailLogoUrl();
+  const wsIdAlt = await workspaceIdForMeetingType(booking.meetingTypeId);
+  const inviteeTzAlt = await resolveRecipientTimezone({
+    email: booking.inviteeEmail,
+    workspaceId: wsIdAlt,
+    fallback: booking.host.timezone,
+  });
   const tmpl = bookingAlternativeRequestedTemplate({
     hostName: booking.host.name,
     meetingTypeName: booking.meetingType.name,
@@ -180,6 +195,7 @@ export async function requestAlternativeForPendingBooking(
     comment: args.comment,
     rebookUrl,
     logoUrl,
+    timezone: inviteeTzAlt,
   });
   sendEmailAfterResponse({
     to: booking.inviteeEmail,

@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { calendarFor, isGoogleAuthError } from "@/lib/google/client";
 import { sendEmailAfterResponse, bookingCancellationTemplate, appUrl } from "@/lib/email";
 import { getEmailLogoUrl } from "@/lib/branding";
+import { resolveRecipientTimezone } from "@/lib/recipient-timezone";
+import { workspaceIdForMeetingType } from "@/lib/contacts";
 import { getZoomAccessTokenForHost } from "@/lib/zoom/host";
 import { deleteZoomMeeting } from "@/lib/zoom/client";
 import { bustFreebusyCacheForHost } from "@/lib/availability/freebusy";
@@ -78,6 +80,12 @@ export async function POST(
 
   // Cancellation email — fire-and-forget.
   const slugForUrl = booking.project?.slug ?? booking.host.slug;
+  const wsId = await workspaceIdForMeetingType(booking.meetingTypeId);
+  const inviteeTz = await resolveRecipientTimezone({
+    email: booking.inviteeEmail,
+    workspaceId: wsId,
+    fallback: booking.host.timezone,
+  });
   const tmpl = bookingCancellationTemplate({
     hostName: booking.host.name,
     meetingTypeName: booking.meetingType.name,
@@ -85,6 +93,7 @@ export async function POST(
     endsAtIso: booking.endsAt.toISOString(),
     inviteeName: booking.inviteeName,
     inviteeEmail: booking.inviteeEmail,
+    timezone: inviteeTz,
     cancelUrl: appUrl(`/${slugForUrl}/${booking.meetingType.slug}/confirmed/${booking.id}`),
     rescheduleUrl: appUrl(`/${slugForUrl}/${booking.meetingType.slug}/confirmed/${booking.id}/reschedule`),
     meetUrl: booking.meetUrl,

@@ -34,6 +34,8 @@ import {
 } from "@/lib/email";
 import { calendarFor, isGoogleAuthError } from "@/lib/google/client";
 import { getEmailLogoUrl } from "@/lib/branding";
+import { resolveRecipientTimezone } from "@/lib/recipient-timezone";
+import { workspaceIdForMeetingType } from "@/lib/contacts";
 import { stripeClient, isStripeConfigured, formatPrice } from "@/lib/stripe/client";
 import { publicEnv } from "@/lib/env";
 
@@ -294,6 +296,12 @@ export async function POST(request: NextRequest) {
     const logoUrl = await getEmailLogoUrl();
     const baseUrl = publicEnv.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
     const billingFormUrl = `${baseUrl}/billing/${pendingId}?token=${invoiceDetailsToken}`;
+    const wsIdInv = await workspaceIdForMeetingType(meetingType.id);
+    const inviteeTzInv = await resolveRecipientTimezone({
+      email: sole.email,
+      workspaceId: wsIdInv,
+      fallback: host.timezone,
+    });
     const tmpl = hostInitiatedInvoiceTemplate({
       hostName: host.name,
       meetingTypeName: meetingType.name,
@@ -305,6 +313,7 @@ export async function POST(request: NextRequest) {
       note: body.note ?? null,
       logoUrl,
       reservationConfirmed: !strict,
+      timezone: inviteeTzInv,
     });
     sendEmailAfterResponse({
       to: sole.email,
@@ -452,6 +461,12 @@ export async function POST(request: NextRequest) {
     });
 
     const logoUrl = await getEmailLogoUrl();
+    const wsIdPay = await workspaceIdForMeetingType(meetingType.id);
+    const inviteeTzPay = await resolveRecipientTimezone({
+      email: invitees[0].email,
+      workspaceId: wsIdPay,
+      fallback: host.timezone,
+    });
     const tmpl = hostInitiatedPaymentTemplate({
       hostName: host.name,
       meetingTypeName: meetingType.name,
@@ -463,6 +478,7 @@ export async function POST(request: NextRequest) {
       note: body.note ?? null,
       logoUrl,
       reservationConfirmed: !strict,
+      timezone: inviteeTzPay,
     });
     sendEmailAfterResponse({
       to: invitees[0].email,
@@ -619,6 +635,12 @@ export async function POST(request: NextRequest) {
             )?.slug ?? host.slug
           : host.slug;
       const logoUrl = await getEmailLogoUrl();
+      const wsIdGroup = await workspaceIdForMeetingType(meetingType.id);
+      const inviteeTzGroupInv = await resolveRecipientTimezone({
+        email: inv.email,
+        workspaceId: wsIdGroup,
+        fallback: host.timezone,
+      });
       const tmpl = bookingConfirmationTemplate({
         hostName: host.name,
         meetingTypeName: meetingType.name,
@@ -631,6 +653,7 @@ export async function POST(request: NextRequest) {
         meetUrl: groupMeetUrl,
         icalUrl: `${baseUrl}/${slugForUrl}/${meetingType.slug}/confirmed/${bid}/calendar.ics`,
         logoUrl,
+        timezone: inviteeTzGroupInv,
       });
       sendEmailAfterResponse({
         to: inv.email,

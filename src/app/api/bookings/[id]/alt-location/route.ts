@@ -23,6 +23,8 @@ import { calendarFor, isGoogleAuthError } from "@/lib/google/client";
 import { authorizeAdminBookingAction } from "@/lib/bookings/admin-access";
 import { sendEmailAfterResponse, bookingLocationUpdateTemplate } from "@/lib/email";
 import { getEmailLogoUrl } from "@/lib/branding";
+import { resolveRecipientTimezone } from "@/lib/recipient-timezone";
+import { workspaceIdForMeetingType } from "@/lib/contacts";
 
 const bodySchema = z.object({
   // Empty string + null both mean "revert to provider-generated". We trim and treat empty as null.
@@ -124,6 +126,12 @@ export async function PATCH(
   // For a freshly PENDING (paid, not yet finalised) booking there's no invitee-facing event yet,
   // but the booking row has the invitee's email so we can still alert them.
   try {
+    const wsIdLoc = await workspaceIdForMeetingType(booking.meetingTypeId);
+    const inviteeTz = await resolveRecipientTimezone({
+      email: booking.inviteeEmail,
+      workspaceId: wsIdLoc,
+      fallback: booking.host.timezone,
+    });
     const tmpl = bookingLocationUpdateTemplate({
       hostName: booking.host.name,
       meetingTypeName: booking.meetingType.name,
@@ -133,6 +141,7 @@ export async function PATCH(
       newLocation: newValue ?? fallback ?? "(see calendar invite)",
       meetUrl: booking.meetUrl,
       logoUrl: await getEmailLogoUrl(),
+      timezone: inviteeTz,
     });
     sendEmailAfterResponse({
       to: booking.inviteeEmail,

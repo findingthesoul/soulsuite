@@ -29,6 +29,7 @@ import { getEmailLogoUrl } from "@/lib/branding";
 import { getZoomAccessTokenForHost } from "@/lib/zoom/host";
 import { createZoomMeeting, ZoomAlternativeHostsError } from "@/lib/zoom/client";
 import { upsertContactFromBooking, workspaceIdForMeetingType } from "@/lib/contacts";
+import { resolveRecipientTimezone } from "@/lib/recipient-timezone";
 import type { InvoiceDetails } from "@/lib/bookings/invoice-details";
 
 export type FinalizeResult =
@@ -68,9 +69,9 @@ export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResul
     args.collectiveCoHostIds.length > 0
       ? prisma.host.findMany({
           where: { id: { in: args.collectiveCoHostIds } },
-          select: { id: true, email: true, name: true },
+          select: { id: true, email: true, name: true, timezone: true },
         })
-      : Promise.resolve([] as { id: string; email: string; name: string }[]),
+      : Promise.resolve([] as { id: string; email: string; name: string; timezone: string }[]),
   ]);
   if (!host) return { ok: false, status: 404, message: "Host not found" };
   if (!host.googleRefreshToken) {
@@ -288,6 +289,12 @@ export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResul
     booking.paymentMethod === "INVOICE" && booking.invoiceDetails
       ? (booking.invoiceDetails as unknown as InvoiceDetails)
       : null;
+  const workspaceIdForTz = await workspaceIdForMeetingType(meetingType.id);
+  const inviteeTz = await resolveRecipientTimezone({
+    email: booking.inviteeEmail,
+    workspaceId: workspaceIdForTz,
+    fallback: args.inviteeTimezone || host.timezone,
+  });
   const tmpl = bookingConfirmationTemplate({
     hostName: host.name,
     meetingTypeName: meetingType.name,
@@ -295,6 +302,7 @@ export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResul
     endsAtIso: endsAt.toISOString(),
     inviteeName: booking.inviteeName,
     inviteeEmail: booking.inviteeEmail,
+    timezone: inviteeTz,
     cancelUrl: appUrl(`/${slugForUrl}/${meetingType.slug}/confirmed/${booking.id}/cancel`),
     rescheduleUrl: appUrl(
       `/${slugForUrl}/${meetingType.slug}/confirmed/${booking.id}/reschedule`,
@@ -343,6 +351,7 @@ export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResul
     location: locationForHost,
     detailsUrl,
     logoUrl,
+    timezone: host.timezone,
   });
   sendEmailAfterResponse({
     to: host.email,
@@ -365,6 +374,7 @@ export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResul
       location: locationForHost,
       detailsUrl,
       logoUrl,
+      timezone: co.timezone,
     });
     sendEmailAfterResponse({
       to: co.email,
@@ -379,7 +389,7 @@ export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResul
 
   // Contact upsert — never blocks. Failures logged.
   try {
-    const wsId = await workspaceIdForMeetingType(meetingType.id);
+    const wsId = workspaceIdForTz;
     if (wsId) {
       await upsertContactFromBooking({
         workspaceId: wsId,

@@ -7,6 +7,8 @@ import { effectiveWorkingHours } from "@/lib/availability";
 import { fetchHostBusy } from "@/lib/availability/freebusy";
 import { sendEmailAfterResponse, bookingRescheduleTemplate, appUrl } from "@/lib/email";
 import { getEmailLogoUrl } from "@/lib/branding";
+import { resolveRecipientTimezone } from "@/lib/recipient-timezone";
+import { workspaceIdForMeetingType } from "@/lib/contacts";
 import { getZoomAccessTokenForHost } from "@/lib/zoom/host";
 import { updateZoomMeeting } from "@/lib/zoom/client";
 import { bustFreebusyCacheForHost } from "@/lib/availability/freebusy";
@@ -162,6 +164,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       })
     : null;
   const slugForUrl = project?.slug ?? host.slug;
+  const wsIdReschedule = await workspaceIdForMeetingType(booking.meetingTypeId);
+  const inviteeTz = await resolveRecipientTimezone({
+    email: booking.inviteeEmail,
+    workspaceId: wsIdReschedule,
+    fallback: host.timezone,
+  });
   const tmpl = bookingRescheduleTemplate({
     hostName: host.name,
     meetingTypeName: booking.meetingType.name,
@@ -169,6 +177,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     endsAtIso: endsAt.toISOString(),
     inviteeName: booking.inviteeName,
     inviteeEmail: booking.inviteeEmail,
+    timezone: inviteeTz,
     cancelUrl: appUrl(`/${slugForUrl}/${booking.meetingType.slug}/confirmed/${booking.id}/cancel`),
     rescheduleUrl: appUrl(`/${slugForUrl}/${booking.meetingType.slug}/confirmed/${booking.id}/reschedule`),
     meetUrl: booking.meetUrl,

@@ -8,6 +8,7 @@
 import { prisma } from "@/lib/prisma";
 import { invoiceEmailTemplate, sendEmail } from "@/lib/email";
 import { getEmailLogoUrl } from "@/lib/branding";
+import { resolveRecipientTimezone } from "@/lib/recipient-timezone";
 import { formatPrice } from "@/lib/stripe/client";
 import {
   createInvoicePaymentLink,
@@ -146,6 +147,11 @@ export async function sendSoulSuiteInvoice(input: SendInvoiceInput): Promise<Sen
       reference: billing.data.reference || undefined,
     },
     logoUrl: await getEmailLogoUrl(),
+    timezone: await resolveRecipientTimezone({
+      email: billing.data.billingEmail,
+      workspaceId: workspace.id,
+      fallback: booking.host.timezone,
+    }),
   });
 
   const send = await sendEmail({

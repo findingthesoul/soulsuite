@@ -22,6 +22,9 @@ interface Props {
   endsAtIso: string;
   priceCents: number;
   priceCurrency: string;
+  // True when the booking already has a Google event (default flow) — copy shifts from
+  // "confirm your booking" to "for the invoice". False = strict / pay-to-confirm path.
+  reservationAlreadyConfirmed?: boolean;
 }
 
 // Public billing form for host-initiated INVOICE bookings. Mirrors the BillingPanel from the
@@ -39,6 +42,7 @@ export function BillingForm({
   endsAtIso,
   priceCents,
   priceCurrency,
+  reservationAlreadyConfirmed = false,
 }: Props) {
   const [companyName, setCompanyName] = useState("");
   const [billingEmail, setBillingEmail] = useState(inviteeEmail);
@@ -101,12 +105,23 @@ export function BillingForm({
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Booking confirmed</CardTitle>
+          <CardTitle>Thanks{reservationAlreadyConfirmed ? "" : " — booking confirmed"}</CardTitle>
           <CardDescription>
-            Thanks {inviteeName}. {hostName} will send you the invoice for{" "}
-            <strong>{priceLabel}</strong> separately. A calendar invite for{" "}
-            <strong>{meetingTypeName}</strong> on <strong>{when}</strong> is on its way to{" "}
-            <strong>{inviteeEmail}</strong>.
+            {reservationAlreadyConfirmed ? (
+              <>
+                We&apos;ve recorded your billing details. {hostName} will send you the invoice
+                for <strong>{priceLabel}</strong> separately. Your calendar invite for{" "}
+                <strong>{meetingTypeName}</strong> on <strong>{when}</strong> is already in
+                your inbox.
+              </>
+            ) : (
+              <>
+                Thanks {inviteeName}. {hostName} will send you the invoice for{" "}
+                <strong>{priceLabel}</strong> separately. A calendar invite for{" "}
+                <strong>{meetingTypeName}</strong> on <strong>{when}</strong> is on its way to{" "}
+                <strong>{inviteeEmail}</strong>.
+              </>
+            )}
           </CardDescription>
         </CardHeader>
       </Card>
@@ -117,13 +132,28 @@ export function BillingForm({
     <>
       <Card>
         <CardHeader>
-          <CardTitle>Confirm your billing details</CardTitle>
+          <CardTitle>
+            {reservationAlreadyConfirmed
+              ? "Billing details for your invoice"
+              : "Confirm your billing details"}
+          </CardTitle>
           <CardDescription>
-            For your meeting with <strong>{hostName}</strong>: {meetingTypeName} ·{" "}
-            <span className="whitespace-nowrap">{when}</span> · <strong>{priceLabel}</strong>.
-            Fill these in and we&apos;ll send the calendar invite to{" "}
-            <span className="whitespace-nowrap">{inviteeEmail}</span>. The invoice follows
-            separately from {hostName}.
+            {reservationAlreadyConfirmed ? (
+              <>
+                Your meeting with <strong>{hostName}</strong> is already confirmed:{" "}
+                {meetingTypeName} ·{" "}
+                <span className="whitespace-nowrap">{when}</span> · <strong>{priceLabel}</strong>.
+                Fill these in so {hostName} can send your invoice.
+              </>
+            ) : (
+              <>
+                For your meeting with <strong>{hostName}</strong>: {meetingTypeName} ·{" "}
+                <span className="whitespace-nowrap">{when}</span> · <strong>{priceLabel}</strong>.
+                Fill these in and we&apos;ll send the calendar invite to{" "}
+                <span className="whitespace-nowrap">{inviteeEmail}</span>. The invoice follows
+                separately from {hostName}.
+              </>
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

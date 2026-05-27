@@ -81,6 +81,9 @@ export default async function BillingPage({
             endsAtIso={booking.endsAt.toISOString()}
             priceCents={booking.meetingType.priceCents ?? 0}
             priceCurrency={booking.meetingType.priceCurrency ?? "eur"}
+            // When googleEventId is already set, the reservation went through in default mode
+            // — billing form copy should reflect "for the invoice", not "to confirm".
+            reservationAlreadyConfirmed={Boolean(booking.googleEventId)}
           />
         )}
       </div>

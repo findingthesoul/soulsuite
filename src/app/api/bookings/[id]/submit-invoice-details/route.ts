@@ -36,6 +36,7 @@ export async function POST(
       paymentStatus: true,
       status: true,
       hostId: true,
+      googleEventId: true,
       host: { select: { invoiceSource: true } },
     },
   });
@@ -74,14 +75,20 @@ export async function POST(
     },
   });
 
-  const result = await finalizeBooking({
-    bookingId: booking.id,
-    hostId: booking.hostId,
-    collectiveCoHostIds: [],
-    inviteeTimezone: "UTC",
-  });
-  if (!result.ok) {
-    return new NextResponse(result.message, { status: result.status });
+  // When the reservation was already confirmed at host-initiated time (default flow), the
+  // Google event + standard confirmation email are already in place — skip the finalize call.
+  // The strict flow (requirePayment=true) leaves googleEventId null until here, so we still
+  // need to finalize for that path.
+  if (!booking.googleEventId) {
+    const result = await finalizeBooking({
+      bookingId: booking.id,
+      hostId: booking.hostId,
+      collectiveCoHostIds: [],
+      inviteeTimezone: "UTC",
+    });
+    if (!result.ok) {
+      return new NextResponse(result.message, { status: result.status });
+    }
   }
 
   // Mirror the public-flow invoice path: if the host opted into Soul-Suite-issued invoices,

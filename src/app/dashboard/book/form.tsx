@@ -56,8 +56,22 @@ export function BookForm({
   // When PAID is toggled on (paid MTs only), invitee gets a Stripe Checkout link. Default off
   // = complimentary booking. Resets to off whenever the MT changes.
   const [chargeInvitee, setChargeInvitee] = useState(false);
+  // Optional companion to PAID: when on, the reservation is gated on payment / billing being
+  // completed (no Google event until then). When off (default), the calendar invite goes out
+  // immediately and the payment/billing link is a follow-up.
+  const [requirePayment, setRequirePayment] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<{ kind: "confirmed" | "awaiting-payment" } | null>(null);
+  const [success, setSuccess] = useState<
+    | {
+        kind:
+          | "confirmed"
+          | "awaiting-payment"
+          | "awaiting-billing-details"
+          | "confirmed-awaiting-payment"
+          | "confirmed-awaiting-billing";
+      }
+    | null
+  >(null);
   const [pending, startTransition] = useTransition();
 
   const selectedMt = useMemo(
@@ -80,11 +94,17 @@ export function BookForm({
   // Reset state when MT changes — clearing slot/charge/invitee count avoids cross-MT leaks.
   useEffect(() => {
     setChargeInvitee(false);
+    setRequirePayment(false);
     setSelectedStartsAt(null);
     setInvitees((prev) => (prev.length > 1 ? [prev[0]] : prev));
     setError(null);
     setSuccess(null);
   }, [mtId]);
+
+  // Unchecking PAID also clears the strict-mode sub-toggle so it can't linger invisibly.
+  useEffect(() => {
+    if (!chargeInvitee) setRequirePayment(false);
+  }, [chargeInvitee]);
 
   // Fetch availability whenever the MT changes. Range: next 14 days.
   useEffect(() => {
@@ -209,13 +229,22 @@ export function BookForm({
           })),
           note: note.trim() || null,
           chargeInvitee: isPaid ? chargeInvitee : false,
+          requirePayment: isPaid && chargeInvitee ? requirePayment : false,
         }),
       });
       if (!res.ok) {
         setError((await res.text()) || "Failed to book.");
         return;
       }
-      const data = (await res.json()) as { id: string; kind: "confirmed" | "awaiting-payment" };
+      const data = (await res.json()) as {
+        id: string;
+        kind:
+          | "confirmed"
+          | "awaiting-payment"
+          | "awaiting-billing-details"
+          | "confirmed-awaiting-payment"
+          | "confirmed-awaiting-billing";
+      };
       setSuccess({ kind: data.kind });
       setInvitees([{ name: "", email: "" }]);
       setNote("");
@@ -290,12 +319,33 @@ export function BookForm({
                 <span className="block text-xs text-muted-foreground mt-1">
                   {chargeInvitee
                     ? isInvoiceMt
-                      ? "Invitee gets a link to fill in billing details; the calendar invite goes out after they submit, and you invoice them separately."
-                      : "Invitee gets a Stripe payment link; the calendar invite goes out after they pay."
+                      ? requirePayment
+                        ? "Slot held until the invitee submits billing details. Calendar invite goes out only after they do."
+                        : "Calendar invite goes out immediately; the invitee gets a follow-up email with the billing-details form."
+                      : requirePayment
+                        ? "Slot held until the invitee completes payment. Calendar invite goes out only after they do."
+                        : "Calendar invite goes out immediately; the invitee gets a follow-up email with the Stripe payment link."
                     : "Complimentary — invitee gets the calendar invite immediately, no charge."}
                 </span>
               </span>
             </label>
+            {chargeInvitee && (
+              <label className="flex items-start gap-2 cursor-pointer pl-7">
+                <input
+                  type="checkbox"
+                  checked={requirePayment}
+                  onChange={(e) => setRequirePayment(e.target.checked)}
+                  className="h-4 w-4 mt-0.5 rounded border-border accent-foreground"
+                />
+                <span className="text-xs text-muted-foreground">
+                  <span className="text-foreground">
+                    Don&apos;t confirm until {isInvoiceMt ? "billing details are submitted" : "payment is completed"}
+                  </span>
+                  {" · "}
+                  Default off: the meeting goes ahead regardless of {isInvoiceMt ? "billing" : "payment"}.
+                </span>
+              </label>
+            )}
           </div>
         )}
 
@@ -486,9 +536,13 @@ export function BookForm({
           <p className="text-sm text-foreground">
             {success.kind === "confirmed"
               ? `Sent — the calendar invite${invitees.length > 1 ? "s are" : " is"} in the invitee${invitees.length > 1 ? "s'" : "'s"} inbox.`
-              : isInvoiceMt
-                ? "Sent — the invitee got an email with a link to confirm their billing details."
-                : "Sent — the invitee got an email with the payment link."}
+              : success.kind === "confirmed-awaiting-payment"
+                ? "Sent — calendar invite + a follow-up email with the Stripe payment link."
+                : success.kind === "confirmed-awaiting-billing"
+                  ? "Sent — calendar invite + a follow-up email with the billing-details form."
+                  : success.kind === "awaiting-billing-details"
+                    ? "Sent — the invitee got an email with a link to confirm their billing details. The slot is held until they submit."
+                    : "Sent — the invitee got an email with the payment link. The slot is held until they pay."}
           </p>
         )}
 

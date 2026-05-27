@@ -55,6 +55,12 @@ const bodySchema = z.object({
   // collected, immediate finalize. Lets hosts comp meetings for VIPs / friends / team without
   // having to flip the MT itself to free.
   chargeInvitee: z.boolean().optional().default(false),
+  // Only meaningful when chargeInvitee is true. When false (default), the reservation goes
+  // through immediately (Google event + standard confirmation email) and the payment /
+  // invoice-details ask is sent as a follow-up — the meeting is not held hostage to payment.
+  // When true, we revert to the strict flow: no Google event until payment lands (Stripe) or
+  // until the billing form is submitted (Invoice).
+  requirePayment: z.boolean().optional().default(false),
 });
 
 export async function POST(request: NextRequest) {
@@ -224,16 +230,19 @@ export async function POST(request: NextRequest) {
       ? ({ __hostNote: body.note } as Prisma.InputJsonValue)
       : undefined;
 
-  // ── INVOICE branch (host-initiated, deferred billing) ──
-  // Create the booking with paymentStatus=PENDING + an invoiceDetailsToken; no Google event
-  // yet. Email the invitee a link to /billing/[id]?token=… where they fill in the billing
-  // shape (invoiceDetailsSchema). That submission flips the booking to INVOICE_PENDING and
-  // runs finalize, which creates the Google event + sends the standard confirmation. After
-  // that the existing /dashboard/payments invoice flow takes over (mark sent / paid / voided).
+  // ── INVOICE branch (host-initiated) ──
+  // Two sub-flows controlled by requirePayment:
+  //   - default (requirePayment=false): create + finalize immediately so the calendar invite
+  //     goes out. paymentStatus = INVOICE_PENDING (host still owes the invoitee an invoice).
+  //     Invitee gets a follow-up email with the billing-details link. The submission only
+  //     records billing details + (for SOUL_SUITE) fires the invoice.
+  //   - strict (requirePayment=true): no Google event until the billing form is submitted.
+  //     paymentStatus = PENDING. Submission flips to INVOICE_PENDING + runs finalize.
   if (willInvoice) {
     const sole = invitees[0];
     const requestId = requestIdForInvitee(sole.email);
     const invoiceDetailsToken = randomBytes(24).toString("hex");
+    const strict = body.requirePayment === true;
     let pendingId: string;
     try {
       const created = await prisma.booking.create({
@@ -249,7 +258,10 @@ export async function POST(request: NextRequest) {
           requestId,
           status: "CONFIRMED",
           paymentMethod: "INVOICE",
-          paymentStatus: "PENDING",
+          // Strict: PENDING blocks the dashboard from showing a Google event; submit-flow
+          // promotes to INVOICE_PENDING. Default: jump straight to INVOICE_PENDING because
+          // the meeting is happening regardless of billing-form completion.
+          paymentStatus: strict ? "PENDING" : "INVOICE_PENDING",
           invoiceDetailsToken,
         },
       });
@@ -263,6 +275,22 @@ export async function POST(request: NextRequest) {
       }
       throw err;
     }
+
+    // Default flow: finalise now so the calendar invite goes out alongside the billing ask.
+    // finalizeBooking is idempotent on googleEventId, so a future submit-invoice-details call
+    // that also tries to finalize will simply no-op.
+    if (!strict) {
+      const result = await finalizeBooking({
+        bookingId: pendingId,
+        hostId: host.id,
+        collectiveCoHostIds: [],
+        inviteeTimezone: host.timezone,
+      });
+      if (!result.ok) {
+        return new NextResponse(result.message, { status: result.status });
+      }
+    }
+
     const logoUrl = await getEmailLogoUrl();
     const baseUrl = publicEnv.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
     const billingFormUrl = `${baseUrl}/billing/${pendingId}?token=${invoiceDetailsToken}`;
@@ -276,6 +304,7 @@ export async function POST(request: NextRequest) {
       billingFormUrl,
       note: body.note ?? null,
       logoUrl,
+      reservationConfirmed: !strict,
     });
     sendEmailAfterResponse({
       to: sole.email,
@@ -287,13 +316,22 @@ export async function POST(request: NextRequest) {
       hostId: host.id,
       bookingId: pendingId,
     });
-    return NextResponse.json({ id: pendingId, kind: "awaiting-billing-details" });
+    return NextResponse.json({
+      id: pendingId,
+      kind: strict ? "awaiting-billing-details" : "confirmed-awaiting-billing",
+    });
   }
 
   // ── Paid Stripe branch ──
-  // Only taken when the host opted in via chargeInvitee AND the MT uses the Stripe rail.
-  // Paid+INVOICE took the branch above; complimentary paid MTs fall through to the free branch
-  // below with paymentStatus stamped NOT_REQUIRED.
+  // Two sub-flows controlled by requirePayment:
+  //   - default (false): create the booking, finalise immediately (Google event + standard
+  //     confirmation email), THEN create the Stripe Checkout session and email the invitee a
+  //     follow-up "please pay for this meeting" link. The reservation does not depend on
+  //     payment landing. The webhook still flips paymentStatus to PAID when payment lands,
+  //     and the finalize call on the webhook side is idempotent on googleEventId.
+  //   - strict (true): the old behaviour — no Google event until the webhook fires PAID.
+  //     paymentStatus stays PENDING, the email tells the invitee the slot is held only until
+  //     payment completes.
   if (willStripe) {
     if (!isStripeConfigured()) {
       return new NextResponse("Payments are not configured on this server.", { status: 503 });
@@ -308,6 +346,7 @@ export async function POST(request: NextRequest) {
     // Charge path is single-invitee (multi+charge rejected above).
     const sole = invitees[0];
     const requestId = requestIdForInvitee(sole.email);
+    const strict = body.requirePayment === true;
 
     let pendingId: string;
     try {
@@ -335,6 +374,20 @@ export async function POST(request: NextRequest) {
         }
       }
       throw err;
+    }
+
+    // Default flow: finalise now so the calendar invite goes out alongside the payment ask.
+    // The webhook's later finalize call is a no-op (idempotent on googleEventId).
+    if (!strict) {
+      const result = await finalizeBooking({
+        bookingId: pendingId,
+        hostId: host.id,
+        collectiveCoHostIds: [],
+        inviteeTimezone: host.timezone,
+      });
+      if (!result.ok) {
+        return new NextResponse(result.message, { status: result.status });
+      }
     }
 
     // Build the public confirmation URL (success_url) — same shape as public POST.
@@ -409,6 +462,7 @@ export async function POST(request: NextRequest) {
       checkoutUrl,
       note: body.note ?? null,
       logoUrl,
+      reservationConfirmed: !strict,
     });
     sendEmailAfterResponse({
       to: invitees[0].email,
@@ -421,7 +475,10 @@ export async function POST(request: NextRequest) {
       bookingId: pendingId,
     });
 
-    return NextResponse.json({ id: pendingId, kind: "awaiting-payment" });
+    return NextResponse.json({
+      id: pendingId,
+      kind: strict ? "awaiting-payment" : "confirmed-awaiting-payment",
+    });
   }
 
   // ── Free / comp branch (single or multi-invitee) ──

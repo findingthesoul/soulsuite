@@ -881,19 +881,28 @@ export function hostInitiatedInvoiceTemplate(args: {
   billingFormUrl: string;
   note?: string | null;
   logoUrl?: string | null;
+  // When true the calendar invite has already been sent — billing form is a follow-up so the
+  // host can invoice. When false (strict mode) the slot is held only until billing is filled.
+  reservationConfirmed?: boolean;
 }): { html: string; text: string; subject: string } {
   const when = formatDateRange(args.startsAtIso, args.endsAtIso);
-  const subject = `${args.hostName} invited you — confirm billing for ${args.meetingTypeName}`;
+  const subject = args.reservationConfirmed
+    ? `${args.hostName} booked you in — billing for ${args.meetingTypeName}`
+    : `${args.hostName} invited you — confirm billing for ${args.meetingTypeName}`;
   const noteBlock = args.note
     ? `<div style="margin:16px 0;padding:14px 16px;border:1px solid #e7e5e4;border-radius:8px;background:#fafaf9">
         <p style="margin:0 0 4px;font-size:12px;color:#a8a29e;text-transform:uppercase;letter-spacing:0.04em">Note from ${escapeHtml(args.hostName)}</p>
         <p style="margin:0;font-size:14px;white-space:pre-line">${escapeHtml(args.note)}</p>
       </div>`
     : "";
+  const intro = args.reservationConfirmed
+    ? `<p>Your meeting with <strong>${escapeHtml(args.hostName)}</strong> is confirmed — the calendar invite is in your inbox separately. To send you the invoice, ${escapeHtml(args.hostName)} needs your billing details.</p>`
+    : `<p><strong>${escapeHtml(args.hostName)}</strong> has set up a meeting with you that will be billed by invoice. The slot is held — fill in your billing details to confirm.</p>`;
+  const ctaLabel = args.reservationConfirmed ? "Add billing details" : "Confirm billing details";
   const html = brandFrame(
-    "Confirm your booking",
+    args.reservationConfirmed ? "Billing details needed" : "Confirm your booking",
     `<p>Hi ${escapeHtml(args.inviteeName)},</p>
-    <p><strong>${escapeHtml(args.hostName)}</strong> has set up a meeting with you that will be billed by invoice. The slot is held — fill in your billing details to confirm.</p>
+    ${intro}
     <table style="border-collapse:collapse;margin:16px 0;font-size:14px">
       <tr><td style="padding:4px 0;color:#57534e">When</td><td style="padding:4px 0 4px 24px">${escapeHtml(when)}</td></tr>
       <tr><td style="padding:4px 0;color:#57534e">What</td><td style="padding:4px 0 4px 24px">${escapeHtml(args.meetingTypeName)}</td></tr>
@@ -901,17 +910,19 @@ export function hostInitiatedInvoiceTemplate(args: {
     </table>
     ${noteBlock}
     <p style="margin:24px 0">
-      <a href="${escapeAttr(args.billingFormUrl)}" style="display:inline-block;padding:12px 22px;background:#1c1917;color:#fafafa;border-radius:6px;text-decoration:none;font-weight:600">Confirm billing details</a>
+      <a href="${escapeAttr(args.billingFormUrl)}" style="display:inline-block;padding:12px 22px;background:#1c1917;color:#fafafa;border-radius:6px;text-decoration:none;font-weight:600">${escapeHtml(ctaLabel)}</a>
     </p>
-    <p style="font-size:12px;color:#a8a29e">You&apos;ll receive a separate invoice from ${escapeHtml(args.hostName)} after the meeting is confirmed.</p>`,
+    <p style="font-size:12px;color:#a8a29e">You&apos;ll receive a separate invoice from ${escapeHtml(args.hostName)} ${args.reservationConfirmed ? "after you submit the details" : "after the meeting is confirmed"}.</p>`,
     args.logoUrl,
   );
   const text =
-    `${args.hostName} has set up a meeting with you: ${args.meetingTypeName}\n` +
+    (args.reservationConfirmed
+      ? `Your meeting with ${args.hostName} is confirmed. To send the invoice, please fill in billing details.\n\n`
+      : `${args.hostName} has set up a meeting with you: ${args.meetingTypeName}\n`) +
     `When: ${when}\n` +
     `Price: ${args.formattedPrice}\n\n` +
     (args.note ? `Note from ${args.hostName}:\n${args.note}\n\n` : "") +
-    `Confirm billing details: ${args.billingFormUrl}\n`;
+    `${ctaLabel}: ${args.billingFormUrl}\n`;
   return { html, text, subject };
 }
 
@@ -929,19 +940,30 @@ export function hostInitiatedPaymentTemplate(args: {
   checkoutUrl: string;
   note?: string | null;
   logoUrl?: string | null;
+  // When true the calendar invite has already been sent — payment is a follow-up. When false
+  // (strict mode) the slot is only held until payment lands.
+  reservationConfirmed?: boolean;
 }): { html: string; text: string; subject: string } {
   const when = formatDateRange(args.startsAtIso, args.endsAtIso);
-  const subject = `${args.hostName} invited you — pay to confirm ${args.meetingTypeName}`;
+  const subject = args.reservationConfirmed
+    ? `${args.hostName} booked you in — pay for ${args.meetingTypeName}`
+    : `${args.hostName} invited you — pay to confirm ${args.meetingTypeName}`;
   const noteBlock = args.note
     ? `<div style="margin:16px 0;padding:14px 16px;border:1px solid #e7e5e4;border-radius:8px;background:#fafaf9">
         <p style="margin:0 0 4px;font-size:12px;color:#a8a29e;text-transform:uppercase;letter-spacing:0.04em">Note from ${escapeHtml(args.hostName)}</p>
         <p style="margin:0;font-size:14px;white-space:pre-line">${escapeHtml(args.note)}</p>
       </div>`
     : "";
+  const intro = args.reservationConfirmed
+    ? `<p>Your meeting with <strong>${escapeHtml(args.hostName)}</strong> is confirmed — the calendar invite is in your inbox separately. Please complete payment when you can.</p>`
+    : `<p><strong>${escapeHtml(args.hostName)}</strong> has set up a paid meeting with you. The slot is held until you complete payment.</p>`;
+  const ctaLabel = args.reservationConfirmed
+    ? `Pay ${args.formattedPrice}`
+    : `Pay ${args.formattedPrice} to confirm`;
   const html = brandFrame(
-    "Confirm your booking",
+    args.reservationConfirmed ? "Payment needed" : "Confirm your booking",
     `<p>Hi ${escapeHtml(args.inviteeName)},</p>
-    <p><strong>${escapeHtml(args.hostName)}</strong> has set up a paid meeting with you. The slot is held until you complete payment.</p>
+    ${intro}
     <table style="border-collapse:collapse;margin:16px 0;font-size:14px">
       <tr><td style="padding:4px 0;color:#57534e">When</td><td style="padding:4px 0 4px 24px">${escapeHtml(when)}</td></tr>
       <tr><td style="padding:4px 0;color:#57534e">What</td><td style="padding:4px 0 4px 24px">${escapeHtml(args.meetingTypeName)}</td></tr>
@@ -949,17 +971,21 @@ export function hostInitiatedPaymentTemplate(args: {
     </table>
     ${noteBlock}
     <p style="margin:24px 0">
-      <a href="${escapeAttr(args.checkoutUrl)}" style="display:inline-block;padding:12px 22px;background:#1c1917;color:#fafafa;border-radius:6px;text-decoration:none;font-weight:600">Pay ${escapeHtml(args.formattedPrice)} to confirm</a>
+      <a href="${escapeAttr(args.checkoutUrl)}" style="display:inline-block;padding:12px 22px;background:#1c1917;color:#fafafa;border-radius:6px;text-decoration:none;font-weight:600">${escapeHtml(ctaLabel)}</a>
     </p>
-    <p style="font-size:12px;color:#a8a29e">Payment is processed by Stripe. After payment you&apos;ll receive a separate confirmation with the calendar invite and join details.</p>`,
+    <p style="font-size:12px;color:#a8a29e">${args.reservationConfirmed
+      ? "Payment is processed by Stripe."
+      : "Payment is processed by Stripe. After payment you'll receive a separate confirmation with the calendar invite and join details."}</p>`,
     args.logoUrl,
   );
   const text =
-    `${args.hostName} has set up a paid meeting with you: ${args.meetingTypeName}\n` +
+    (args.reservationConfirmed
+      ? `Your meeting with ${args.hostName} is confirmed. Please complete payment.\n`
+      : `${args.hostName} has set up a paid meeting with you: ${args.meetingTypeName}\n`) +
     `When: ${when}\n` +
     `Price: ${args.formattedPrice}\n\n` +
     (args.note ? `Note from ${args.hostName}:\n${args.note}\n\n` : "") +
-    `Pay here to confirm: ${args.checkoutUrl}\n`;
+    `${ctaLabel}: ${args.checkoutUrl}\n`;
   return { html, text, subject };
 }
 

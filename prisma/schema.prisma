@@ -135,6 +135,10 @@ model Host {
   // removed from that env var. Decoupled from workspace OWNER/ADMIN roles, which are scoped
   // to a single workspace.
   isSuperAdmin       Boolean   @default(false)
+  // Account-bound theme preference. Persists across browsers + devices so the user doesn't
+  // have to re-set it every sign-in. SYSTEM follows the OS preference. The browser also
+  // keeps a localStorage copy for first-paint (no flash before the API roundtrip).
+  themePreference    ThemePreference @default(SYSTEM)
   createdAt          DateTime  @default(now())
 
   calendars            Calendar[]
@@ -416,6 +420,13 @@ enum PaymentMethod {
 enum InvoiceSource {
   EXTERNAL
   SOUL_SUITE
+}
+
+// Theme preference stored on the Host row so it follows the user across browsers + devices.
+enum ThemePreference {
+  LIGHT
+  DARK
+  SYSTEM
 }
 
 model Booking {

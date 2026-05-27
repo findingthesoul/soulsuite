@@ -2,11 +2,15 @@
 
 import * as React from "react";
 
-// Three modes: explicit light, explicit dark, or follow OS. We persist the user's choice in
-// localStorage and toggle the `.dark` class on <html> based on the resolved value.
+// Three modes: explicit light, explicit dark, or follow OS. The user's choice is persisted in
+// TWO places:
+//   - localStorage on the browser → consulted at first paint to avoid a theme flash.
+//   - Host.themePreference on the DB → consulted at hydration to override stale localStorage
+//     so the preference follows the user across browsers / devices / fresh sign-ins.
 //
-// To avoid a flash of the wrong theme on first paint, the layout's <head> contains a tiny
-// inline script that reads localStorage and sets the class before React hydrates.
+// When the user picks a mode we write to both. The inline init script in the layout reads
+// localStorage; the server-rendered value gets layered on via the initialMode prop which the
+// root layout passes in based on the signed-in host.
 
 export type ThemeMode = "light" | "dark" | "system";
 
@@ -31,18 +35,47 @@ function applyMode(mode: ThemeMode) {
   document.documentElement.classList.toggle("dark", resolved === "dark");
 }
 
-export function ThemeProvider({ children }: { children: React.ReactNode }) {
+// Persist the choice to the DB. Best-effort — failures don't block the local toggle (the
+// localStorage write below means the visual change is immediate, and the next sign-in will
+// pull whatever's stored on the Host row).
+function pushToServer(mode: ThemeMode) {
+  const dbValue: "LIGHT" | "DARK" | "SYSTEM" =
+    mode === "light" ? "LIGHT" : mode === "dark" ? "DARK" : "SYSTEM";
+  fetch("/api/settings/theme", {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ mode: dbValue }),
+    keepalive: true,
+  }).catch(() => undefined);
+}
+
+export function ThemeProvider({
+  children,
+  initialMode,
+}: {
+  children: React.ReactNode;
+  // Server-side hint for the signed-in host's saved preference. When set, it wins over
+  // localStorage on mount (so a different browser shows the same theme as the user's last
+  // configured choice). null = use whatever localStorage says, falling back to system.
+  initialMode?: ThemeMode | null;
+}) {
   const [mode, setModeState] = React.useState<ThemeMode>("system");
   const [resolved, setResolved] = React.useState<"light" | "dark">("light");
 
-  // Initialise from localStorage on mount.
+  // Initialise on mount. If the server passed an initialMode (signed-in host with a saved
+  // preference), that wins — and we sync it back into localStorage so the next first-paint
+  // matches on this browser too. Otherwise read localStorage, fall back to "system".
   React.useEffect(() => {
-    const stored = (localStorage.getItem(STORAGE_KEY) as ThemeMode | null) ?? "system";
-    setModeState(stored);
-    applyMode(stored);
-    setResolved(stored === "system" ? getSystem() : stored);
+    const fromStorage = (localStorage.getItem(STORAGE_KEY) as ThemeMode | null) ?? null;
+    const initial: ThemeMode = initialMode ?? fromStorage ?? "system";
+    setModeState(initial);
+    applyMode(initial);
+    setResolved(initial === "system" ? getSystem() : initial);
+    if (initialMode && initial !== fromStorage) {
+      localStorage.setItem(STORAGE_KEY, initial);
+    }
     document.documentElement.classList.remove("theme-loading");
-  }, []);
+  }, [initialMode]);
 
   // Re-apply when the OS preference changes (only if mode is "system").
   React.useEffect(() => {
@@ -63,6 +96,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem(STORAGE_KEY, next);
     applyMode(next);
     setResolved(next === "system" ? getSystem() : next);
+    pushToServer(next);
   }, []);
 
   return <ThemeContext.Provider value={{ mode, setMode, resolved }}>{children}</ThemeContext.Provider>;

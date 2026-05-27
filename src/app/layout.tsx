@@ -1,8 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import { ThemeProvider, themeInitScript } from "@/components/theme-provider";
+import { ThemeProvider, themeInitScript, type ThemeMode } from "@/components/theme-provider";
 import { SidebarProvider, sidebarInitScript } from "@/components/sidebar-provider";
 import { ServiceWorkerRegistration } from "@/components/sw-registration";
+import { getCurrentHost } from "@/lib/auth";
 
 export const metadata: Metadata = {
   title: "Soul Suite",
@@ -34,7 +35,20 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Pull the signed-in host's saved theme so the preference follows the account across
+  // browsers + devices. getCurrentHost is cached per-request via React.cache, so this
+  // doesn't add a duplicate roundtrip when page-context also calls it. Returns null for
+  // signed-out requests — the client falls back to localStorage then "system".
+  const host = await getCurrentHost();
+  const initialMode: ThemeMode | null = host
+    ? host.themePreference === "LIGHT"
+      ? "light"
+      : host.themePreference === "DARK"
+        ? "dark"
+        : "system"
+    : null;
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -43,7 +57,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: sidebarInitScript }} />
       </head>
       <body className="antialiased">
-        <ThemeProvider>
+        <ThemeProvider initialMode={initialMode}>
           <SidebarProvider>{children}</SidebarProvider>
         </ThemeProvider>
         <ServiceWorkerRegistration />

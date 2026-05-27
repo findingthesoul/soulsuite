@@ -14,6 +14,7 @@ import {
   BookUser,
   CreditCard,
   HelpCircle,
+  Send,
 } from "lucide-react";
 import { BottomSheet } from "@/components/ui/bottom-sheet";
 
@@ -37,6 +38,7 @@ const PRIMARY = [
 ] as const;
 
 const MORE_PERSONAL = [
+  { href: "/dashboard/book", label: "Book a meeting", icon: Send },
   { href: "/settings/availability", label: "Availability", icon: Clock },
   { href: "/dashboard/payments", label: "Payments", icon: CreditCard },
 ] as const;

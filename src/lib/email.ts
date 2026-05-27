@@ -663,6 +663,110 @@ export function bookingAlternativeRequestedTemplate(args: {
   return { html, text, subject };
 }
 
+// Host-initiated invitation: free meeting type. Standard "you're booked" template, but the
+// framing is "<host> invited you" rather than "you booked yourself". Reused for the case
+// where the host picks the slot themselves via /dashboard/book.
+export function hostInitiatedFreeTemplate(args: {
+  hostName: string;
+  meetingTypeName: string;
+  startsAtIso: string;
+  endsAtIso: string;
+  inviteeName: string;
+  inviteeEmail: string;
+  meetUrl?: string | null;
+  location?: string | null;
+  cancelUrl: string;
+  rescheduleUrl: string;
+  icalUrl?: string | null;
+  note?: string | null;
+  logoUrl?: string | null;
+}): { html: string; text: string; subject: string } {
+  const when = formatDateRange(args.startsAtIso, args.endsAtIso);
+  const subject = `${args.hostName} invited you — ${args.meetingTypeName} ${when}`;
+  const noteBlock = args.note
+    ? `<div style="margin:16px 0;padding:14px 16px;border:1px solid #e7e5e4;border-radius:8px;background:#fafaf9">
+        <p style="margin:0 0 4px;font-size:12px;color:#a8a29e;text-transform:uppercase;letter-spacing:0.04em">Note from ${escapeHtml(args.hostName)}</p>
+        <p style="margin:0;font-size:14px;white-space:pre-line">${escapeHtml(args.note)}</p>
+      </div>`
+    : "";
+  const html = brandFrame(
+    "You're invited",
+    `<p>Hi ${escapeHtml(args.inviteeName)},</p>
+    <p><strong>${escapeHtml(args.hostName)}</strong> has set up a meeting with you.</p>
+    <table style="border-collapse:collapse;margin:16px 0;font-size:14px">
+      <tr><td style="padding:4px 0;color:#57534e">When</td><td style="padding:4px 0 4px 24px">${escapeHtml(when)}</td></tr>
+      <tr><td style="padding:4px 0;color:#57534e">What</td><td style="padding:4px 0 4px 24px">${escapeHtml(args.meetingTypeName)}</td></tr>
+      ${args.location ? `<tr><td style="padding:4px 0;color:#57534e">Location</td><td style="padding:4px 0 4px 24px">${escapeHtml(args.location)}</td></tr>` : ""}
+      ${args.meetUrl ? `<tr><td style="padding:4px 0;color:#57534e">Join</td><td style="padding:4px 0 4px 24px"><a href="${escapeAttr(args.meetUrl)}">${escapeHtml(args.meetUrl)}</a></td></tr>` : ""}
+    </table>
+    ${noteBlock}
+    ${args.icalUrl ? `<p style="margin-top:12px"><a href="${escapeAttr(args.icalUrl)}" style="display:inline-block;padding:8px 14px;border:1px solid #e7e5e4;color:#0c0a09;border-radius:6px;text-decoration:none">Add to calendar (.ics)</a></p>` : ""}
+    <p>Need to change something?</p>
+    <p>
+      <a href="${escapeAttr(args.rescheduleUrl)}" style="display:inline-block;padding:8px 14px;background:#1c1917;color:#fafafa;border-radius:6px;text-decoration:none;margin-right:8px">Reschedule</a>
+      <a href="${escapeAttr(args.cancelUrl)}" style="display:inline-block;padding:8px 14px;border:1px solid #e7e5e4;color:#0c0a09;border-radius:6px;text-decoration:none">Cancel</a>
+    </p>`,
+    args.logoUrl,
+  );
+  const text =
+    `${args.hostName} has set up a meeting with you: ${args.meetingTypeName}\n\n` +
+    `When: ${when}\n` +
+    (args.location ? `Location: ${args.location}\n` : "") +
+    (args.meetUrl ? `Join: ${args.meetUrl}\n` : "") +
+    (args.note ? `\nNote from ${args.hostName}:\n${args.note}\n` : "") +
+    (args.icalUrl ? `\nAdd to calendar: ${args.icalUrl}\n` : "") +
+    `\nReschedule: ${args.rescheduleUrl}\nCancel: ${args.cancelUrl}\n`;
+  return { html, text, subject };
+}
+
+// Host-initiated invitation: paid meeting type. Carries a Stripe Checkout URL the invitee
+// clicks to pay — the existing webhook fires on payment.completed and finalises the booking
+// (Google event + standard confirmation email), so this template is purely the "please pay
+// to confirm" prompt.
+export function hostInitiatedPaymentTemplate(args: {
+  hostName: string;
+  meetingTypeName: string;
+  startsAtIso: string;
+  endsAtIso: string;
+  inviteeName: string;
+  formattedPrice: string;
+  checkoutUrl: string;
+  note?: string | null;
+  logoUrl?: string | null;
+}): { html: string; text: string; subject: string } {
+  const when = formatDateRange(args.startsAtIso, args.endsAtIso);
+  const subject = `${args.hostName} invited you — pay to confirm ${args.meetingTypeName}`;
+  const noteBlock = args.note
+    ? `<div style="margin:16px 0;padding:14px 16px;border:1px solid #e7e5e4;border-radius:8px;background:#fafaf9">
+        <p style="margin:0 0 4px;font-size:12px;color:#a8a29e;text-transform:uppercase;letter-spacing:0.04em">Note from ${escapeHtml(args.hostName)}</p>
+        <p style="margin:0;font-size:14px;white-space:pre-line">${escapeHtml(args.note)}</p>
+      </div>`
+    : "";
+  const html = brandFrame(
+    "Confirm your booking",
+    `<p>Hi ${escapeHtml(args.inviteeName)},</p>
+    <p><strong>${escapeHtml(args.hostName)}</strong> has set up a paid meeting with you. The slot is held until you complete payment.</p>
+    <table style="border-collapse:collapse;margin:16px 0;font-size:14px">
+      <tr><td style="padding:4px 0;color:#57534e">When</td><td style="padding:4px 0 4px 24px">${escapeHtml(when)}</td></tr>
+      <tr><td style="padding:4px 0;color:#57534e">What</td><td style="padding:4px 0 4px 24px">${escapeHtml(args.meetingTypeName)}</td></tr>
+      <tr><td style="padding:4px 0;color:#57534e">Price</td><td style="padding:4px 0 4px 24px">${escapeHtml(args.formattedPrice)}</td></tr>
+    </table>
+    ${noteBlock}
+    <p style="margin:24px 0">
+      <a href="${escapeAttr(args.checkoutUrl)}" style="display:inline-block;padding:12px 22px;background:#1c1917;color:#fafafa;border-radius:6px;text-decoration:none;font-weight:600">Pay ${escapeHtml(args.formattedPrice)} to confirm</a>
+    </p>
+    <p style="font-size:12px;color:#a8a29e">Payment is processed by Stripe. After payment you&apos;ll receive a separate confirmation with the calendar invite and join details.</p>`,
+    args.logoUrl,
+  );
+  const text =
+    `${args.hostName} has set up a paid meeting with you: ${args.meetingTypeName}\n` +
+    `When: ${when}\n` +
+    `Price: ${args.formattedPrice}\n\n` +
+    (args.note ? `Note from ${args.hostName}:\n${args.note}\n\n` : "") +
+    `Pay here to confirm: ${args.checkoutUrl}\n`;
+  return { html, text, subject };
+}
+
 // ────────────────────────────────────────────────────────────
 // Helpers
 // ────────────────────────────────────────────────────────────

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, FolderOpen, CalendarDays, Inbox, Clock, Users, BookUser, CreditCard, HelpCircle, Building2, Mail } from "lucide-react";
+import { LayoutDashboard, FolderOpen, CalendarDays, Inbox, Clock, Users, BookUser, CreditCard, HelpCircle, Building2, Mail, Send } from "lucide-react";
 import { version as APP_VERSION } from "../../package.json";
 
 const NAV_ITEMS: {
@@ -22,6 +22,7 @@ const NAV_ITEMS: {
 ];
 
 const PERSONAL_SETTINGS_ITEMS = [
+  { href: "/dashboard/book", label: "Book a meeting", icon: Send, exact: false },
   { href: "/settings/availability", label: "Availability", icon: Clock, exact: false },
   { href: "/dashboard/payments", label: "Payments", icon: CreditCard, exact: false },
 ];

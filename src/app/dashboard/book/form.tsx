@@ -17,6 +17,7 @@ interface MtOption {
   priceCurrency: string | null;
   paymentMethod: "STRIPE" | "INVOICE" | "ADYEN";
   maxInvitees: number;
+  maxAdvanceDays: number;
 }
 
 interface ContactSuggestion {
@@ -115,7 +116,11 @@ export function BookForm({
     let aborted = false;
     setSlotsLoading(true);
     const from = new Date().toISOString();
-    const to = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+    // Honour the MT's maxAdvanceDays so an MT that allows 60-day-out bookings actually shows
+    // the full window. The slots API itself also caps at 60 days for safety against bad
+    // callers — we mirror that cap here so the host sees a reasonable date row.
+    const advanceDays = Math.min(60, Math.max(1, selectedMt.maxAdvanceDays));
+    const to = new Date(Date.now() + advanceDays * 24 * 60 * 60 * 1000).toISOString();
     fetch(
       `/api/host-bookings/slots?mtId=${encodeURIComponent(selectedMt.id)}` +
         `&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
@@ -454,7 +459,7 @@ export function BookForm({
               {/* Dates column — stacks vertically on the left, scrolls if the host has lots
                   of consecutive availability. */}
               <div className="flex flex-col gap-1.5 max-h-64 overflow-y-auto pr-1">
-                {availableDates.slice(0, 14).map((dateKey) => {
+                {availableDates.map((dateKey) => {
                   const d = new Date(`${dateKey}T12:00:00`);
                   const active = dateKey === selectedDate;
                   const count = slotsByDate.get(dateKey)?.length ?? 0;

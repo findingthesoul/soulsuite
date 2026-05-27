@@ -39,6 +39,9 @@ export default async function BookPage() {
       paymentMethod: true,
       requireApproval: true,
       maxInvitees: true,
+      // maxAdvanceDays drives the slot-fetch window on the client. Without it the form would
+      // always ask for 14 days even when the MT allows 60.
+      maxAdvanceDays: true,
       scope: true,
       project: { select: { name: true } },
     },
@@ -76,6 +79,7 @@ export default async function BookPage() {
             priceCurrency: mt.priceCurrency,
             paymentMethod: mt.paymentMethod,
             maxInvitees: mt.maxInvitees,
+            maxAdvanceDays: mt.maxAdvanceDays,
           }))}
           contactSuggestions={recentContacts.map((c) => ({
             email: c.email,

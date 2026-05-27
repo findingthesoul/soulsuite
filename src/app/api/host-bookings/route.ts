@@ -26,19 +26,28 @@ import { effectiveWorkingHours } from "@/lib/availability";
 import { finalizeBooking } from "@/lib/bookings/finalize";
 import {
   appUrl,
+  bookingConfirmationTemplate,
   hostInitiatedFreeTemplate,
   hostInitiatedPaymentTemplate,
   sendEmailAfterResponse,
 } from "@/lib/email";
+import { calendarFor, isGoogleAuthError } from "@/lib/google/client";
 import { getEmailLogoUrl } from "@/lib/branding";
 import { stripeClient, isStripeConfigured, formatPrice } from "@/lib/stripe/client";
 import { publicEnv } from "@/lib/env";
 
+const inviteeSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  email: z.string().email().max(200),
+});
+
 const bodySchema = z.object({
   meetingTypeId: z.string().min(1),
   startsAt: z.string().datetime(),
-  inviteeName: z.string().trim().min(1).max(120),
-  inviteeEmail: z.string().email().max(200),
+  // Single-invitee shape for back-compat with older clients. New clients send `invitees`.
+  inviteeName: z.string().trim().min(1).max(120).optional(),
+  inviteeEmail: z.string().email().max(200).optional(),
+  invitees: z.array(inviteeSchema).min(1).max(50).optional(),
   note: z.string().trim().max(2000).optional().nullable(),
   // Only meaningful for paid (Stripe) MTs. When true, the host wants the invitee to pay —
   // send a Stripe Checkout link. When false (default), book as complimentary: no payment
@@ -64,6 +73,26 @@ export async function POST(request: NextRequest) {
   const startsAt = new Date(body.startsAt);
   if (startsAt.getTime() <= Date.now()) {
     return new NextResponse("Pick a time in the future.", { status: 400 });
+  }
+
+  // Normalise invitee shape — accept either the legacy single-invitee fields or the new
+  // `invitees` array. After this block, `invitees` is the canonical list (>= 1).
+  const invitees: { name: string; email: string }[] = body.invitees && body.invitees.length > 0
+    ? body.invitees
+    : body.inviteeName && body.inviteeEmail
+      ? [{ name: body.inviteeName, email: body.inviteeEmail }]
+      : [];
+  if (invitees.length === 0) {
+    return new NextResponse("Provide at least one invitee.", { status: 400 });
+  }
+  // Dedupe by lowercased email — two rows for the same person on the same slot is a footgun.
+  const seenEmails = new Set<string>();
+  for (const inv of invitees) {
+    const lower = inv.email.toLowerCase();
+    if (seenEmails.has(lower)) {
+      return new NextResponse(`Duplicate invitee email: ${inv.email}`, { status: 400 });
+    }
+    seenEmails.add(lower);
   }
 
   const meetingType = await prisma.meetingType.findUnique({
@@ -112,6 +141,16 @@ export async function POST(request: NextRequest) {
   // Host-initiated bookings on a require-approval MT auto-approve — the host IS the approver.
   // The actual booking row is created with status=CONFIRMED below; no PENDING_APPROVAL row.
 
+  // Multi-invitee cap: the MT's maxInvitees controls how many people can join the same slot.
+  // Default MT shape is 1 (= 1:1 meeting); >1 = group meeting. Stay within whatever the MT
+  // permits so the dashboard's capacity logic stays consistent.
+  if (invitees.length > meetingType.maxInvitees) {
+    return new NextResponse(
+      `This meeting type allows at most ${meetingType.maxInvitees} invitee${meetingType.maxInvitees === 1 ? "" : "s"} per slot.`,
+      { status: 400 },
+    );
+  }
+
   const host = await prisma.host.findUnique({
     where: { id: hostId },
     include: { calendars: true },
@@ -157,17 +196,28 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Idempotency key — same shape as public POST so retries collide.
-  const deterministic = createHash("sha256")
-    .update(`${meetingType.id}:${host.id}:${startsAt.toISOString()}:${body.inviteeEmail}:host-initiated`)
-    .digest("hex")
-    .slice(0, 32);
-  const requestId = `hb-${deterministic}`;
+  // Idempotency key — same shape as public POST so retries collide. Per invitee so each row
+  // in a multi-invitee booking has its own unique requestId. Arrow form (not a function
+  // declaration) so the closure captures the narrowed-non-null types of meetingType + host.
+  const requestIdForInvitee = (email: string): string =>
+    `hb-${createHash("sha256")
+      .update(`${meetingType.id}:${host.id}:${startsAt.toISOString()}:${email.toLowerCase()}:host-initiated`)
+      .digest("hex")
+      .slice(0, 32)}`;
 
   const isPaid = (meetingType.priceCents ?? 0) > 0;
   // Two-axis decision for paid MTs: priced + host wants to charge → Stripe flow; priced +
   // complimentary → fall through to the free path with paymentStatus stamped NOT_REQUIRED.
   const willCharge = isPaid && body.chargeInvitee === true;
+
+  // Charging multiple invitees in one booking is ambiguous — one Stripe checkout per invitee
+  // vs. one combined payment, who pays, who gets the receipt. Punt for v1.
+  if (willCharge && invitees.length > 1) {
+    return new NextResponse(
+      "Charging via Stripe is only supported for a single invitee per booking. Untick PAID for the rest, or send them the public booking link.",
+      { status: 400 },
+    );
+  }
   const noteAnswer =
     body.note && body.note.length > 0
       ? ({ __hostNote: body.note } as Prisma.InputJsonValue)
@@ -188,6 +238,10 @@ export async function POST(request: NextRequest) {
       return new NextResponse("Connect Stripe under Settings → Payments first.", { status: 400 });
     }
 
+    // Charge path is single-invitee (multi+charge rejected above).
+    const sole = invitees[0];
+    const requestId = requestIdForInvitee(sole.email);
+
     let pendingId: string;
     try {
       const created = await prisma.booking.create({
@@ -195,8 +249,8 @@ export async function POST(request: NextRequest) {
           meetingTypeId: meetingType.id,
           hostId: host.id,
           projectId: meetingType.projectId,
-          inviteeEmail: body.inviteeEmail,
-          inviteeName: body.inviteeName,
+          inviteeEmail: sole.email,
+          inviteeName: sole.name,
           inviteeAnswers: noteAnswer,
           startsAt,
           endsAt,
@@ -247,7 +301,7 @@ export async function POST(request: NextRequest) {
               quantity: 1,
             },
           ],
-          customer_email: body.inviteeEmail,
+          customer_email: invitees[0].email,
           client_reference_id: pendingId,
           metadata: {
             bookingId: pendingId,
@@ -283,14 +337,14 @@ export async function POST(request: NextRequest) {
       meetingTypeName: meetingType.name,
       startsAtIso: startsAt.toISOString(),
       endsAtIso: endsAt.toISOString(),
-      inviteeName: body.inviteeName,
+      inviteeName: invitees[0].name,
       formattedPrice: formatPrice(meetingType.priceCents!, meetingType.priceCurrency),
       checkoutUrl,
       note: body.note ?? null,
       logoUrl,
     });
     sendEmailAfterResponse({
-      to: body.inviteeEmail,
+      to: invitees[0].email,
       subject: tmpl.subject,
       html: tmpl.html,
       text: tmpl.text,
@@ -303,51 +357,176 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ id: pendingId, kind: "awaiting-payment" });
   }
 
-  // ── Free branch ──
-  let bookingId: string;
-  try {
-    const booking = await prisma.booking.create({
-      data: {
-        meetingTypeId: meetingType.id,
-        hostId: host.id,
-        projectId: meetingType.projectId,
-        inviteeEmail: body.inviteeEmail,
-        inviteeName: body.inviteeName,
-        inviteeAnswers: noteAnswer,
-        startsAt,
-        endsAt,
-        requestId,
-        status: "CONFIRMED",
-      },
-    });
-    bookingId = booking.id;
-  } catch (err) {
-    if (err && typeof err === "object" && (err as { code?: string }).code === "P2002") {
-      const existing = await prisma.booking.findUnique({ where: { requestId } });
-      if (existing) {
-        return NextResponse.json({ id: existing.id, alreadyExists: true });
+  // ── Free / comp branch (single or multi-invitee) ──
+  //
+  // For multi-invitee group meetings: the first booking row runs finalize, which creates the
+  // Google event with that invitee + host as attendees. Subsequent invitees on the same slot
+  // re-use the public-flow's "join existing group" pattern — we patch the Google event to add
+  // each new attendee, stamp the new booking row with the same googleEventId, and send a
+  // confirmation. That guarantees one event in the host's calendar with everyone on it.
+  const bookingIds: string[] = [];
+  let primaryBookingId: string | null = null;
+  let groupGoogleEventId: string | null = null;
+  let groupMeetUrl: string | null = null;
+  let groupConferencingProvider: typeof meetingType.conferencingProvider | null = null;
+  let groupProviderMeetingId: string | null = null;
+
+  for (let i = 0; i < invitees.length; i++) {
+    const inv = invitees[i];
+    const reqId = requestIdForInvitee(inv.email);
+    let bid: string;
+    try {
+      const booking = await prisma.booking.create({
+        data: {
+          meetingTypeId: meetingType.id,
+          hostId: host.id,
+          projectId: meetingType.projectId,
+          inviteeEmail: inv.email,
+          inviteeName: inv.name,
+          inviteeAnswers: i === 0 ? noteAnswer : undefined,
+          startsAt,
+          endsAt,
+          requestId: reqId,
+          status: "CONFIRMED",
+          // Pre-stamp group fields for invitees 2..N so finalize doesn't try to make another
+          // Google event (it short-circuits on existing googleEventId).
+          googleEventId: i === 0 ? null : groupGoogleEventId,
+          meetUrl: i === 0 ? null : groupMeetUrl,
+          conferencingProvider: i === 0 ? meetingType.conferencingProvider : (groupConferencingProvider ?? meetingType.conferencingProvider),
+          providerMeetingId: i === 0 ? null : groupProviderMeetingId,
+        },
+      });
+      bid = booking.id;
+    } catch (err) {
+      if (err && typeof err === "object" && (err as { code?: string }).code === "P2002") {
+        const existing = await prisma.booking.findUnique({ where: { requestId: reqId } });
+        if (existing) {
+          // Duplicate retry — treat as already-handled and continue without re-finalizing.
+          bookingIds.push(existing.id);
+          if (i === 0) {
+            primaryBookingId = existing.id;
+            groupGoogleEventId = existing.googleEventId;
+            groupMeetUrl = existing.meetUrl;
+            groupConferencingProvider = existing.conferencingProvider;
+            groupProviderMeetingId = existing.providerMeetingId;
+          }
+          continue;
+        }
       }
+      throw err;
     }
-    throw err;
+    bookingIds.push(bid);
+
+    if (i === 0) {
+      // Run finalize for the first invitee. It creates the Google event + sends the
+      // confirmation to this invitee. The next iterations join via the patch path.
+      const result = await finalizeBooking({
+        bookingId: bid,
+        hostId: host.id,
+        collectiveCoHostIds: [],
+        inviteeTimezone: host.timezone,
+      });
+      if (!result.ok) {
+        return new NextResponse(result.message, { status: result.status });
+      }
+      primaryBookingId = bid;
+      groupGoogleEventId = result.googleEventId;
+      groupMeetUrl = result.meetUrl;
+      // finalize doesn't return the provider fields; re-read from DB.
+      const refreshed = await prisma.booking.findUnique({
+        where: { id: bid },
+        select: { conferencingProvider: true, providerMeetingId: true },
+      });
+      groupConferencingProvider = refreshed?.conferencingProvider ?? meetingType.conferencingProvider;
+      groupProviderMeetingId = refreshed?.providerMeetingId ?? null;
+    } else {
+      // Group join: patch the Google event to add this invitee as an attendee, then send them
+      // a confirmation email. Mirrors src/app/api/bookings/route.ts's group-join path.
+      if (groupGoogleEventId && host.googleRefreshToken) {
+        const writeTarget = host.calendars.find((c) => c.role === "WRITE_TARGET");
+        if (writeTarget) {
+          try {
+            const cal = calendarFor(host.googleRefreshToken);
+            const existingEv = await cal.events.get({
+              calendarId: writeTarget.googleCalendarId,
+              eventId: groupGoogleEventId,
+            });
+            const existingAttendees = existingEv.data.attendees ?? [];
+            const alreadyOn = existingAttendees.some(
+              (a) => (a.email ?? "").toLowerCase() === inv.email.toLowerCase(),
+            );
+            if (!alreadyOn) {
+              await cal.events.patch({
+                calendarId: writeTarget.googleCalendarId,
+                eventId: groupGoogleEventId,
+                sendUpdates: "none",
+                requestBody: {
+                  attendees: [
+                    ...existingAttendees,
+                    { email: inv.email, displayName: inv.name },
+                  ],
+                },
+              });
+            }
+          } catch (err) {
+            if (isGoogleAuthError(err)) {
+              await prisma.host
+                .update({ where: { id: host.id }, data: { googleRefreshToken: null } })
+                .catch(() => undefined);
+            }
+            console.error("[host-bookings] group attendee patch failed", err);
+            // Don't abort — the booking row is still created and the invitee will get an
+            // email. The host can add them manually in Google Calendar if needed.
+          }
+        }
+      }
+
+      // Standard confirmation email to this invitee. Mirrors the booking-confirmation we send
+      // for solo bookings — uses the existing template via the dynamic import-by-string pattern
+      // is overkill; just inline the call to the shared template.
+      const baseUrl = publicEnv.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
+      const slugForUrl =
+        meetingType.scope === "PROJECT"
+          ? (
+              await prisma.project.findUnique({
+                where: { id: meetingType.projectId! },
+                select: { slug: true },
+              })
+            )?.slug ?? host.slug
+          : host.slug;
+      const logoUrl = await getEmailLogoUrl();
+      const tmpl = bookingConfirmationTemplate({
+        hostName: host.name,
+        meetingTypeName: meetingType.name,
+        startsAtIso: startsAt.toISOString(),
+        endsAtIso: endsAt.toISOString(),
+        inviteeName: inv.name,
+        inviteeEmail: inv.email,
+        cancelUrl: `${baseUrl}/${slugForUrl}/${meetingType.slug}/confirmed/${bid}/cancel`,
+        rescheduleUrl: `${baseUrl}/${slugForUrl}/${meetingType.slug}/confirmed/${bid}/reschedule`,
+        meetUrl: groupMeetUrl,
+        icalUrl: `${baseUrl}/${slugForUrl}/${meetingType.slug}/confirmed/${bid}/calendar.ics`,
+        logoUrl,
+      });
+      sendEmailAfterResponse({
+        to: inv.email,
+        subject: tmpl.subject,
+        html: tmpl.html,
+        text: tmpl.text,
+        fromName: host.name,
+        replyTo: host.email,
+        bookingId: bid,
+      });
+    }
   }
 
-  // finalizeBooking creates the Google event and sends the standard invitee confirmation. The
-  // confirmation template is "you're booked" — fine for host-initiated since the invitee is
-  // genuinely booked. We could swap to hostInitiatedFreeTemplate for the email but then we'd
-  // also need to suppress finalize's email send; keep it simple for v1 and use the default.
-  const result = await finalizeBooking({
-    bookingId,
-    hostId: host.id,
-    collectiveCoHostIds: [],
-    inviteeTimezone: host.timezone,
-  });
-  if (!result.ok) {
-    return new NextResponse(result.message, { status: result.status });
-  }
-  // Silence the unused-import linter — the template + appUrl are referenced in the paid path
-  // and stay imported for future use (e.g. if we suppress finalize's default email).
+  // Silence unused-import lint — kept around for future template swaps.
   void hostInitiatedFreeTemplate;
   void appUrl;
 
-  return NextResponse.json({ id: bookingId, kind: "confirmed" });
+  return NextResponse.json({
+    id: primaryBookingId ?? bookingIds[0],
+    kind: "confirmed",
+    bookingIds,
+  });
 }

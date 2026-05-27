@@ -38,6 +38,7 @@ export default async function BookPage() {
       priceCurrency: true,
       paymentMethod: true,
       requireApproval: true,
+      maxInvitees: true,
       scope: true,
       project: { select: { name: true } },
     },
@@ -74,6 +75,7 @@ export default async function BookPage() {
             priceCents: mt.priceCents,
             priceCurrency: mt.priceCurrency,
             paymentMethod: mt.paymentMethod,
+            maxInvitees: mt.maxInvitees,
           }))}
           contactSuggestions={recentContacts.map((c) => ({
             email: c.email,

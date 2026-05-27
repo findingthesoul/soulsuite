@@ -35,6 +35,9 @@ export const createPollSchema = z
     // a projectId; the API double-checks the caller has LEAD role on it.
     scope: z.enum(["PERSONAL", "PROJECT"]).default("PERSONAL"),
     projectId: z.string().min(1).optional(),
+    // Owner-notification mode. Defaults to FINAL_ONLY so the historical behaviour (silent
+    // until you check the dashboard) only loosens when the user opts in.
+    notifyMode: z.enum(["FINAL_ONLY", "EVERY_VOTE", "NEVER"]).default("FINAL_ONLY").optional(),
   })
   .refine(
     (data) => (data.scope === "PROJECT" ? !!data.projectId : true),

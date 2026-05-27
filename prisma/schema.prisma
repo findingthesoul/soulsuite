@@ -502,6 +502,15 @@ enum PollStatus {
   CANCELLED
 }
 
+// Poll-owner notification mode. Picked at create time; can be changed later (PATCH on the
+// poll). Per-vote notifications are throttled to one per response row per save — re-voting
+// updates the same PollResponse via its token, so the owner gets a fresh email on every save.
+enum PollNotifyMode {
+  FINAL_ONLY
+  EVERY_VOTE
+  NEVER
+}
+
 model Poll {
   id                 String     @id @default(cuid())
   scope              Scope
@@ -514,6 +523,15 @@ model Poll {
   proposedSlots      Json
   inviteeEmails      String[]
   status             PollStatus @default(OPEN)
+  // How often the poll owner gets notified by email about voting activity. FINAL_ONLY (default)
+  // sends one email once everyone has voted. EVERY_VOTE pings on every individual vote — useful
+  // for time-sensitive scheduling where the owner wants to react as soon as a single response
+  // narrows the answer. NEVER suppresses all notifications.
+  notifyMode         PollNotifyMode @default(FINAL_ONLY)
+  // Last time the EVERY_VOTE / FINAL_ONLY trigger fired, so a re-vote on the same response row
+  // doesn't double-notify and the FINAL_ONLY email only sends once even if everyone re-submits.
+  lastNotifiedAt     DateTime?
+  allVotedNotifiedAt DateTime?
   finalizedSlot      Json?
   finalizedBookingId String?    @unique
   createdAt          DateTime   @default(now())

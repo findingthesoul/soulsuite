@@ -663,6 +663,63 @@ export function bookingAlternativeRequestedTemplate(args: {
   return { html, text, subject };
 }
 
+// Poll owner notifications. Two flavours sharing the same brand frame:
+//   - `pollVoteUpdateTemplate`: fired on every individual vote when the poll's notifyMode is
+//     EVERY_VOTE. Includes the responding invitee + a deep link back to the poll detail page.
+//   - `pollAllVotedTemplate`: fired once when every invitee has voted at least once
+//     (regardless of notifyMode, unless NEVER). Nudges the owner to finalise.
+export function pollVoteUpdateTemplate(args: {
+  ownerName: string;
+  pollName: string;
+  responderEmail: string;
+  totalResponses: number;
+  totalInvitees: number;
+  pollUrl: string;
+  logoUrl?: string | null;
+}): { html: string; text: string; subject: string } {
+  const subject = `New vote on "${args.pollName}" — ${args.totalResponses}/${args.totalInvitees}`;
+  const html = brandFrame(
+    "New vote in",
+    `<p>Hi ${escapeHtml(args.ownerName)},</p>
+    <p><strong>${escapeHtml(args.responderEmail)}</strong> just voted on your poll <strong>${escapeHtml(args.pollName)}</strong>.</p>
+    <p style="margin:8px 0 16px;font-size:14px;color:#57534e">
+      ${args.totalResponses} of ${args.totalInvitees} invitees have voted so far.
+    </p>
+    <p style="margin:24px 0">
+      <a href="${escapeAttr(args.pollUrl)}" style="display:inline-block;padding:10px 18px;background:#1c1917;color:#fafafa;border-radius:6px;text-decoration:none">Open poll</a>
+    </p>`,
+    args.logoUrl,
+  );
+  const text =
+    `${args.responderEmail} just voted on "${args.pollName}".\n` +
+    `${args.totalResponses} of ${args.totalInvitees} have voted.\n\n` +
+    `Open poll: ${args.pollUrl}\n`;
+  return { html, text, subject };
+}
+
+export function pollAllVotedTemplate(args: {
+  ownerName: string;
+  pollName: string;
+  totalInvitees: number;
+  pollUrl: string;
+  logoUrl?: string | null;
+}): { html: string; text: string; subject: string } {
+  const subject = `Everyone voted on "${args.pollName}" — ready to finalise`;
+  const html = brandFrame(
+    "Everyone has voted",
+    `<p>Hi ${escapeHtml(args.ownerName)},</p>
+    <p>All <strong>${args.totalInvitees}</strong> invitees have voted on <strong>${escapeHtml(args.pollName)}</strong>. Open the poll to pick a winning slot and finalise the booking.</p>
+    <p style="margin:24px 0">
+      <a href="${escapeAttr(args.pollUrl)}" style="display:inline-block;padding:12px 22px;background:#1c1917;color:#fafafa;border-radius:6px;text-decoration:none;font-weight:600">Open poll &amp; finalise</a>
+    </p>`,
+    args.logoUrl,
+  );
+  const text =
+    `All ${args.totalInvitees} invitees have voted on "${args.pollName}".\n` +
+    `Open the poll to finalise: ${args.pollUrl}\n`;
+  return { html, text, subject };
+}
+
 // Host-initiated invitation: free meeting type. Standard "you're booked" template, but the
 // framing is "<host> invited you" rather than "you booked yourself". Reused for the case
 // where the host picks the slot themselves via /dashboard/book.

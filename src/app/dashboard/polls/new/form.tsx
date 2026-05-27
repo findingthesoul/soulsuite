@@ -37,6 +37,9 @@ export function NewPollForm({ leadProjects }: { leadProjects: LeadProject[] }) {
   const [emailsText, setEmailsText] = useState("");
   const [scope, setScope] = useState<PollScope>("PERSONAL");
   const [projectId, setProjectId] = useState<string>(leadProjects[0]?.id ?? "");
+  const [notifyMode, setNotifyMode] = useState<"FINAL_ONLY" | "EVERY_VOTE" | "NEVER">(
+    "FINAL_ONLY",
+  );
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -97,6 +100,7 @@ export function NewPollForm({ leadProjects }: { leadProjects: LeadProject[] }) {
           inviteeEmails: parsedEmails,
           scope,
           projectId: scope === "PROJECT" ? projectId : undefined,
+          notifyMode,
         }),
       });
       if (!res.ok) {
@@ -275,6 +279,63 @@ export function NewPollForm({ leadProjects }: { leadProjects: LeadProject[] }) {
               {parsedEmails.length} invitee{parsedEmails.length === 1 ? "" : "s"}
             </p>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Email me about votes</CardTitle>
+          <CardDescription>
+            How often you want to hear about voting activity on this poll.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name="notifyMode"
+              checked={notifyMode === "FINAL_ONLY"}
+              onChange={() => setNotifyMode("FINAL_ONLY")}
+              className="h-4 w-4 mt-0.5 border-border accent-foreground"
+            />
+            <span>
+              <span className="text-foreground">When everyone has voted</span>
+              <span className="block text-xs text-muted-foreground">
+                One email when the last invitee submits their vote.
+              </span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name="notifyMode"
+              checked={notifyMode === "EVERY_VOTE"}
+              onChange={() => setNotifyMode("EVERY_VOTE")}
+              className="h-4 w-4 mt-0.5 border-border accent-foreground"
+            />
+            <span>
+              <span className="text-foreground">On every vote</span>
+              <span className="block text-xs text-muted-foreground">
+                One email per response. Good for time-sensitive scheduling, noisier on larger
+                groups.
+              </span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name="notifyMode"
+              checked={notifyMode === "NEVER"}
+              onChange={() => setNotifyMode("NEVER")}
+              className="h-4 w-4 mt-0.5 border-border accent-foreground"
+            />
+            <span>
+              <span className="text-foreground">Don&apos;t email me</span>
+              <span className="block text-xs text-muted-foreground">
+                Check the dashboard whenever you want.
+              </span>
+            </span>
+          </label>
         </CardContent>
       </Card>
 

@@ -74,6 +74,7 @@ export async function POST(request: NextRequest) {
         proposedSlots: data.proposedSlots as unknown as Prisma.InputJsonValue,
         inviteeEmails: dedupedEmails,
         status: PollStatus.OPEN,
+        notifyMode: data.notifyMode ?? "FINAL_ONLY",
       },
     });
     await tx.pollResponse.createMany({

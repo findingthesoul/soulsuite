@@ -40,6 +40,11 @@ const bodySchema = z.object({
   inviteeName: z.string().trim().min(1).max(120),
   inviteeEmail: z.string().email().max(200),
   note: z.string().trim().max(2000).optional().nullable(),
+  // Only meaningful for paid (Stripe) MTs. When true, the host wants the invitee to pay —
+  // send a Stripe Checkout link. When false (default), book as complimentary: no payment
+  // collected, immediate finalize. Lets hosts comp meetings for VIPs / friends / team without
+  // having to flip the MT itself to free.
+  chargeInvitee: z.boolean().optional().default(false),
 });
 
 export async function POST(request: NextRequest) {
@@ -160,13 +165,19 @@ export async function POST(request: NextRequest) {
   const requestId = `hb-${deterministic}`;
 
   const isPaid = (meetingType.priceCents ?? 0) > 0;
+  // Two-axis decision for paid MTs: priced + host wants to charge → Stripe flow; priced +
+  // complimentary → fall through to the free path with paymentStatus stamped NOT_REQUIRED.
+  const willCharge = isPaid && body.chargeInvitee === true;
   const noteAnswer =
     body.note && body.note.length > 0
       ? ({ __hostNote: body.note } as Prisma.InputJsonValue)
       : undefined;
 
   // ── Paid Stripe branch ──
-  if (isPaid) {
+  // Only taken when the host explicitly opted in via chargeInvitee. Otherwise paid MTs fall
+  // through to the free branch below — the booking is comp'd, paymentStatus stays NOT_REQUIRED,
+  // and the invitee gets the standard confirmation email with no payment step.
+  if (willCharge) {
     if (!isStripeConfigured()) {
       return new NextResponse("Payments are not configured on this server.", { status: 503 });
     }

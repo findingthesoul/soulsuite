@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -38,6 +38,11 @@ export function BookForm({
   // Initial datetime-local default: next quarter-hour rounded up, in browser tz.
   const [startsLocal, setStartsLocal] = useState(() => defaultDateTimeLocal());
   const [note, setNote] = useState("");
+  // When the chosen MT is paid, the host can either book complimentary (default — no payment
+  // collected, immediate confirmation) or send the invitee a Stripe Checkout link. Resets to
+  // false (= complimentary) every time the MT changes so a previously-toggled "charge" doesn't
+  // leak across MT switches.
+  const [chargeInvitee, setChargeInvitee] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<{ kind: "confirmed" | "awaiting-payment" } | null>(null);
   const [pending, startTransition] = useTransition();
@@ -55,6 +60,12 @@ export function BookForm({
     selectedMt && isPaid && selectedMt.priceCurrency && selectedMt.priceCents
       ? formatPriceClient(selectedMt.priceCents, selectedMt.priceCurrency)
       : null;
+
+  // Reset the charge toggle whenever the host switches MT — defaulting to complimentary keeps
+  // the "no payment by default" rule even when toggling between MTs.
+  useEffect(() => {
+    setChargeInvitee(false);
+  }, [mtId]);
 
   function pickContact(email: string) {
     const c = contactSuggestions.find((x) => x.email === email);
@@ -89,6 +100,9 @@ export function BookForm({
           inviteeName: inviteeName.trim(),
           inviteeEmail: inviteeEmail.trim(),
           note: note.trim() || null,
+          // Only meaningful when the MT is paid. Defaults to false so the invitee gets a
+          // free confirmation unless the host explicitly opted in to charging.
+          chargeInvitee: isPaid ? chargeInvitee : false,
         }),
       });
       if (!res.ok) {
@@ -204,10 +218,27 @@ export function BookForm({
           </p>
         )}
         {!invoiceBlocked && isPaid && priceLabel && (
-          <p className="text-xs text-muted-foreground">
-            This is a paid meeting type ({priceLabel}). The invitee gets an email with a Stripe
-            payment link; the calendar invite goes out after they pay.
-          </p>
+          <div className="rounded-md border border-border p-3 space-y-2">
+            <p className="text-xs text-muted-foreground">
+              This is a paid meeting type ({priceLabel}). By default, host-initiated bookings
+              are <span className="text-foreground">complimentary</span> — no charge, instant
+              calendar invite. Tick the box to send a Stripe payment link instead.
+            </p>
+            <label className="flex items-start gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={chargeInvitee}
+                onChange={(e) => setChargeInvitee(e.target.checked)}
+                className="h-4 w-4 mt-0.5 rounded border-border accent-foreground"
+              />
+              <span>
+                <span className="text-foreground">Charge {priceLabel} via Stripe</span>
+                <span className="block text-xs text-muted-foreground">
+                  Invitee gets a payment link; the calendar invite goes out after they pay.
+                </span>
+              </span>
+            </label>
+          </div>
         )}
         {error && <p className="text-sm text-destructive">{error}</p>}
         {success && (
@@ -220,7 +251,11 @@ export function BookForm({
 
         <div className="flex justify-end pt-1">
           <Button onClick={submit} disabled={pending || Boolean(invoiceBlocked)}>
-            {pending ? "Sending…" : isPaid ? "Send payment link" : "Send invite"}
+            {pending
+              ? "Sending…"
+              : isPaid && chargeInvitee
+                ? "Send payment link"
+                : "Send invite"}
           </Button>
         </div>
       </CardContent>

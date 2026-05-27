@@ -17,7 +17,7 @@ import { getCurrentHost } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { authorizeAdminBookingAction } from "@/lib/bookings/admin-access";
 import { deactivateInvoicePaymentLink } from "@/lib/stripe/payment-link";
-import { invoiceVoidedTemplate, sendEmail } from "@/lib/email";
+import { invoiceVoidedTemplate, sendEmailAfterResponse } from "@/lib/email";
 import { getEmailLogoUrl } from "@/lib/branding";
 import { formatPrice } from "@/lib/stripe/client";
 import { invoiceDetailsSchema } from "@/lib/bookings/invoice-details";
@@ -114,7 +114,7 @@ export async function POST(
       billingEmail: billing.data.billingEmail,
       logoUrl: await getEmailLogoUrl(),
     });
-    void sendEmail({
+    sendEmailAfterResponse({
       to: billing.data.billingEmail,
       subject: tpl.subject,
       html: tpl.html,

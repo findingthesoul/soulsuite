@@ -5,7 +5,7 @@ import { calendarFor, isGoogleAuthError } from "@/lib/google/client";
 import { computeAvailableSlots } from "@/lib/availability/engine";
 import { effectiveWorkingHours } from "@/lib/availability";
 import { fetchHostBusy } from "@/lib/availability/freebusy";
-import { sendEmail, bookingRescheduleTemplate, appUrl } from "@/lib/email";
+import { sendEmailAfterResponse, bookingRescheduleTemplate, appUrl } from "@/lib/email";
 import { getEmailLogoUrl } from "@/lib/branding";
 import { getZoomAccessTokenForHost } from "@/lib/zoom/host";
 import { updateZoomMeeting } from "@/lib/zoom/client";
@@ -175,7 +175,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     icalUrl: appUrl(`/${slugForUrl}/${booking.meetingType.slug}/confirmed/${booking.id}/calendar.ics`),
     logoUrl: await getEmailLogoUrl(),
   });
-  void sendEmail({
+  sendEmailAfterResponse({
     to: booking.inviteeEmail,
     subject: tmpl.subject,
     html: tmpl.html,

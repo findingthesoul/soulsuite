@@ -5,7 +5,7 @@ import { getCurrentHost } from "@/lib/auth";
 import { canManageProject, getProjectMembership } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { generateInviteToken, inviteExpiresAt, inviteUrl } from "@/lib/invites";
-import { sendEmail, memberInviteTemplate } from "@/lib/email";
+import { sendEmailAfterResponse, memberInviteTemplate } from "@/lib/email";
 
 const bodySchema = z.object({
   email: z.string().email().max(200).transform((s) => s.toLowerCase()),
@@ -75,7 +75,7 @@ export async function POST(
       recipientEmail: email,
       expiresAt,
     });
-    void sendEmail({
+    sendEmailAfterResponse({
       to: email,
       subject: tmpl.subject,
       html: tmpl.html,

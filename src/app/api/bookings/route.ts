@@ -10,7 +10,7 @@ import { fetchHostBusy, bustFreebusyCacheForHost } from "@/lib/availability/free
 import { type IntakeField, validateAnswers, pruneHiddenAnswers } from "@/lib/intake";
 import { pickRoundRobinHost } from "@/lib/round-robin";
 import {
-  sendEmail,
+  sendEmailAfterResponse,
   bookingConfirmationTemplate,
   approvalNeededTemplate,
   appUrl,
@@ -330,7 +330,7 @@ export async function POST(request: NextRequest) {
       declineUrl: appUrl(`/api/bookings/${pendingId}/decline?token=${approvalToken}`),
       logoUrl,
     });
-    void sendEmail({
+    sendEmailAfterResponse({
       to: host.email,
       subject: tmpl.subject,
       html: tmpl.html,
@@ -695,7 +695,7 @@ export async function POST(request: NextRequest) {
       rescheduleUrl: appUrl(`/${slugForUrl}/${meetingType.slug}/confirmed/${bookingId}/reschedule`),
       meetUrl: anchor.meetUrl,
     });
-    void sendEmail({
+    sendEmailAfterResponse({
       to: body.inviteeEmail,
       subject: tmpl.subject,
       html: tmpl.html,

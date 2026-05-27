@@ -7,7 +7,7 @@ import { finalizeBooking } from "@/lib/bookings/finalize";
 import {
   bookingAlternativeRequestedTemplate,
   bookingDeclinedTemplate,
-  sendEmail,
+  sendEmailAfterResponse,
 } from "@/lib/email";
 import { getEmailLogoUrl } from "@/lib/branding";
 import { publicEnv } from "@/lib/env";
@@ -111,7 +111,7 @@ export async function declinePendingBooking(args: DeclineArgs): Promise<DeclineR
     inviteeName: booking.inviteeName,
     logoUrl,
   });
-  void sendEmail({
+  sendEmailAfterResponse({
     to: booking.inviteeEmail,
     subject: tmpl.subject,
     html: tmpl.html,
@@ -181,7 +181,7 @@ export async function requestAlternativeForPendingBooking(
     rebookUrl,
     logoUrl,
   });
-  void sendEmail({
+  sendEmailAfterResponse({
     to: booking.inviteeEmail,
     subject: tmpl.subject,
     html: tmpl.html,

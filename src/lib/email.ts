@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { after } from "next/server";
 import { serverEnv, publicEnv } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 
@@ -96,6 +97,35 @@ export async function sendEmail(args: SendEmailArgs): Promise<{ ok: boolean; rea
     await record("FAILED", reason);
     return { ok: false, reason };
   }
+}
+
+// Vercel-safe fire-and-forget. Previously call sites did `void sendEmail(...)` which works on
+// long-lived servers but on serverless platforms the function instance can be torn down once
+// the HTTP response returns, killing any unresolved promise — so polls that send N emails in
+// a loop landed only the first 1-2. `after()` (Next.js 15) registers the work to run AFTER
+// the response is streamed, with the runtime guaranteeing the function stays alive until it
+// completes. Errors are caught + logged so a bad email never bubbles into a 500.
+//
+// Pass an array of args to batch — useful for poll invites where each invitee gets a unique
+// magic link. They run in parallel (allSettled) so one bad address doesn't block the rest.
+export function sendEmailAfterResponse(args: SendEmailArgs | SendEmailArgs[]): void {
+  const batch = Array.isArray(args) ? args : [args];
+  if (batch.length === 0) return;
+  after(async () => {
+    const results = await Promise.allSettled(batch.map((a) => sendEmail(a)));
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i];
+      if (r.status === "rejected") {
+        console.error("[email] background send threw", { args: batch[i], err: r.reason });
+      } else if (!r.value.ok) {
+        console.warn("[email] background send returned not-ok", {
+          to: batch[i].to,
+          subject: batch[i].subject,
+          reason: r.value.reason,
+        });
+      }
+    }
+  });
 }
 
 // ────────────────────────────────────────────────────────────

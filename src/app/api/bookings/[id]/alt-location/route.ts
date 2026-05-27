@@ -21,7 +21,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentHost } from "@/lib/auth";
 import { calendarFor, isGoogleAuthError } from "@/lib/google/client";
 import { authorizeAdminBookingAction } from "@/lib/bookings/admin-access";
-import { sendEmail, bookingLocationUpdateTemplate } from "@/lib/email";
+import { sendEmailAfterResponse, bookingLocationUpdateTemplate } from "@/lib/email";
 import { getEmailLogoUrl } from "@/lib/branding";
 
 const bodySchema = z.object({
@@ -134,7 +134,7 @@ export async function PATCH(
       meetUrl: booking.meetUrl,
       logoUrl: await getEmailLogoUrl(),
     });
-    void sendEmail({
+    sendEmailAfterResponse({
       to: booking.inviteeEmail,
       subject: tmpl.subject,
       html: tmpl.html,

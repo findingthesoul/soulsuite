@@ -20,7 +20,7 @@ import { prisma } from "@/lib/prisma";
 import { calendarFor, isGoogleAuthError } from "@/lib/google/client";
 import { bustFreebusyCacheForHost } from "@/lib/availability/freebusy";
 import {
-  sendEmail,
+  sendEmailAfterResponse,
   bookingConfirmationTemplate,
   newBookingForHostTemplate,
   appUrl,
@@ -316,7 +316,7 @@ export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResul
         }
       : null,
   });
-  void sendEmail({
+  sendEmailAfterResponse({
     to: booking.inviteeEmail,
     subject: tmpl.subject,
     html: tmpl.html,
@@ -344,7 +344,7 @@ export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResul
     detailsUrl,
     logoUrl,
   });
-  void sendEmail({
+  sendEmailAfterResponse({
     to: host.email,
     subject: hostNotification.subject,
     html: hostNotification.html,
@@ -366,7 +366,7 @@ export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResul
       detailsUrl,
       logoUrl,
     });
-    void sendEmail({
+    sendEmailAfterResponse({
       to: co.email,
       subject: tpl.subject,
       html: tpl.html,

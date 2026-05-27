@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { calendarFor, isGoogleAuthError } from "@/lib/google/client";
-import { sendEmail, bookingCancellationTemplate, appUrl } from "@/lib/email";
+import { sendEmailAfterResponse, bookingCancellationTemplate, appUrl } from "@/lib/email";
 import { getEmailLogoUrl } from "@/lib/branding";
 import { getZoomAccessTokenForHost } from "@/lib/zoom/host";
 import { deleteZoomMeeting } from "@/lib/zoom/client";
@@ -90,7 +90,7 @@ export async function POST(
     meetUrl: booking.meetUrl,
     logoUrl: await getEmailLogoUrl(),
   });
-  void sendEmail({
+  sendEmailAfterResponse({
     to: booking.inviteeEmail,
     subject: tmpl.subject,
     html: tmpl.html,

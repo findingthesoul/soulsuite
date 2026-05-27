@@ -5,7 +5,7 @@ import { getCurrentHost } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createPollSchema, newResponseToken, type ProposedSlot } from "@/lib/polls";
 import { canManageProject, getProjectMembership } from "@/lib/permissions";
-import { sendEmail, pollInviteTemplate, appUrl } from "@/lib/email";
+import { sendEmailAfterResponse, pollInviteTemplate, appUrl } from "@/lib/email";
 import { getEmailLogoUrl } from "@/lib/branding";
 
 // Polls support PERSONAL (default — owned by the host) and PROJECT (owned by a team; requires
@@ -87,26 +87,31 @@ export async function POST(request: NextRequest) {
     return poll;
   });
 
-  // Fire-and-forget invite emails — one per invitee, each with their own magic link.
+  // Queue every invite as a single batched after-response send. Previously this was a
+  // `void sendEmail()` loop, which on Vercel lost most of the sends — the function instance
+  // would tear down as soon as the response returned, killing pending promises. With the
+  // helper, Next.js guarantees the work runs to completion post-response.
   const logoUrl = await getEmailLogoUrl();
-  for (const r of responses) {
-    const tmpl = pollInviteTemplate({
-      ownerName: host.name,
-      pollName: data.name,
-      durationMinutes: data.durationMinutes,
-      voteUrl: appUrl(`/poll/respond/${r.token}`),
-      recipientEmail: r.email,
-      logoUrl,
-    });
-    void sendEmail({
-      to: r.email,
-      subject: tmpl.subject,
-      html: tmpl.html,
-      text: tmpl.text,
-      fromName: host.name,
-      replyTo: host.email,
-    });
-  }
+  sendEmailAfterResponse(
+    responses.map((r) => {
+      const tmpl = pollInviteTemplate({
+        ownerName: host.name,
+        pollName: data.name,
+        durationMinutes: data.durationMinutes,
+        voteUrl: appUrl(`/poll/respond/${r.token}`),
+        recipientEmail: r.email,
+        logoUrl,
+      });
+      return {
+        to: r.email,
+        subject: tmpl.subject,
+        html: tmpl.html,
+        text: tmpl.text,
+        fromName: host.name,
+        replyTo: host.email,
+      };
+    }),
+  );
 
   return NextResponse.json({ ok: true, id: created.id });
 }

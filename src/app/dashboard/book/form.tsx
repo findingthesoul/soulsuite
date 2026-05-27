@@ -29,6 +29,10 @@ interface MtOption {
 interface ContactSuggestion {
   email: string;
   name: string;
+  // True when this email belongs to a Host on the current workspace (i.e. a teammate with
+  // an account on Soul Suite). Surfaces a "Member" hint in the datalist so the host can tell
+  // internal teammates apart from external contacts at a glance.
+  isMember?: boolean;
 }
 
 interface InviteeDraft {
@@ -484,7 +488,7 @@ export function BookForm({
                 <datalist id={`contacts-${idx}`}>
                   {contactSuggestions.map((c) => (
                     <option key={c.email} value={c.email}>
-                      {c.name}
+                      {c.isMember ? `${c.name} · Member` : c.name}
                     </option>
                   ))}
                 </datalist>

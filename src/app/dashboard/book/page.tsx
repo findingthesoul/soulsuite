@@ -48,13 +48,45 @@ export default async function BookPage() {
     orderBy: [{ scope: "asc" }, { name: "asc" }],
   });
 
-  // Recent contacts as suggestions for the invitee field.
-  const recentContacts = await prisma.contact.findMany({
-    where: ctx.workspace ? { workspaceId: ctx.workspace.id } : { id: "none" },
-    orderBy: { updatedAt: "desc" },
-    take: 50,
-    select: { email: true, name: true },
-  });
+  // Invitee suggestions = workspace members (always shown, even before they've been booked)
+  // ∪ recent Contacts (auto-built from past bookings). Workspace members win on dedupe so the
+  // suggestion carries the host's canonical name. Without this, a host couldn't pick a
+  // teammate from the suggestions until they'd already been booked once — defeats the point.
+  const [workspaceMembers, recentContacts] = await Promise.all([
+    ctx.workspace
+      ? prisma.workspaceMember.findMany({
+          where: { workspaceId: ctx.workspace.id },
+          include: { host: { select: { id: true, email: true, name: true } } },
+        })
+      : Promise.resolve([] as Array<{ host: { id: string; email: string; name: string } }>),
+    prisma.contact.findMany({
+      where: ctx.workspace ? { workspaceId: ctx.workspace.id } : { id: "none" },
+      orderBy: { updatedAt: "desc" },
+      take: 50,
+      select: { email: true, name: true },
+    }),
+  ]);
+
+  const suggestionMap = new Map<string, { email: string; name: string; isMember: boolean }>();
+  for (const m of workspaceMembers) {
+    // Skip the caller — they shouldn't book themselves as an invitee on their own page.
+    if (m.host.id === host.id) continue;
+    suggestionMap.set(m.host.email.toLowerCase(), {
+      email: m.host.email,
+      name: m.host.name,
+      isMember: true,
+    });
+  }
+  for (const c of recentContacts) {
+    const key = c.email.toLowerCase();
+    if (suggestionMap.has(key)) continue;
+    suggestionMap.set(key, {
+      email: c.email,
+      name: c.name ?? c.email.split("@")[0],
+      isMember: false,
+    });
+  }
+  const suggestions = Array.from(suggestionMap.values());
 
   return (
     <AppShell {...shellProps(ctx)}>
@@ -86,10 +118,7 @@ export default async function BookPage() {
             maxInvitees: mt.maxInvitees,
             maxAdvanceDays: mt.maxAdvanceDays,
           }))}
-          contactSuggestions={recentContacts.map((c) => ({
-            email: c.email,
-            name: c.name ?? c.email.split("@")[0],
-          }))}
+          contactSuggestions={suggestions}
         />
       </div>
     </AppShell>

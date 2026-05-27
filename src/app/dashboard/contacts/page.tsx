@@ -10,20 +10,35 @@ export default async function ContactsPage() {
   const ctx = await getPageContextOrRedirect();
   if (!ctx.workspace) redirect("/dashboard");
 
-  // Pull all contacts in the workspace + their last booking timestamp. Aggregating last-meeting
-  // per-email in a single round-trip keeps the page fast even for large directories — the
-  // heavy lifting (per-contact past/upcoming) is deferred to the detail page.
-  const contacts = await prisma.contact.findMany({
-    where: { workspaceId: ctx.workspace.id },
-    orderBy: { name: "asc" },
-  });
+  // Pull contacts + workspace members in parallel. Members surface here even before they've
+  // been booked, so a host looking up a teammate doesn't have to wait for the first booking
+  // to populate them. Members that already have a Contact row keep their Contact id (= still
+  // clickable through to the detail page); member-only rows are listed without a link.
+  const [contacts, workspaceMembers] = await Promise.all([
+    prisma.contact.findMany({
+      where: { workspaceId: ctx.workspace.id },
+      orderBy: { name: "asc" },
+    }),
+    prisma.workspaceMember.findMany({
+      where: { workspaceId: ctx.workspace.id },
+      include: { host: { select: { id: true, name: true, email: true } } },
+    }),
+  ]);
 
-  const emails = contacts.map((c) => c.email);
+  const memberByEmail = new Map(
+    workspaceMembers.map((m) => [m.host.email.toLowerCase(), m.host]),
+  );
+  const allEmails = Array.from(
+    new Set<string>([
+      ...contacts.map((c) => c.email.toLowerCase()),
+      ...workspaceMembers.map((m) => m.host.email.toLowerCase()),
+    ]),
+  );
   const lastByEmail = new Map<string, Date>();
-  if (emails.length > 0) {
+  if (allEmails.length > 0) {
     const grouped = await prisma.booking.groupBy({
       by: ["inviteeEmail"],
-      where: { inviteeEmail: { in: emails } },
+      where: { inviteeEmail: { in: allEmails } },
       _max: { startsAt: true },
     });
     for (const g of grouped) {
@@ -31,13 +46,33 @@ export default async function ContactsPage() {
     }
   }
 
-  const rows: ContactRow[] = contacts.map((c) => ({
-    id: c.id,
-    name: c.name,
-    email: c.email,
-    company: c.company,
-    lastMeetingAt: (lastByEmail.get(c.email.toLowerCase()) ?? null)?.toISOString() ?? null,
-  }));
+  const rows: ContactRow[] = [];
+  const seen = new Set<string>();
+  for (const c of contacts) {
+    const key = c.email.toLowerCase();
+    seen.add(key);
+    rows.push({
+      id: c.id,
+      name: c.name,
+      email: c.email,
+      company: c.company,
+      lastMeetingAt: (lastByEmail.get(key) ?? null)?.toISOString() ?? null,
+      isMember: memberByEmail.has(key),
+    });
+  }
+  for (const m of workspaceMembers) {
+    const key = m.host.email.toLowerCase();
+    if (seen.has(key)) continue;
+    rows.push({
+      id: null,
+      name: m.host.name,
+      email: m.host.email,
+      company: null,
+      lastMeetingAt: (lastByEmail.get(key) ?? null)?.toISOString() ?? null,
+      isMember: true,
+    });
+  }
+  rows.sort((a, b) => (a.name ?? a.email).localeCompare(b.name ?? b.email));
 
   return (
     <AppShell {...shellProps(ctx)}>
@@ -45,7 +80,8 @@ export default async function ContactsPage() {
         <header className="space-y-1">
           <h1 className="text-2xl font-semibold tracking-tight">Contacts</h1>
           <p className="text-sm text-muted-foreground">
-            People who&apos;ve booked with anyone in your workspace.
+            Workspace members (always shown) and external people who&apos;ve booked with anyone
+            on your team.
           </p>
         </header>
 

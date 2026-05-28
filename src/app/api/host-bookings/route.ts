@@ -170,6 +170,21 @@ export async function POST(request: NextRequest) {
 
   const endsAt = new Date(startsAt.getTime() + meetingType.durationMinutes * 60_000);
 
+  // Resolve collective co-hosts. For COLLECTIVE project MTs every other assignedHost attends
+  // the meeting — they need to be on the Google event so Meet works for everyone, and they
+  // need the "new booking for host" email so they aren't blindsided. We also re-check their
+  // freebusy below so we don't double-book a teammate over an existing event.
+  const collectiveCoHostIdsForBooking: string[] =
+    meetingType.scope === "PROJECT" && meetingType.routingMode === "COLLECTIVE"
+      ? meetingType.assignedHostIds.filter((id) => id !== caller.id)
+      : [];
+  const coHostsForCheck = collectiveCoHostIdsForBooking.length
+    ? await prisma.host.findMany({
+        where: { id: { in: collectiveCoHostIdsForBooking } },
+        include: { calendars: true },
+      })
+    : [];
+
   // Re-validate the slot against the host's fresh freebusy + working hours. Prevents two host-
   // initiated bookings on the same slot, and keeps the host from accidentally double-booking
   // themselves over an existing event the form didn't know about.
@@ -199,6 +214,55 @@ export async function POST(request: NextRequest) {
       "That slot isn't available on your calendar (busy, outside working hours, or past the booking window).",
       { status: 409 },
     );
+  }
+
+  // COLLECTIVE: every assigned co-host must also be free at this slot. Without this check the
+  // calendar event would land on the caller's calendar with co-hosts as attendees who are
+  // already in another meeting — they'd just decline. Fail loud instead so the host picks a
+  // mutually-free time.
+  if (coHostsForCheck.length > 0) {
+    const coHostProjectMembers = meetingType.projectId
+      ? await prisma.projectMember.findMany({
+          where: { projectId: meetingType.projectId, hostId: { in: coHostsForCheck.map((h) => h.id) } },
+          select: { hostId: true, workingHoursOverride: true },
+        })
+      : [];
+    const coHostOverrideById = new Map(
+      coHostProjectMembers.map((m) => [m.hostId, m.workingHoursOverride]),
+    );
+    for (const co of coHostsForCheck) {
+      if (!co.googleRefreshToken) {
+        return new NextResponse(
+          `${co.name} hasn't connected Google Calendar — can't book this collective meeting until they do.`,
+          { status: 409 },
+        );
+      }
+      const coBusy = await fetchHostBusy(co, range, meetingType);
+      const coSlots = computeAvailableSlots({
+        host: {
+          timezone: co.timezone,
+          workingHours: effectiveWorkingHours(meetingType, co, coHostOverrideById.get(co.id)),
+        },
+        meetingType: {
+          durationMinutes: meetingType.durationMinutes,
+          bufferBeforeMinutes: meetingType.bufferBeforeMinutes,
+          bufferAfterMinutes: meetingType.bufferAfterMinutes,
+          minNoticeMinutes: meetingType.minNoticeMinutes,
+          maxAdvanceDays: meetingType.maxAdvanceDays,
+        },
+        range,
+        busy: coBusy,
+      });
+      const coFree = coSlots.some(
+        (s) => s.startsAt.getTime() === startsAt.getTime() && s.endsAt.getTime() === endsAt.getTime(),
+      );
+      if (!coFree) {
+        return new NextResponse(
+          `${co.name} is no longer free at that time — pick a slot where everyone is available.`,
+          { status: 409 },
+        );
+      }
+    }
   }
 
   // Idempotency key — same shape as public POST so retries collide. Per invitee so each row
@@ -285,7 +349,7 @@ export async function POST(request: NextRequest) {
       const result = await finalizeBooking({
         bookingId: pendingId,
         hostId: host.id,
-        collectiveCoHostIds: [],
+        collectiveCoHostIds: collectiveCoHostIdsForBooking,
         inviteeTimezone: host.timezone,
       });
       if (!result.ok) {
@@ -563,7 +627,7 @@ export async function POST(request: NextRequest) {
       const result = await finalizeBooking({
         bookingId: bid,
         hostId: host.id,
-        collectiveCoHostIds: [],
+        collectiveCoHostIds: collectiveCoHostIdsForBooking,
         inviteeTimezone: host.timezone,
       });
       if (!result.ok) {

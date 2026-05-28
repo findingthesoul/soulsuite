@@ -50,36 +50,91 @@ export async function GET(request: NextRequest) {
     if (!m) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
-  const host = await prisma.host.findUnique({
-    where: { id: caller.id },
+  // Resolve which hosts' calendars need to be intersected. For PERSONAL or PROJECT/SINGLE this
+  // is just the caller. For PROJECT/COLLECTIVE every assigned host must be free — without this
+  // step the host picker would surface times when a co-host (e.g. Martijn) is double-booked.
+  // For PROJECT/ROUND_ROBIN we still only check the caller: the booking POST currently assigns
+  // the row to the caller (they're booking *themselves* into the meeting), so the slot must be
+  // free on their calendar — the other assigned hosts are routing candidates for the *public*
+  // flow, not relevant when the host self-books.
+  let relevantHostIds: string[] = [caller.id];
+  if (meetingType.scope === "PROJECT" && meetingType.routingMode === "COLLECTIVE") {
+    const ids = new Set<string>(meetingType.assignedHostIds);
+    ids.add(caller.id); // defensive: caller might not be in assignedHostIds for an outsider-led booking
+    relevantHostIds = Array.from(ids);
+  }
+
+  const hosts = await prisma.host.findMany({
+    where: { id: { in: relevantHostIds } },
     include: { calendars: true },
   });
-  if (!host || !host.googleRefreshToken) {
+  const caller_host = hosts.find((h) => h.id === caller.id);
+  if (!caller_host || !caller_host.googleRefreshToken) {
     return NextResponse.json({ slots: [] });
   }
 
-  const busy = await fetchHostBusy(host, { from, to: effectiveTo }, meetingType);
-  const slots = computeAvailableSlots({
-    host: {
-      timezone: host.timezone,
-      workingHours: effectiveWorkingHours(meetingType, host, undefined),
-    },
-    meetingType: {
-      durationMinutes: meetingType.durationMinutes,
-      bufferBeforeMinutes: meetingType.bufferBeforeMinutes,
-      bufferAfterMinutes: meetingType.bufferAfterMinutes,
-      minNoticeMinutes: meetingType.minNoticeMinutes,
-      maxAdvanceDays: meetingType.maxAdvanceDays,
-    },
-    range: { from, to: effectiveTo },
-    busy,
-  });
+  // Per-project working-hours overrides — same resolution as the public flow's availability.
+  const projectMemberOverrideByHostId = new Map<string, unknown>();
+  if (meetingType.scope === "PROJECT" && meetingType.projectId) {
+    const members = await prisma.projectMember.findMany({
+      where: { projectId: meetingType.projectId, hostId: { in: relevantHostIds } },
+      select: { hostId: true, workingHoursOverride: true },
+    });
+    for (const m of members) projectMemberOverrideByHostId.set(m.hostId, m.workingHoursOverride);
+  }
+
+  // Compute each participant's available slots, then intersect. Skip hosts with no Google
+  // connection — they can't be considered "free" so we omit them rather than treating them as
+  // always-available (which would surface phantom slots).
+  const perHostSlots = await Promise.all(
+    hosts.map(async (h) => {
+      if (!h.googleRefreshToken) return null;
+      const busy = await fetchHostBusy(h, { from, to: effectiveTo }, meetingType);
+      return computeAvailableSlots({
+        host: {
+          timezone: h.timezone,
+          workingHours: effectiveWorkingHours(
+            meetingType,
+            h,
+            projectMemberOverrideByHostId.get(h.id),
+          ),
+        },
+        meetingType: {
+          durationMinutes: meetingType.durationMinutes,
+          bufferBeforeMinutes: meetingType.bufferBeforeMinutes,
+          bufferAfterMinutes: meetingType.bufferAfterMinutes,
+          minNoticeMinutes: meetingType.minNoticeMinutes,
+          maxAdvanceDays: meetingType.maxAdvanceDays,
+        },
+        range: { from, to: effectiveTo },
+        busy,
+      });
+    }),
+  );
+
+  // For COLLECTIVE we intersect — a slot is offered only when present in EVERY participant's
+  // availability. For SINGLE this is trivially just the caller's slot list.
+  const callerSlots = perHostSlots[hosts.findIndex((h) => h.id === caller.id)] ?? [];
+  let slots = callerSlots;
+  if (meetingType.scope === "PROJECT" && meetingType.routingMode === "COLLECTIVE") {
+    for (const otherSlots of perHostSlots) {
+      if (otherSlots === null) {
+        // A required participant has no Google connection — there's no defensible slot list
+        // to show. Return empty + let the UI surface the "no availability" copy.
+        slots = [];
+        break;
+      }
+      const otherKeys = new Set(otherSlots.map((s) => s.startsAt.getTime()));
+      slots = slots.filter((s) => otherKeys.has(s.startsAt.getTime()));
+    }
+  }
+
   return NextResponse.json({
     slots: slots.map((s) => ({
       startsAt: s.startsAt.toISOString(),
       endsAt: s.endsAt.toISOString(),
     })),
-    timezone: host.timezone,
+    timezone: caller_host.timezone,
     durationMinutes: meetingType.durationMinutes,
   });
 }

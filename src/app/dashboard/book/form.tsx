@@ -24,6 +24,11 @@ interface MtOption {
   paymentMethod: "STRIPE" | "INVOICE" | "ADYEN";
   maxInvitees: number;
   maxAdvanceDays: number;
+  routingMode: "SINGLE" | "ROUND_ROBIN" | "COLLECTIVE";
+  // Teammates on the MT besides the signed-in host. For COLLECTIVE these *attend* the meeting
+  // (we invite them on the calendar event); for ROUND_ROBIN they're routing candidates only.
+  // Empty for PERSONAL MTs and for SINGLE project MTs where the caller is the sole host.
+  otherParticipants: { name: string; email: string }[];
 }
 
 interface ContactSuggestion {
@@ -395,6 +400,24 @@ export function BookForm({
               </option>
             ))}
           </Select>
+          {selectedMt && selectedMt.otherParticipants.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {selectedMt.routingMode === "COLLECTIVE" ? (
+                <>
+                  <span className="text-foreground font-medium">Group meeting</span> — also
+                  attended by {formatParticipantList(selectedMt.otherParticipants)}. Times below
+                  only show when everyone is free, and they&apos;ll get the calendar invite too.
+                </>
+              ) : selectedMt.routingMode === "ROUND_ROBIN" ? (
+                <>
+                  <span className="text-foreground font-medium">Round-robin</span> — normally
+                  routed between you and {formatParticipantList(selectedMt.otherParticipants)}.
+                  Booking from here puts the meeting on <em>your</em> calendar; pick a different
+                  meeting type if you wanted to route it to {selectedMt.otherParticipants.length === 1 ? "them" : "one of them"}.
+                </>
+              ) : null}
+            </p>
+          )}
         </div>
 
         {/* PAID toggle — visible only when the MT has a price. Default OFF = comp'd.
@@ -710,6 +733,14 @@ export function BookForm({
       />
     </Card>
   );
+}
+
+function formatParticipantList(people: { name: string; email: string }[]): string {
+  const names = people.map((p) => p.name || p.email);
+  if (names.length === 0) return "";
+  if (names.length === 1) return names[0];
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
 }
 
 function priceFragment(mt: MtOption): string {

@@ -43,10 +43,37 @@ export default async function BookPage() {
       // always ask for 14 days even when the MT allows 60.
       maxAdvanceDays: true,
       scope: true,
+      // Routing metadata so the form can flag MTs that involve teammates + the slot endpoint
+      // can run multi-host availability when needed.
+      routingMode: true,
+      assignedHostIds: true,
+      conferencingHostId: true,
+      hostId: true,
       project: { select: { name: true } },
     },
     orderBy: [{ scope: "asc" }, { name: "asc" }],
   });
+
+  // Resolve participant names for any MT that involves more than just the caller. We need them
+  // so the form can render "Also includes: Martijn" instead of just listing IDs. One query for
+  // all referenced hosts keeps this O(1) extra round-trips regardless of MT count.
+  const otherHostIds = Array.from(
+    new Set(
+      meetingTypes.flatMap((mt) => {
+        if (mt.scope === "PERSONAL") return [];
+        // For PROJECT MTs both ROUND_ROBIN and COLLECTIVE list assignedHostIds. Strip the caller
+        // so we only surface *other* participants (the caller knows they're booking themselves).
+        return (mt.assignedHostIds ?? []).filter((id) => id !== host.id);
+      }),
+    ),
+  );
+  const otherHosts = otherHostIds.length
+    ? await prisma.host.findMany({
+        where: { id: { in: otherHostIds } },
+        select: { id: true, name: true, email: true },
+      })
+    : [];
+  const otherHostsById = new Map(otherHosts.map((h) => [h.id, h]));
 
   // Invitee suggestions = workspace members (always shown, even before they've been booked)
   // ∪ recent Contacts (auto-built from past bookings). Workspace members win on dedupe so the
@@ -101,23 +128,35 @@ export default async function BookPage() {
         <BookForm
           hostName={host.name}
           hostSlug={host.slug}
-          meetingTypes={meetingTypes.map((mt) => ({
-            id: mt.id,
-            label:
-              mt.scope === "PROJECT" && mt.project
-                ? `${mt.project.name} · ${mt.name}`
-                : mt.name,
-            // Bare name + slug for the post-submit booking dialog. label is the dropdown
-            // value (carries the project prefix); name is just the MT name.
-            name: mt.name,
-            slug: mt.slug,
-            durationMinutes: mt.durationMinutes,
-            priceCents: mt.priceCents,
-            priceCurrency: mt.priceCurrency,
-            paymentMethod: mt.paymentMethod,
-            maxInvitees: mt.maxInvitees,
-            maxAdvanceDays: mt.maxAdvanceDays,
-          }))}
+          meetingTypes={meetingTypes.map((mt) => {
+            const otherParticipants =
+              mt.scope === "PROJECT"
+                ? (mt.assignedHostIds ?? [])
+                    .filter((id) => id !== host.id)
+                    .map((id) => otherHostsById.get(id))
+                    .filter((h): h is { id: string; name: string; email: string } => Boolean(h))
+                    .map((h) => ({ name: h.name, email: h.email }))
+                : [];
+            return {
+              id: mt.id,
+              label:
+                mt.scope === "PROJECT" && mt.project
+                  ? `${mt.project.name} · ${mt.name}`
+                  : mt.name,
+              // Bare name + slug for the post-submit booking dialog. label is the dropdown
+              // value (carries the project prefix); name is just the MT name.
+              name: mt.name,
+              slug: mt.slug,
+              durationMinutes: mt.durationMinutes,
+              priceCents: mt.priceCents,
+              priceCurrency: mt.priceCurrency,
+              paymentMethod: mt.paymentMethod,
+              maxInvitees: mt.maxInvitees,
+              maxAdvanceDays: mt.maxAdvanceDays,
+              routingMode: mt.routingMode,
+              otherParticipants,
+            };
+          })}
           contactSuggestions={suggestions}
         />
       </div>

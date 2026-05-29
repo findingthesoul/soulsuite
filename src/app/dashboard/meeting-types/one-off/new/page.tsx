@@ -16,7 +16,8 @@ export default async function NewOneOffMeetingTypePage() {
         <OneOffMeetingTypeForm
           hostSlug={ctx.host.slug}
           hostHasZoom={!!ctx.host.zoomRefreshToken}
-          hostHasPersonalRoom={!!ctx.host.personalRoomUrl}
+          hostHasPersonalZoomRoom={!!ctx.host.personalZoomRoomUrl}
+          hostHasPersonalTeamsRoom={!!ctx.host.personalTeamsRoomUrl}
         />
       </div>
     </AppShell>

@@ -61,7 +61,8 @@ function serializeMembers(
     isExternal: m.isExternal,
     hasZoom: !!m.host.zoomRefreshToken,
     hasStripe: !!m.host.stripeAccountId,
-    hasPersonalRoom: !!m.host.personalRoomUrl,
+    hasPersonalZoomRoom: !!m.host.personalZoomRoomUrl,
+    hasPersonalTeamsRoom: !!m.host.personalTeamsRoomUrl,
     calendars: m.host.calendars.map((c) => ({
       id: c.id,
       summary: c.summary ?? c.googleCalendarId,

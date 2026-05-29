@@ -119,10 +119,13 @@ model Host {
   location           String?
   bio                String?
   photoUrl           String?
-  // Persistent personal meeting URL — host's Zoom Personal Meeting Room, Google Meet permanent
-  // room, Whereby room, etc. Used by meeting types with conferencingProvider=PERSONAL_ROOM:
-  // every booking simply hands this URL to the invitee instead of generating a fresh meeting.
-  personalRoomUrl    String?
+  // Persistent personal meeting URLs — the host's Personal Meeting Room on each platform.
+  // Used by meeting types with conferencingProvider=PERSONAL_ZOOM_ROOM / PERSONAL_TEAMS_ROOM:
+  // every booking simply hands the relevant URL to the invitee instead of generating a fresh
+  // meeting. Stored separately so a host can hold both (Zoom for external clients, Teams for
+  // enterprise prospects) and pick per meeting type.
+  personalZoomRoomUrl  String?
+  personalTeamsRoomUrl String?
   // Last time this host loaded the dashboard. Used to highlight bookings created since that
   // visit with a "new" badge. Null = the host has never visited the dashboard yet (treat all
   // as not-new to avoid a noisy first impression).
@@ -247,7 +250,11 @@ enum ConferencingProvider {
   ZOOM
   TEAMS
   IN_PERSON
+  // PERSONAL_ROOM is the legacy single-room provider — kept in the enum so old rows still parse,
+  // but the data migration rewrote every row to PERSONAL_ZOOM_ROOM. UI never offers it.
   PERSONAL_ROOM
+  PERSONAL_ZOOM_ROOM
+  PERSONAL_TEAMS_ROOM
   NONE
 }
 

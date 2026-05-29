@@ -14,7 +14,8 @@ type ConferencingProvider =
   | "ZOOM"
   | "TEAMS"
   | "IN_PERSON"
-  | "PERSONAL_ROOM"
+  | "PERSONAL_ZOOM_ROOM"
+  | "PERSONAL_TEAMS_ROOM"
   | "NONE";
 
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
@@ -38,11 +39,13 @@ interface SlotDraft {
 export function OneOffMeetingTypeForm({
   hostSlug,
   hostHasZoom,
-  hostHasPersonalRoom,
+  hostHasPersonalZoomRoom,
+  hostHasPersonalTeamsRoom,
 }: {
   hostSlug: string;
   hostHasZoom: boolean;
-  hostHasPersonalRoom: boolean;
+  hostHasPersonalZoomRoom: boolean;
+  hostHasPersonalTeamsRoom: boolean;
 }) {
   const router = useRouter();
   const [name, setName] = useState("");
@@ -82,8 +85,11 @@ export function OneOffMeetingTypeForm({
     if (conferencingProvider === "IN_PERSON" && defaultLocation.trim().length === 0) {
       return setError("Enter a default location for in-person meetings.");
     }
-    if (conferencingProvider === "PERSONAL_ROOM" && !hostHasPersonalRoom) {
-      return setError("Set up your personal room URL on your profile before using it here.");
+    if (conferencingProvider === "PERSONAL_ZOOM_ROOM" && !hostHasPersonalZoomRoom) {
+      return setError("Set your Zoom room URL on your profile before using it here.");
+    }
+    if (conferencingProvider === "PERSONAL_TEAMS_ROOM" && !hostHasPersonalTeamsRoom) {
+      return setError("Set your Teams room URL on your profile before using it here.");
     }
     if (slots.length < 1) return setError("Add at least one slot.");
 
@@ -189,13 +195,18 @@ export function OneOffMeetingTypeForm({
               Microsoft Teams — coming later
             </option>
             <option value="IN_PERSON">In person</option>
-            <option value="PERSONAL_ROOM" disabled={!hostHasPersonalRoom}>
-              Personal room
-              {hostHasPersonalRoom ? "" : " — set up your personal room URL on your profile"}
+            <option value="PERSONAL_ZOOM_ROOM" disabled={!hostHasPersonalZoomRoom}>
+              Personal Zoom room
+              {hostHasPersonalZoomRoom ? "" : " — set your Zoom room URL on your profile first"}
+            </option>
+            <option value="PERSONAL_TEAMS_ROOM" disabled={!hostHasPersonalTeamsRoom}>
+              Personal Teams room
+              {hostHasPersonalTeamsRoom ? "" : " — set your Teams room URL on your profile first"}
             </option>
             <option value="NONE">None (no conferencing link)</option>
           </Select>
-          {conferencingProvider === "PERSONAL_ROOM" && (
+          {(conferencingProvider === "PERSONAL_ZOOM_ROOM" ||
+            conferencingProvider === "PERSONAL_TEAMS_ROOM") && (
             <p className="text-xs text-muted-foreground pt-2">
               Bookings will hand your stored personal room URL to the invitee.
             </p>

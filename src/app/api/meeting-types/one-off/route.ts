@@ -11,7 +11,15 @@ const bodySchema = z.object({
   slug: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/),
   description: z.string().nullable().optional(),
   conferencingProvider: z
-    .enum(["GOOGLE_MEET", "ZOOM", "TEAMS", "IN_PERSON", "PERSONAL_ROOM", "NONE"])
+    .enum([
+      "GOOGLE_MEET",
+      "ZOOM",
+      "TEAMS",
+      "IN_PERSON",
+      "PERSONAL_ZOOM_ROOM",
+      "PERSONAL_TEAMS_ROOM",
+      "NONE",
+    ])
     .default("GOOGLE_MEET"),
   defaultLocation: z.string().trim().max(500).nullable().optional(),
   slots: z
@@ -47,9 +55,15 @@ export async function POST(request: NextRequest) {
       return new NextResponse("Enter a default location for in-person meetings.", { status: 400 });
     }
   }
-  if (data.conferencingProvider === "PERSONAL_ROOM" && !host.personalRoomUrl) {
+  if (data.conferencingProvider === "PERSONAL_ZOOM_ROOM" && !host.personalZoomRoomUrl) {
     return new NextResponse(
-      "Set up your personal room URL on your profile before using it here.",
+      "Set your Zoom room URL on your profile before using it here.",
+      { status: 400 },
+    );
+  }
+  if (data.conferencingProvider === "PERSONAL_TEAMS_ROOM" && !host.personalTeamsRoomUrl) {
+    return new NextResponse(
+      "Set your Teams room URL on your profile before using it here.",
       { status: 400 },
     );
   }

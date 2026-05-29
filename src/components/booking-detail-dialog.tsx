@@ -26,6 +26,8 @@ export type ConferencingProvider =
   | "TEAMS"
   | "IN_PERSON"
   | "PERSONAL_ROOM"
+  | "PERSONAL_ZOOM_ROOM"
+  | "PERSONAL_TEAMS_ROOM"
   | "NONE";
 
 export interface BookingDetail {
@@ -161,6 +163,8 @@ function providerLabel(p: ConferencingProvider): string {
     case "TEAMS": return "Microsoft Teams";
     case "IN_PERSON": return "In person";
     case "PERSONAL_ROOM": return "Personal room";
+    case "PERSONAL_ZOOM_ROOM": return "Personal Zoom room";
+    case "PERSONAL_TEAMS_ROOM": return "Personal Teams room";
     case "NONE": return "No conferencing";
     default: return "Google Meet";
   }

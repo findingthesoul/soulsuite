@@ -39,7 +39,15 @@ const bodySchema = z.object({
   intakeFields: intakeFieldsSchema.default([]),
   isActive: z.boolean().optional(),
   conferencingProvider: z
-    .enum(["GOOGLE_MEET", "ZOOM", "TEAMS", "IN_PERSON", "PERSONAL_ROOM", "NONE"])
+    .enum([
+      "GOOGLE_MEET",
+      "ZOOM",
+      "TEAMS",
+      "IN_PERSON",
+      "PERSONAL_ZOOM_ROOM",
+      "PERSONAL_TEAMS_ROOM",
+      "NONE",
+    ])
     .default("GOOGLE_MEET"),
   // Required when conferencingProvider === "IN_PERSON". Hint shown on the booking page and
   // written to the calendar event location field. Trimmed; max 500 chars.
@@ -83,9 +91,15 @@ export async function POST(request: NextRequest) {
       return new NextResponse("Enter a default location for in-person meetings.", { status: 400 });
     }
   }
-  if (data.conferencingProvider === "PERSONAL_ROOM" && !host.personalRoomUrl) {
+  if (data.conferencingProvider === "PERSONAL_ZOOM_ROOM" && !host.personalZoomRoomUrl) {
     return new NextResponse(
-      "Set up your personal room URL on your profile before using it here.",
+      "Set your Zoom room URL on your profile before using it here.",
+      { status: 400 },
+    );
+  }
+  if (data.conferencingProvider === "PERSONAL_TEAMS_ROOM" && !host.personalTeamsRoomUrl) {
+    return new NextResponse(
+      "Set your Teams room URL on your profile before using it here.",
       { status: 400 },
     );
   }

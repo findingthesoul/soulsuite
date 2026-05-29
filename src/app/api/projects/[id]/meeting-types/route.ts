@@ -34,7 +34,15 @@ const bodySchema = z.object({
   conflictCalendarIds: z.array(z.string().min(1)).default([]),
   intakeFields: intakeFieldsSchema.default([]),
   conferencingProvider: z
-    .enum(["GOOGLE_MEET", "ZOOM", "TEAMS", "IN_PERSON", "PERSONAL_ROOM", "NONE"])
+    .enum([
+      "GOOGLE_MEET",
+      "ZOOM",
+      "TEAMS",
+      "IN_PERSON",
+      "PERSONAL_ZOOM_ROOM",
+      "PERSONAL_TEAMS_ROOM",
+      "NONE",
+    ])
     .default("GOOGLE_MEET"),
   conferencingHostId: z.string().min(1).nullable().optional(),
   defaultLocation: z.string().trim().max(500).nullable().optional(),
@@ -195,15 +203,26 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
   }
 
-  if (data.conferencingProvider === "PERSONAL_ROOM") {
+  if (
+    data.conferencingProvider === "PERSONAL_ZOOM_ROOM" ||
+    data.conferencingProvider === "PERSONAL_TEAMS_ROOM"
+  ) {
+    const isZoom = data.conferencingProvider === "PERSONAL_ZOOM_ROOM";
+    const label = isZoom ? "Zoom" : "Teams";
     if (data.routingMode === "COLLECTIVE") {
       const confHost = await prisma.host.findUnique({
         where: { id: conferencingHostId! },
-        select: { id: true, name: true, personalRoomUrl: true },
+        select: {
+          id: true,
+          name: true,
+          personalZoomRoomUrl: true,
+          personalTeamsRoomUrl: true,
+        },
       });
-      if (!confHost?.personalRoomUrl) {
+      const url = isZoom ? confHost?.personalZoomRoomUrl : confHost?.personalTeamsRoomUrl;
+      if (!url) {
         return new NextResponse(
-          `${confHost?.name ?? "Conferencing host"} hasn't set a personal room URL on their profile.`,
+          `${confHost?.name ?? "Conferencing host"} hasn't set a personal ${label} room URL on their profile.`,
           { status: 400 },
         );
       }
@@ -211,12 +230,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       // SINGLE / ROUND_ROBIN: each booking uses the picked host's URL → every assigned host needs one.
       const hosts = await prisma.host.findMany({
         where: { id: { in: data.assignedHostIds } },
-        select: { id: true, name: true, personalRoomUrl: true },
+        select: {
+          id: true,
+          name: true,
+          personalZoomRoomUrl: true,
+          personalTeamsRoomUrl: true,
+        },
       });
-      const missing = hosts.filter((h) => !h.personalRoomUrl);
+      const missing = hosts.filter((h) =>
+        isZoom ? !h.personalZoomRoomUrl : !h.personalTeamsRoomUrl,
+      );
       if (missing.length > 0) {
         return new NextResponse(
-          `These assigned hosts haven't set a personal room URL: ${missing.map((h) => h.name).join(", ")}.`,
+          `These assigned hosts haven't set a personal ${label} room URL: ${missing.map((h) => h.name).join(", ")}.`,
           { status: 400 },
         );
       }

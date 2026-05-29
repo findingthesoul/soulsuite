@@ -43,7 +43,8 @@ export default async function EditMeetingTypePage({
           hostSlug={ctx.host.slug}
           hostHasZoom={!!ctx.host.zoomRefreshToken}
           hostHasStripe={!!ctx.host.stripeAccountId}
-          hostHasPersonalRoom={!!ctx.host.personalRoomUrl}
+          hostHasPersonalZoomRoom={!!ctx.host.personalZoomRoomUrl}
+          hostHasPersonalTeamsRoom={!!ctx.host.personalTeamsRoomUrl}
           hostRequireApprovalDefault={ctx.host.requireApprovalDefault}
           hostCalendars={calendars.map((c) => ({
             id: c.id,
@@ -63,7 +64,7 @@ export default async function EditMeetingTypePage({
             conflictCalendarIds: mt.conflictCalendarIds,
             intakeFields,
             isActive: mt.isActive,
-            conferencingProvider: mt.conferencingProvider,
+            conferencingProvider: mt.conferencingProvider as never,
             defaultLocation: mt.defaultLocation,
             maxInvitees: mt.maxInvitees,
             workingHoursOverride: mt.workingHoursOverride as never,

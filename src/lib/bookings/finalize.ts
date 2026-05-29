@@ -88,14 +88,23 @@ export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResul
   // ── In-person: skip Zoom + Meet conference creation; the calendar event's `location` is
   // set to the meeting type's defaultLocation. The Booking row gets meetUrl=null.
   const isInPerson = meetingType.conferencingProvider === "IN_PERSON";
-  // ── Personal room: skip every provider call; the host's stored personalRoomUrl is the meet
-  // URL. For COLLECTIVE, args.hostId is the conferencing host (caller convention), so this is
-  // already the right host's URL. If it's null at finalize time the host cleared it after the
-  // MT was saved — fail finalize the same way Zoom-no-token does (paid → CANCELLED, free → delete).
-  const isPersonalRoom = meetingType.conferencingProvider === "PERSONAL_ROOM";
+  // ── Personal room: skip every provider call; the host's stored personal-room URL is the
+  // meet URL. Two flavours live side-by-side (Zoom vs Teams) so a host can keep both rooms
+  // and pick per MT. For COLLECTIVE, args.hostId is the conferencing host (caller convention),
+  // so we always read off the right host's URL. If the relevant URL is null at finalize time
+  // the host cleared it after the MT was saved — fail finalize the same way Zoom-no-token
+  // does (paid → CANCELLED, free → delete).
+  const isPersonalRoom =
+    meetingType.conferencingProvider === "PERSONAL_ZOOM_ROOM" ||
+    meetingType.conferencingProvider === "PERSONAL_TEAMS_ROOM" ||
+    meetingType.conferencingProvider === "PERSONAL_ROOM"; // legacy rows pre-migration
   let personalRoomUrl: string | null = null;
   if (isPersonalRoom) {
-    if (!host.personalRoomUrl) {
+    const url =
+      meetingType.conferencingProvider === "PERSONAL_TEAMS_ROOM"
+        ? host.personalTeamsRoomUrl
+        : host.personalZoomRoomUrl; // covers PERSONAL_ZOOM_ROOM + legacy PERSONAL_ROOM (data was migrated into the zoom slot)
+    if (!url) {
       if (booking.paymentStatus === "PAID") {
         await prisma.booking
           .update({ where: { id: booking.id }, data: { status: "CANCELLED" } })
@@ -103,14 +112,15 @@ export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResul
       } else {
         await prisma.booking.delete({ where: { id: booking.id } }).catch(() => undefined);
       }
+      const platform =
+        meetingType.conferencingProvider === "PERSONAL_TEAMS_ROOM" ? "Teams" : "Zoom";
       return {
         ok: false,
         status: 502,
-        message:
-          "The host hasn't set up their personal room URL — please pick another time or contact them.",
+        message: `The host hasn't set up their personal ${platform} room URL — please pick another time or contact them.`,
       };
     }
-    personalRoomUrl = host.personalRoomUrl;
+    personalRoomUrl = url;
   }
 
   // ── Zoom ──
@@ -308,7 +318,11 @@ export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResul
       `/${slugForUrl}/${meetingType.slug}/confirmed/${booking.id}/reschedule`,
     ),
     meetUrl: bookingMeetUrl,
-    meetUrlLabel: isPersonalRoom ? "Personal room" : null,
+    meetUrlLabel: isPersonalRoom
+      ? meetingType.conferencingProvider === "PERSONAL_TEAMS_ROOM"
+        ? "Personal Teams room"
+        : "Personal Zoom room"
+      : null,
     // Prefer the per-booking alternativeLocation if a host already set one (e.g. on retry of
     // a previously-failed finalize). Otherwise fall back to the MT's defaultLocation for IN_PERSON.
     location:

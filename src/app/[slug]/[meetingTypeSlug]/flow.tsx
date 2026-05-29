@@ -36,6 +36,8 @@ interface MeetingType {
     | "TEAMS"
     | "IN_PERSON"
     | "PERSONAL_ROOM"
+    | "PERSONAL_ZOOM_ROOM"
+    | "PERSONAL_TEAMS_ROOM"
     | "NONE";
   defaultLocation: string | null;
   priceCents: number | null;
@@ -1180,13 +1182,23 @@ function formatPriceClient(priceCents: number, currency: string): string {
 }
 
 function providerLabel(
-  p: "GOOGLE_MEET" | "ZOOM" | "TEAMS" | "IN_PERSON" | "PERSONAL_ROOM" | "NONE",
+  p:
+    | "GOOGLE_MEET"
+    | "ZOOM"
+    | "TEAMS"
+    | "IN_PERSON"
+    | "PERSONAL_ROOM"
+    | "PERSONAL_ZOOM_ROOM"
+    | "PERSONAL_TEAMS_ROOM"
+    | "NONE",
 ): string {
   switch (p) {
     case "ZOOM": return "Zoom";
     case "TEAMS": return "Microsoft Teams";
     case "IN_PERSON": return "In person";
     case "PERSONAL_ROOM": return "Personal room";
+    case "PERSONAL_ZOOM_ROOM": return "Personal Zoom room";
+    case "PERSONAL_TEAMS_ROOM": return "Personal Teams room";
     case "NONE": return "No conferencing";
     default: return "Google Meet";
   }

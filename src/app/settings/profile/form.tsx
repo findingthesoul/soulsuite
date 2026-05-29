@@ -16,10 +16,12 @@ interface Initial {
   location: string | null;
   bio: string | null;
   photoUrl: string | null;
-  personalRoomUrl: string | null;
-  // Number of meeting types currently using PERSONAL_ROOM, so we can warn the host before they
-  // clear their stored URL (which would break new bookings on those MTs at finalize time).
-  personalRoomMtCount: number;
+  personalZoomRoomUrl: string | null;
+  personalTeamsRoomUrl: string | null;
+  // Number of meeting types currently using each personal-room flavour, so we can warn the host
+  // before they clear a stored URL (which would break new bookings on those MTs at finalize time).
+  personalZoomRoomMtCount: number;
+  personalTeamsRoomMtCount: number;
   requireApprovalDefault: boolean;
 }
 
@@ -29,7 +31,8 @@ interface Draft {
   location: string;
   bio: string;
   photoUrl: string;
-  personalRoomUrl: string;
+  personalZoomRoomUrl: string;
+  personalTeamsRoomUrl: string;
   requireApprovalDefault: boolean;
 }
 
@@ -41,7 +44,8 @@ export function ProfileForm({ initial }: { initial: Initial }) {
     location: initial.location ?? "",
     bio: initial.bio ?? "",
     photoUrl: initial.photoUrl ?? "",
-    personalRoomUrl: initial.personalRoomUrl ?? "",
+    personalZoomRoomUrl: initial.personalZoomRoomUrl ?? "",
+    personalTeamsRoomUrl: initial.personalTeamsRoomUrl ?? "",
     requireApprovalDefault: initial.requireApprovalDefault,
   });
   const [pending, startTransition] = useTransition();
@@ -54,23 +58,41 @@ export function ProfileForm({ initial }: { initial: Initial }) {
     if (draft.photoUrl.trim() && !draft.photoUrl.startsWith("https://")) {
       return setError("Photo URL must start with https://");
     }
-    if (draft.personalRoomUrl.trim() && !draft.personalRoomUrl.trim().startsWith("https://")) {
-      return setError("Personal room URL must start with https://");
+    if (draft.personalZoomRoomUrl.trim() && !draft.personalZoomRoomUrl.trim().startsWith("https://")) {
+      return setError("Personal Zoom room URL must start with https://");
     }
-    if (draft.personalRoomUrl.length > 300) {
-      return setError("Personal room URL is too long (max 300 characters).");
+    if (draft.personalZoomRoomUrl.length > 300) {
+      return setError("Personal Zoom room URL is too long (max 300 characters).");
     }
-    // Warn-on-clear: clearing the URL while MTs use PERSONAL_ROOM doesn't auto-rewire those MTs
-    // (we let new bookings fail loudly at finalize rather than silently swap providers). Confirm
-    // so the host realises the impact.
-    const clearingPersonalRoom =
-      (initial.personalRoomUrl ?? "").length > 0 && draft.personalRoomUrl.trim().length === 0;
-    if (clearingPersonalRoom && initial.personalRoomMtCount > 0) {
+    if (draft.personalTeamsRoomUrl.trim() && !draft.personalTeamsRoomUrl.trim().startsWith("https://")) {
+      return setError("Personal Teams room URL must start with https://");
+    }
+    if (draft.personalTeamsRoomUrl.length > 300) {
+      return setError("Personal Teams room URL is too long (max 300 characters).");
+    }
+    // Warn-on-clear per platform: clearing either URL while MTs reference it doesn't auto-rewire
+    // them — new bookings fail loudly at finalize instead of silently swapping providers. Surface
+    // the impact so the host can back out.
+    const clearingZoom =
+      (initial.personalZoomRoomUrl ?? "").length > 0 && draft.personalZoomRoomUrl.trim().length === 0;
+    if (clearingZoom && initial.personalZoomRoomMtCount > 0) {
       const ok = confirm(
-        `${initial.personalRoomMtCount} of your meeting type${
-          initial.personalRoomMtCount === 1 ? "" : "s"
-        } use your personal room. Clearing this URL will break new bookings on ${
-          initial.personalRoomMtCount === 1 ? "that one" : "those"
+        `${initial.personalZoomRoomMtCount} of your meeting type${
+          initial.personalZoomRoomMtCount === 1 ? "" : "s"
+        } use your Zoom personal room. Clearing this URL will break new bookings on ${
+          initial.personalZoomRoomMtCount === 1 ? "that one" : "those"
+        } until you set it again or switch them to a different provider. Continue?`,
+      );
+      if (!ok) return;
+    }
+    const clearingTeams =
+      (initial.personalTeamsRoomUrl ?? "").length > 0 && draft.personalTeamsRoomUrl.trim().length === 0;
+    if (clearingTeams && initial.personalTeamsRoomMtCount > 0) {
+      const ok = confirm(
+        `${initial.personalTeamsRoomMtCount} of your meeting type${
+          initial.personalTeamsRoomMtCount === 1 ? "" : "s"
+        } use your Teams personal room. Clearing this URL will break new bookings on ${
+          initial.personalTeamsRoomMtCount === 1 ? "that one" : "those"
         } until you set it again or switch them to a different provider. Continue?`,
       );
       if (!ok) return;
@@ -82,7 +104,8 @@ export function ProfileForm({ initial }: { initial: Initial }) {
         location: draft.location.trim(),
         bio: draft.bio.trim(),
         photoUrl: draft.photoUrl.trim(),
-        personalRoomUrl: draft.personalRoomUrl.trim(),
+        personalZoomRoomUrl: draft.personalZoomRoomUrl.trim(),
+        personalTeamsRoomUrl: draft.personalTeamsRoomUrl.trim(),
         requireApprovalDefault: draft.requireApprovalDefault,
       };
       const res = await fetch("/api/settings/profile", {
@@ -94,7 +117,8 @@ export function ProfileForm({ initial }: { initial: Initial }) {
           location: next.location || null,
           bio: next.bio || null,
           photoUrl: next.photoUrl || null,
-          personalRoomUrl: next.personalRoomUrl || null,
+          personalZoomRoomUrl: next.personalZoomRoomUrl || null,
+          personalTeamsRoomUrl: next.personalTeamsRoomUrl || null,
           requireApprovalDefault: next.requireApprovalDefault,
         }),
       });
@@ -168,19 +192,34 @@ export function ProfileForm({ initial }: { initial: Initial }) {
               placeholder="https://..."
             />
           </Field>
-          <Field id="personalRoomUrl" label="Personal digital room URL">
+          <Field id="personalZoomRoomUrl" label="Personal Zoom room URL">
             <Input
-              id="personalRoomUrl"
+              id="personalZoomRoomUrl"
               type="url"
-              value={draft.personalRoomUrl}
-              onChange={(e) => update({ personalRoomUrl: e.target.value })}
+              value={draft.personalZoomRoomUrl}
+              onChange={(e) => update({ personalZoomRoomUrl: e.target.value })}
               placeholder="https://soul.zoom.us/my/yourname"
               maxLength={300}
             />
             <p className="text-xs text-muted-foreground">
-              Your persistent meeting URL — Zoom Personal Meeting Room, Google Meet permanent
-              room, Whereby room, etc. Meeting types set to <span className="text-foreground">Personal room</span> hand
-              this link to invitees with no per-booking provider call.
+              Your Zoom Personal Meeting Room. Meeting types set to{" "}
+              <span className="text-foreground">Personal Zoom room</span> hand this link to
+              invitees instead of generating a fresh meeting per booking.
+            </p>
+          </Field>
+          <Field id="personalTeamsRoomUrl" label="Personal Teams room URL">
+            <Input
+              id="personalTeamsRoomUrl"
+              type="url"
+              value={draft.personalTeamsRoomUrl}
+              onChange={(e) => update({ personalTeamsRoomUrl: e.target.value })}
+              placeholder="https://teams.microsoft.com/l/meetup-join/..."
+              maxLength={300}
+            />
+            <p className="text-xs text-muted-foreground">
+              Your Microsoft Teams permanent meeting link. Meeting types set to{" "}
+              <span className="text-foreground">Personal Teams room</span> hand this link to
+              invitees instead of generating a fresh meeting per booking.
             </p>
           </Field>
           <div className="space-y-1.5 pt-2 border-t border-border">

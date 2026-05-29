@@ -33,7 +33,8 @@ type ConferencingProvider =
   | "ZOOM"
   | "TEAMS"
   | "IN_PERSON"
-  | "PERSONAL_ROOM"
+  | "PERSONAL_ZOOM_ROOM"
+  | "PERSONAL_TEAMS_ROOM"
   | "NONE";
 type RoutingMode = "SINGLE" | "ROUND_ROBIN" | "COLLECTIVE";
 type Fairness = "LEAST_RECENTLY_ASSIGNED" | "LEAST_LOADED" | "STRICT_ROTATION" | "RANDOM";
@@ -53,7 +54,8 @@ interface ProjectMember {
   isExternal: boolean;
   hasZoom: boolean;
   hasStripe: boolean;
-  hasPersonalRoom: boolean;
+  hasPersonalZoomRoom: boolean;
+  hasPersonalTeamsRoom: boolean;
   calendars: { id: string; summary: string; role: "PRIMARY" | "CONFLICT_CHECK" | "WRITE_TARGET" }[];
 }
 
@@ -1032,10 +1034,16 @@ function validateProjectDraft(
       }
     }
   }
-  // PERSONAL_ROOM: each booking hands the picked host's stored URL to the invitee. Same shape as
-  // Zoom — COLLECTIVE checks the conferencing host only; SINGLE/ROUND_ROBIN checks every assigned
-  // host (each booking uses the booker's own room).
-  if (draft.conferencingProvider === "PERSONAL_ROOM") {
+  // PERSONAL_ZOOM_ROOM / PERSONAL_TEAMS_ROOM: each booking hands the picked host's stored URL to
+  // the invitee. Same shape as Zoom — COLLECTIVE checks the conferencing host only;
+  // SINGLE/ROUND_ROBIN checks every assigned host (each booking uses the booker's own room).
+  if (
+    draft.conferencingProvider === "PERSONAL_ZOOM_ROOM" ||
+    draft.conferencingProvider === "PERSONAL_TEAMS_ROOM"
+  ) {
+    const isZoom = draft.conferencingProvider === "PERSONAL_ZOOM_ROOM";
+    const has = (m: ProjectMember) => (isZoom ? m.hasPersonalZoomRoom : m.hasPersonalTeamsRoom);
+    const label = isZoom ? "Zoom" : "Teams";
     if (draft.routingMode === "COLLECTIVE") {
       const confId = draft.conferencingHostId;
       if (!confId || !draft.assignedHostIds.includes(confId)) {
@@ -1045,21 +1053,21 @@ function validateProjectDraft(
         });
       } else {
         const confMember = members.find((m) => m.hostId === confId);
-        if (!confMember?.hasPersonalRoom) {
+        if (!confMember || !has(confMember)) {
           errors.push({
             tabKey: "conferencing",
-            message: `${confMember?.name ?? "The conferencing host"} hasn't set a personal room URL on their profile.`,
+            message: `${confMember?.name ?? "The conferencing host"} hasn't set a personal ${label} room URL on their profile.`,
           });
         }
       }
     } else {
       const missing = draft.assignedHostIds
         .map((id) => members.find((m) => m.hostId === id))
-        .filter((m): m is ProjectMember => Boolean(m && !m.hasPersonalRoom));
+        .filter((m): m is ProjectMember => Boolean(m && !has(m)));
       if (missing.length > 0) {
         errors.push({
           tabKey: "conferencing",
-          message: `These assigned hosts haven't set a personal room URL: ${missing
+          message: `These assigned hosts haven't set a personal ${label} room URL: ${missing
             .map((m) => m.name)
             .join(", ")}.`,
         });
@@ -1179,22 +1187,28 @@ function validateDraft(draft: DraftValues, members: ProjectMember[]): string | n
   if (draft.conferencingProvider === "IN_PERSON" && draft.defaultLocation.trim().length === 0) {
     return "Enter a default location for in-person meetings.";
   }
-  if (draft.conferencingProvider === "PERSONAL_ROOM") {
+  if (
+    draft.conferencingProvider === "PERSONAL_ZOOM_ROOM" ||
+    draft.conferencingProvider === "PERSONAL_TEAMS_ROOM"
+  ) {
+    const isZoom = draft.conferencingProvider === "PERSONAL_ZOOM_ROOM";
+    const has = (m: ProjectMember) => (isZoom ? m.hasPersonalZoomRoom : m.hasPersonalTeamsRoom);
+    const label = isZoom ? "Zoom" : "Teams";
     if (draft.routingMode === "COLLECTIVE") {
       const confId = draft.conferencingHostId;
       if (!confId || !draft.assignedHostIds.includes(confId)) {
         return "Pick a conferencing host from the assigned hosts.";
       }
       const confMember = members.find((m) => m.hostId === confId);
-      if (!confMember?.hasPersonalRoom) {
-        return `${confMember?.name ?? "The conferencing host"} hasn't set a personal room URL on their profile.`;
+      if (!confMember || !has(confMember)) {
+        return `${confMember?.name ?? "The conferencing host"} hasn't set a personal ${label} room URL on their profile.`;
       }
     } else {
       const missing = draft.assignedHostIds
         .map((id) => members.find((m) => m.hostId === id))
-        .filter((m): m is ProjectMember => Boolean(m && !m.hasPersonalRoom));
+        .filter((m): m is ProjectMember => Boolean(m && !has(m)));
       if (missing.length > 0) {
-        return `These assigned hosts haven't set a personal room URL: ${missing.map((m) => m.name).join(", ")}.`;
+        return `These assigned hosts haven't set a personal ${label} room URL: ${missing.map((m) => m.name).join(", ")}.`;
       }
     }
   }
@@ -1848,27 +1862,46 @@ function ProjectConferencingEditor({
       ? " — every assigned host must connect Zoom first"
       : "";
 
-  // PERSONAL_ROOM: COLLECTIVE needs *some* assigned host to have one set (the conferencing host
-  // pick narrows it later); SINGLE/ROUND_ROBIN needs every assigned host to have one (each booking
-  // hands the picked host's URL to the invitee).
-  const anyAssignedHasPersonalRoom = assigned.some((m) => m.hasPersonalRoom);
-  const personalRoomDisabled = isCollective
-    ? !anyAssignedHasPersonalRoom
-    : assigned.length === 0 || !assigned.every((m) => m.hasPersonalRoom);
-  const personalRoomLabel = isCollective
-    ? anyAssignedHasPersonalRoom
+  // PERSONAL_ZOOM_ROOM / PERSONAL_TEAMS_ROOM: COLLECTIVE needs *some* assigned host to have one
+  // set (the conferencing host pick narrows it later); SINGLE/ROUND_ROBIN needs every assigned
+  // host to have one (each booking hands the picked host's URL to the invitee).
+  const anyAssignedHasPersonalZoomRoom = assigned.some((m) => m.hasPersonalZoomRoom);
+  const personalZoomRoomDisabled = isCollective
+    ? !anyAssignedHasPersonalZoomRoom
+    : assigned.length === 0 || !assigned.every((m) => m.hasPersonalZoomRoom);
+  const personalZoomRoomLabel = isCollective
+    ? anyAssignedHasPersonalZoomRoom
       ? ""
-      : " — at least one assigned host must set a personal room URL first"
-    : personalRoomDisabled
-      ? " — every assigned host must set a personal room URL first"
+      : " — at least one assigned host must set a Zoom room URL first"
+    : personalZoomRoomDisabled
+      ? " — every assigned host must set a Zoom room URL first"
       : "";
-  const missingPersonalRoom: ProjectMember[] =
-    draft.conferencingProvider === "PERSONAL_ROOM"
+  const anyAssignedHasPersonalTeamsRoom = assigned.some((m) => m.hasPersonalTeamsRoom);
+  const personalTeamsRoomDisabled = isCollective
+    ? !anyAssignedHasPersonalTeamsRoom
+    : assigned.length === 0 || !assigned.every((m) => m.hasPersonalTeamsRoom);
+  const personalTeamsRoomLabel = isCollective
+    ? anyAssignedHasPersonalTeamsRoom
+      ? ""
+      : " — at least one assigned host must set a Teams room URL first"
+    : personalTeamsRoomDisabled
+      ? " — every assigned host must set a Teams room URL first"
+      : "";
+  const missingPersonalZoomRoom: ProjectMember[] =
+    draft.conferencingProvider === "PERSONAL_ZOOM_ROOM"
       ? isCollective
-        ? confHost && !confHost.hasPersonalRoom
+        ? confHost && !confHost.hasPersonalZoomRoom
           ? [confHost]
           : []
-        : assigned.filter((m) => !m.hasPersonalRoom)
+        : assigned.filter((m) => !m.hasPersonalZoomRoom)
+      : [];
+  const missingPersonalTeamsRoom: ProjectMember[] =
+    draft.conferencingProvider === "PERSONAL_TEAMS_ROOM"
+      ? isCollective
+        ? confHost && !confHost.hasPersonalTeamsRoom
+          ? [confHost]
+          : []
+        : assigned.filter((m) => !m.hasPersonalTeamsRoom)
       : [];
 
   return (
@@ -1888,14 +1921,18 @@ function ProjectConferencingEditor({
             Microsoft Teams — coming later
           </option>
           <option value="IN_PERSON">In person</option>
-          <option value="PERSONAL_ROOM" disabled={personalRoomDisabled}>
-            Personal room{personalRoomLabel}
+          <option value="PERSONAL_ZOOM_ROOM" disabled={personalZoomRoomDisabled}>
+            Personal Zoom room{personalZoomRoomLabel}
+          </option>
+          <option value="PERSONAL_TEAMS_ROOM" disabled={personalTeamsRoomDisabled}>
+            Personal Teams room{personalTeamsRoomLabel}
           </option>
           <option value="NONE">None (no conferencing link)</option>
         </Select>
       </div>
 
-      {draft.conferencingProvider === "PERSONAL_ROOM" && (
+      {(draft.conferencingProvider === "PERSONAL_ZOOM_ROOM" ||
+        draft.conferencingProvider === "PERSONAL_TEAMS_ROOM") && (
         <p className="text-xs text-muted-foreground">
           Each booking hands the picked host&apos;s saved personal room URL to the invitee. Hosts
           set their URL on their <span className="text-foreground">Profile</span> page.
@@ -1947,7 +1984,8 @@ function ProjectConferencingEditor({
               attendees.
             </p>
           )}
-          {draft.conferencingProvider === "PERSONAL_ROOM" && (
+          {(draft.conferencingProvider === "PERSONAL_ZOOM_ROOM" ||
+            draft.conferencingProvider === "PERSONAL_TEAMS_ROOM") && (
             <p className="text-xs text-muted-foreground">
               The booking hands this host&apos;s saved personal room URL to the invitee. Other
               assigned hosts join as attendees on the calendar invite.
@@ -1961,10 +1999,16 @@ function ProjectConferencingEditor({
           {missingZoom.map((m) => m.name).join(", ")} {missingZoom.length === 1 ? "hasn't" : "haven't"} connected Zoom yet.
         </p>
       )}
-      {missingPersonalRoom.length > 0 && (
+      {missingPersonalZoomRoom.length > 0 && (
         <p className="text-xs text-destructive">
-          {missingPersonalRoom.map((m) => m.name).join(", ")}{" "}
-          {missingPersonalRoom.length === 1 ? "hasn't" : "haven't"} set a personal room URL yet.
+          {missingPersonalZoomRoom.map((m) => m.name).join(", ")}{" "}
+          {missingPersonalZoomRoom.length === 1 ? "hasn't" : "haven't"} set a personal Zoom room URL yet.
+        </p>
+      )}
+      {missingPersonalTeamsRoom.length > 0 && (
+        <p className="text-xs text-destructive">
+          {missingPersonalTeamsRoom.map((m) => m.name).join(", ")}{" "}
+          {missingPersonalTeamsRoom.length === 1 ? "hasn't" : "haven't"} set a personal Teams room URL yet.
         </p>
       )}
     </div>

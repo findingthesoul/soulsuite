@@ -45,6 +45,8 @@ const patchSchema = z.object({
     "IN_PERSON",
     "PERSONAL_ZOOM_ROOM",
     "PERSONAL_TEAMS_ROOM",
+    "WORKSPACE_ZOOM_ROOM",
+    "WORKSPACE_TEAMS_ROOM",
     "NONE",
   ]),
   defaultLocation: z.string().trim().max(500).nullable().optional(),
@@ -104,6 +106,26 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       "Set your Teams room URL on your profile before using it here.",
       { status: 400 },
     );
+  }
+  if (
+    parsed.data.conferencingProvider === "WORKSPACE_ZOOM_ROOM" ||
+    parsed.data.conferencingProvider === "WORKSPACE_TEAMS_ROOM"
+  ) {
+    const membership = await prisma.workspaceMember.findFirst({
+      where: { hostId: host.id },
+      include: { workspace: true },
+    });
+    const url =
+      parsed.data.conferencingProvider === "WORKSPACE_ZOOM_ROOM"
+        ? membership?.workspace.sharedZoomRoomUrl
+        : membership?.workspace.sharedTeamsRoomUrl;
+    if (!url) {
+      const label = parsed.data.conferencingProvider === "WORKSPACE_ZOOM_ROOM" ? "Zoom" : "Teams";
+      return new NextResponse(
+        `Set the workspace's ${label} room URL in Settings → Workspace before using it here.`,
+        { status: 400 },
+      );
+    }
   }
 
   const isPaid = (parsed.data.priceCents ?? 0) > 0;

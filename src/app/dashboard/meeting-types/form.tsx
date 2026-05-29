@@ -64,6 +64,8 @@ export type ConferencingProvider =
   | "IN_PERSON"
   | "PERSONAL_ZOOM_ROOM"
   | "PERSONAL_TEAMS_ROOM"
+  | "WORKSPACE_ZOOM_ROOM"
+  | "WORKSPACE_TEAMS_ROOM"
   | "NONE";
 
 export interface HostCalendar {
@@ -222,6 +224,8 @@ function validatePersonalDraft(
   hostHasStripe: boolean,
   hostHasPersonalZoomRoom: boolean,
   hostHasPersonalTeamsRoom: boolean,
+  workspaceHasZoomRoom: boolean,
+  workspaceHasTeamsRoom: boolean,
 ): TabError[] {
   const errors: TabError[] = [];
   if (draft.name.trim().length < 2) {
@@ -276,6 +280,18 @@ function validatePersonalDraft(
       message: "Set your Teams room URL on your profile before using it here.",
     });
   }
+  if (draft.conferencingProvider === "WORKSPACE_ZOOM_ROOM" && !workspaceHasZoomRoom) {
+    errors.push({
+      tabKey: "conferencing",
+      message: "Set the workspace's Zoom room URL in Settings → Workspace before using it here.",
+    });
+  }
+  if (draft.conferencingProvider === "WORKSPACE_TEAMS_ROOM" && !workspaceHasTeamsRoom) {
+    errors.push({
+      tabKey: "conferencing",
+      message: "Set the workspace's Teams room URL in Settings → Workspace before using it here.",
+    });
+  }
   const pricingErr = validatePricing(draft, hostHasStripe);
   if (pricingErr) {
     errors.push({ tabKey: "pricing", message: pricingErr });
@@ -300,6 +316,8 @@ export function MeetingTypeForm({
   hostHasStripe,
   hostHasPersonalZoomRoom,
   hostHasPersonalTeamsRoom,
+  workspaceHasZoomRoom,
+  workspaceHasTeamsRoom,
   hostRequireApprovalDefault,
   initial,
 }: {
@@ -309,6 +327,8 @@ export function MeetingTypeForm({
   hostHasStripe: boolean;
   hostHasPersonalZoomRoom: boolean;
   hostHasPersonalTeamsRoom: boolean;
+  workspaceHasZoomRoom: boolean;
+  workspaceHasTeamsRoom: boolean;
   hostRequireApprovalDefault: boolean;
   initial?: Initial;
 }) {
@@ -325,6 +345,8 @@ export function MeetingTypeForm({
         hostHasStripe={hostHasStripe}
         hostHasPersonalZoomRoom={hostHasPersonalZoomRoom}
         hostHasPersonalTeamsRoom={hostHasPersonalTeamsRoom}
+        workspaceHasZoomRoom={workspaceHasZoomRoom}
+        workspaceHasTeamsRoom={workspaceHasTeamsRoom}
         initial={initial}
       />
     );
@@ -339,6 +361,8 @@ export function MeetingTypeForm({
       hostHasStripe={hostHasStripe}
       hostHasPersonalZoomRoom={hostHasPersonalZoomRoom}
       hostHasPersonalTeamsRoom={hostHasPersonalTeamsRoom}
+      workspaceHasZoomRoom={workspaceHasZoomRoom}
+      workspaceHasTeamsRoom={workspaceHasTeamsRoom}
       hostRequireApprovalDefault={hostRequireApprovalDefault}
       onCreated={(id) => {
         // unused for now; create POST returns id but redirect is enough.
@@ -360,6 +384,8 @@ function EditMeetingTypeForm({
   hostHasStripe,
   hostHasPersonalZoomRoom,
   hostHasPersonalTeamsRoom,
+  workspaceHasZoomRoom,
+  workspaceHasTeamsRoom,
   initial,
 }: {
   hostSlug: string;
@@ -368,6 +394,8 @@ function EditMeetingTypeForm({
   hostHasStripe: boolean;
   hostHasPersonalZoomRoom: boolean;
   hostHasPersonalTeamsRoom: boolean;
+  workspaceHasZoomRoom: boolean;
+  workspaceHasTeamsRoom: boolean;
   initial: Initial;
 }) {
   const router = useRouter();
@@ -401,6 +429,8 @@ function EditMeetingTypeForm({
       hostHasStripe,
       hostHasPersonalZoomRoom,
       hostHasPersonalTeamsRoom,
+      workspaceHasZoomRoom,
+      workspaceHasTeamsRoom,
     );
     if (errors.length > 0) {
       setTabErrors(errors);
@@ -581,6 +611,8 @@ function EditMeetingTypeForm({
                 hostHasZoom={hostHasZoom}
                 hostHasPersonalZoomRoom={hostHasPersonalZoomRoom}
                 hostHasPersonalTeamsRoom={hostHasPersonalTeamsRoom}
+                workspaceHasZoomRoom={workspaceHasZoomRoom}
+                workspaceHasTeamsRoom={workspaceHasTeamsRoom}
               />
             </CardContent>
           </Card>
@@ -656,6 +688,8 @@ function CreateMeetingTypeForm({
   hostHasStripe,
   hostHasPersonalZoomRoom,
   hostHasPersonalTeamsRoom,
+  workspaceHasZoomRoom,
+  workspaceHasTeamsRoom,
   hostRequireApprovalDefault,
   router,
 }: {
@@ -665,6 +699,8 @@ function CreateMeetingTypeForm({
   hostHasStripe: boolean;
   hostHasPersonalZoomRoom: boolean;
   hostHasPersonalTeamsRoom: boolean;
+  workspaceHasZoomRoom: boolean;
+  workspaceHasTeamsRoom: boolean;
   hostRequireApprovalDefault: boolean;
   onCreated: (id: string) => void;
   router: Router;
@@ -710,6 +746,12 @@ function CreateMeetingTypeForm({
     }
     if (draft.conferencingProvider === "PERSONAL_TEAMS_ROOM" && !hostHasPersonalTeamsRoom) {
       return setError("Set your Teams room URL on your profile before using it here.");
+    }
+    if (draft.conferencingProvider === "WORKSPACE_ZOOM_ROOM" && !workspaceHasZoomRoom) {
+      return setError("Set the workspace's Zoom room URL in Settings → Workspace first.");
+    }
+    if (draft.conferencingProvider === "WORKSPACE_TEAMS_ROOM" && !workspaceHasTeamsRoom) {
+      return setError("Set the workspace's Teams room URL in Settings → Workspace first.");
     }
     if (!Number.isInteger(draft.maxInvitees) || draft.maxInvitees < 1 || draft.maxInvitees > 50) {
       return setError("Max invitees must be a whole number between 1 and 50.");
@@ -843,6 +885,8 @@ function CreateMeetingTypeForm({
             hostHasZoom={hostHasZoom}
             hostHasPersonalZoomRoom={hostHasPersonalZoomRoom}
             hostHasPersonalTeamsRoom={hostHasPersonalTeamsRoom}
+            workspaceHasZoomRoom={workspaceHasZoomRoom}
+            workspaceHasTeamsRoom={workspaceHasTeamsRoom}
           />
         </CardContent>
       </Card>
@@ -1202,12 +1246,16 @@ function ConferencingEditor({
   hostHasZoom,
   hostHasPersonalZoomRoom,
   hostHasPersonalTeamsRoom,
+  workspaceHasZoomRoom,
+  workspaceHasTeamsRoom,
 }: {
   draft: DraftValues;
   update: <K extends keyof DraftValues>(key: K, value: DraftValues[K]) => void;
   hostHasZoom: boolean;
   hostHasPersonalZoomRoom: boolean;
   hostHasPersonalTeamsRoom: boolean;
+  workspaceHasZoomRoom: boolean;
+  workspaceHasTeamsRoom: boolean;
 }) {
   return (
     <div className="space-y-3">
@@ -1234,6 +1282,14 @@ function ConferencingEditor({
             Personal Teams room
             {hostHasPersonalTeamsRoom ? "" : " — set your Teams room URL on your profile first"}
           </option>
+          <option value="WORKSPACE_ZOOM_ROOM" disabled={!workspaceHasZoomRoom}>
+            Workspace Zoom room
+            {workspaceHasZoomRoom ? "" : " — set the workspace's Zoom room URL in Settings → Workspace"}
+          </option>
+          <option value="WORKSPACE_TEAMS_ROOM" disabled={!workspaceHasTeamsRoom}>
+            Workspace Teams room
+            {workspaceHasTeamsRoom ? "" : " — set the workspace's Teams room URL in Settings → Workspace"}
+          </option>
           <option value="NONE">None (no conferencing link)</option>
         </Select>
       </div>
@@ -1257,6 +1313,13 @@ function ConferencingEditor({
         <p className="text-xs text-muted-foreground">
           Every booking will hand your stored personal room URL to the invitee. Update it any time
           on your <span className="text-foreground">Profile</span> page.
+        </p>
+      )}
+      {(draft.conferencingProvider === "WORKSPACE_ZOOM_ROOM" ||
+        draft.conferencingProvider === "WORKSPACE_TEAMS_ROOM") && (
+        <p className="text-xs text-muted-foreground">
+          Every booking hands the workspace&apos;s shared room URL to the invitee. Manage it in
+          <span className="text-foreground"> Settings → Workspace</span>.
         </p>
       )}
     </div>

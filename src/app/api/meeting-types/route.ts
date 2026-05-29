@@ -46,6 +46,8 @@ const bodySchema = z.object({
       "IN_PERSON",
       "PERSONAL_ZOOM_ROOM",
       "PERSONAL_TEAMS_ROOM",
+      "WORKSPACE_ZOOM_ROOM",
+      "WORKSPACE_TEAMS_ROOM",
       "NONE",
     ])
     .default("GOOGLE_MEET"),
@@ -102,6 +104,26 @@ export async function POST(request: NextRequest) {
       "Set your Teams room URL on your profile before using it here.",
       { status: 400 },
     );
+  }
+  if (
+    data.conferencingProvider === "WORKSPACE_ZOOM_ROOM" ||
+    data.conferencingProvider === "WORKSPACE_TEAMS_ROOM"
+  ) {
+    const membership = await prisma.workspaceMember.findFirst({
+      where: { hostId: host.id },
+      include: { workspace: true },
+    });
+    const url =
+      data.conferencingProvider === "WORKSPACE_ZOOM_ROOM"
+        ? membership?.workspace.sharedZoomRoomUrl
+        : membership?.workspace.sharedTeamsRoomUrl;
+    if (!url) {
+      const label = data.conferencingProvider === "WORKSPACE_ZOOM_ROOM" ? "Zoom" : "Teams";
+      return new NextResponse(
+        `Set the workspace's ${label} room URL in Settings → Workspace before using it here.`,
+        { status: 400 },
+      );
+    }
   }
 
   // Pricing: paid MTs need a currency, plus per-rail validation (Stripe needs a connected

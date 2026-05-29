@@ -31,6 +31,12 @@ model Workspace {
   // Branding — surfaced in the app header and (later) public booking pages.
   logoUrl            String?
   brandColor         String? // hex like "#1c1917"
+  // Shared persistent meeting rooms — workspace-level alternative to per-host personal rooms.
+  // Used by meeting types with conferencingProvider=WORKSPACE_ZOOM_ROOM / WORKSPACE_TEAMS_ROOM.
+  // The booking hands the workspace's URL to the invitee regardless of which host is on the
+  // booking — useful for teams that publish one company room and rotate hosts behind it.
+  sharedZoomRoomUrl  String?
+  sharedTeamsRoomUrl String?
   createdAt          DateTime @default(now())
 
   members  WorkspaceMember[]
@@ -255,6 +261,8 @@ enum ConferencingProvider {
   PERSONAL_ROOM
   PERSONAL_ZOOM_ROOM
   PERSONAL_TEAMS_ROOM
+  WORKSPACE_ZOOM_ROOM
+  WORKSPACE_TEAMS_ROOM
   NONE
 }
 

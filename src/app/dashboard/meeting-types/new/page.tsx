@@ -5,10 +5,16 @@ import { MeetingTypeForm } from "../form";
 
 export default async function NewMeetingTypePage() {
   const ctx = await getPageContextOrRedirect();
-  const calendars = await prisma.calendar.findMany({
-    where: { hostId: ctx.host.id },
-    orderBy: { createdAt: "asc" },
-  });
+  const [calendars, membership] = await Promise.all([
+    prisma.calendar.findMany({
+      where: { hostId: ctx.host.id },
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.workspaceMember.findFirst({
+      where: { hostId: ctx.host.id },
+      include: { workspace: true },
+    }),
+  ]);
   return (
     <AppShell {...shellProps(ctx)}>
       <div className="mx-auto w-full max-w-2xl space-y-6">
@@ -24,6 +30,8 @@ export default async function NewMeetingTypePage() {
           hostHasStripe={!!ctx.host.stripeAccountId}
           hostHasPersonalZoomRoom={!!ctx.host.personalZoomRoomUrl}
           hostHasPersonalTeamsRoom={!!ctx.host.personalTeamsRoomUrl}
+          workspaceHasZoomRoom={!!membership?.workspace.sharedZoomRoomUrl}
+          workspaceHasTeamsRoom={!!membership?.workspace.sharedTeamsRoomUrl}
           hostRequireApprovalDefault={ctx.host.requireApprovalDefault}
           hostCalendars={calendars.map((c) => ({
             id: c.id,

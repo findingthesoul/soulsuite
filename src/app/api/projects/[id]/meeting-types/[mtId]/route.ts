@@ -39,6 +39,8 @@ const patchSchema = z.object({
     "IN_PERSON",
     "PERSONAL_ZOOM_ROOM",
     "PERSONAL_TEAMS_ROOM",
+    "WORKSPACE_ZOOM_ROOM",
+    "WORKSPACE_TEAMS_ROOM",
     "NONE",
   ]),
   conferencingHostId: z.string().min(1).nullable().optional(),
@@ -133,7 +135,12 @@ export async function PATCH(
   }
 
   let conferencingHostId: string | null = null;
-  if (data.routingMode === "COLLECTIVE" && data.conferencingProvider !== "NONE") {
+  if (
+    data.routingMode === "COLLECTIVE" &&
+    data.conferencingProvider !== "NONE" &&
+    data.conferencingProvider !== "WORKSPACE_ZOOM_ROOM" &&
+    data.conferencingProvider !== "WORKSPACE_TEAMS_ROOM"
+  ) {
     if (!data.conferencingHostId) {
       return new NextResponse("Pick a conferencing host from the assigned hosts.", { status: 400 });
     }
@@ -141,6 +148,27 @@ export async function PATCH(
       return new NextResponse("Conferencing host must be one of the assigned hosts.", { status: 400 });
     }
     conferencingHostId = data.conferencingHostId;
+  }
+
+  if (
+    data.conferencingProvider === "WORKSPACE_ZOOM_ROOM" ||
+    data.conferencingProvider === "WORKSPACE_TEAMS_ROOM"
+  ) {
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      include: { workspace: true },
+    });
+    const url =
+      data.conferencingProvider === "WORKSPACE_ZOOM_ROOM"
+        ? project?.workspace.sharedZoomRoomUrl
+        : project?.workspace.sharedTeamsRoomUrl;
+    if (!url) {
+      const label = data.conferencingProvider === "WORKSPACE_ZOOM_ROOM" ? "Zoom" : "Teams";
+      return new NextResponse(
+        `Set the workspace's ${label} room URL in Settings → Workspace before using it here.`,
+        { status: 400 },
+      );
+    }
   }
 
   if (data.paymentMethod === "ADYEN") {

@@ -1,9 +1,14 @@
 import { getPageContextOrRedirect, shellProps } from "@/lib/page-context";
+import { prisma } from "@/lib/prisma";
 import { AppShell } from "@/components/app-shell";
 import { OneOffMeetingTypeForm } from "./form";
 
 export default async function NewOneOffMeetingTypePage() {
   const ctx = await getPageContextOrRedirect();
+  const membership = await prisma.workspaceMember.findFirst({
+    where: { hostId: ctx.host.id },
+    include: { workspace: true },
+  });
   return (
     <AppShell {...shellProps(ctx)}>
       <div className="mx-auto w-full max-w-2xl space-y-6">
@@ -18,6 +23,8 @@ export default async function NewOneOffMeetingTypePage() {
           hostHasZoom={!!ctx.host.zoomRefreshToken}
           hostHasPersonalZoomRoom={!!ctx.host.personalZoomRoomUrl}
           hostHasPersonalTeamsRoom={!!ctx.host.personalTeamsRoomUrl}
+          workspaceHasZoomRoom={!!membership?.workspace.sharedZoomRoomUrl}
+          workspaceHasTeamsRoom={!!membership?.workspace.sharedTeamsRoomUrl}
         />
       </div>
     </AppShell>

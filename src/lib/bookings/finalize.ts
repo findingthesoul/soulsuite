@@ -98,6 +98,12 @@ export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResul
     meetingType.conferencingProvider === "PERSONAL_ZOOM_ROOM" ||
     meetingType.conferencingProvider === "PERSONAL_TEAMS_ROOM" ||
     meetingType.conferencingProvider === "PERSONAL_ROOM"; // legacy rows pre-migration
+  const isWorkspaceRoom =
+    meetingType.conferencingProvider === "WORKSPACE_ZOOM_ROOM" ||
+    meetingType.conferencingProvider === "WORKSPACE_TEAMS_ROOM";
+  // `personalRoomUrl` is the local variable name kept for back-compat — it carries the
+  // workspace URL too when the MT uses the workspace-room flavour, since the downstream
+  // calendar-event / email code just wants "the URL to hand to the invitee, or null".
   let personalRoomUrl: string | null = null;
   if (isPersonalRoom) {
     const url =
@@ -118,6 +124,50 @@ export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResul
         ok: false,
         status: 502,
         message: `The host hasn't set up their personal ${platform} room URL — please pick another time or contact them.`,
+      };
+    }
+    personalRoomUrl = url;
+  } else if (isWorkspaceRoom) {
+    // Resolve the host's workspace. Personal MTs pull via WorkspaceMember; project MTs go via
+    // Project.workspaceId, which is cheaper and unambiguous.
+    let workspaceId: string | null = null;
+    if (meetingType.scope === "PROJECT" && meetingType.projectId) {
+      const project = await prisma.project.findUnique({
+        where: { id: meetingType.projectId },
+        select: { workspaceId: true },
+      });
+      workspaceId = project?.workspaceId ?? null;
+    } else {
+      const member = await prisma.workspaceMember.findFirst({
+        where: { hostId: host.id },
+        select: { workspaceId: true },
+      });
+      workspaceId = member?.workspaceId ?? null;
+    }
+    const workspace = workspaceId
+      ? await prisma.workspace.findUnique({
+          where: { id: workspaceId },
+          select: { sharedZoomRoomUrl: true, sharedTeamsRoomUrl: true },
+        })
+      : null;
+    const url =
+      meetingType.conferencingProvider === "WORKSPACE_TEAMS_ROOM"
+        ? workspace?.sharedTeamsRoomUrl
+        : workspace?.sharedZoomRoomUrl;
+    if (!url) {
+      if (booking.paymentStatus === "PAID") {
+        await prisma.booking
+          .update({ where: { id: booking.id }, data: { status: "CANCELLED" } })
+          .catch(() => undefined);
+      } else {
+        await prisma.booking.delete({ where: { id: booking.id } }).catch(() => undefined);
+      }
+      const platform =
+        meetingType.conferencingProvider === "WORKSPACE_TEAMS_ROOM" ? "Teams" : "Zoom";
+      return {
+        ok: false,
+        status: 502,
+        message: `The workspace hasn't set up its shared ${platform} room URL — please pick another time or contact the host.`,
       };
     }
     personalRoomUrl = url;
@@ -199,7 +249,7 @@ export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResul
       (isInPerson && meetingType.defaultLocation
         ? `\nLocation: ${meetingType.defaultLocation}\n`
         : "") +
-      (isPersonalRoom && personalRoomUrl ? `\nJoin: ${personalRoomUrl}\n` : "") +
+      ((isPersonalRoom || isWorkspaceRoom) && personalRoomUrl ? `\nJoin: ${personalRoomUrl}\n` : "") +
       (zoomMeeting
         ? `\nJoin Zoom: ${zoomMeeting.joinUrl}` +
           (zoomMeeting.passcode ? `\nPasscode: ${zoomMeeting.passcode}` : "") +
@@ -322,7 +372,11 @@ export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResul
       ? meetingType.conferencingProvider === "PERSONAL_TEAMS_ROOM"
         ? "Personal Teams room"
         : "Personal Zoom room"
-      : null,
+      : isWorkspaceRoom
+        ? meetingType.conferencingProvider === "WORKSPACE_TEAMS_ROOM"
+          ? "Workspace Teams room"
+          : "Workspace Zoom room"
+        : null,
     // Prefer the per-booking alternativeLocation if a host already set one (e.g. on retry of
     // a previously-failed finalize). Otherwise fall back to the MT's defaultLocation for IN_PERSON.
     location:

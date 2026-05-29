@@ -15,11 +15,15 @@ export default async function EditMeetingTypePage({
   const { id } = await params;
   const ctx = await getPageContextOrRedirect();
 
-  const [mt, calendars] = await Promise.all([
+  const [mt, calendars, membership] = await Promise.all([
     prisma.meetingType.findUnique({ where: { id }, include: { intakeForm: true } }),
     prisma.calendar.findMany({
       where: { hostId: ctx.host.id },
       orderBy: { createdAt: "asc" },
+    }),
+    prisma.workspaceMember.findFirst({
+      where: { hostId: ctx.host.id },
+      include: { workspace: true },
     }),
   ]);
   if (!mt || mt.scope !== "PERSONAL" || mt.hostId !== ctx.host.id) notFound();
@@ -45,6 +49,8 @@ export default async function EditMeetingTypePage({
           hostHasStripe={!!ctx.host.stripeAccountId}
           hostHasPersonalZoomRoom={!!ctx.host.personalZoomRoomUrl}
           hostHasPersonalTeamsRoom={!!ctx.host.personalTeamsRoomUrl}
+          workspaceHasZoomRoom={!!membership?.workspace.sharedZoomRoomUrl}
+          workspaceHasTeamsRoom={!!membership?.workspace.sharedTeamsRoomUrl}
           hostRequireApprovalDefault={ctx.host.requireApprovalDefault}
           hostCalendars={calendars.map((c) => ({
             id: c.id,

@@ -16,6 +16,8 @@ type ConferencingProvider =
   | "IN_PERSON"
   | "PERSONAL_ZOOM_ROOM"
   | "PERSONAL_TEAMS_ROOM"
+  | "WORKSPACE_ZOOM_ROOM"
+  | "WORKSPACE_TEAMS_ROOM"
   | "NONE";
 
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
@@ -41,11 +43,15 @@ export function OneOffMeetingTypeForm({
   hostHasZoom,
   hostHasPersonalZoomRoom,
   hostHasPersonalTeamsRoom,
+  workspaceHasZoomRoom,
+  workspaceHasTeamsRoom,
 }: {
   hostSlug: string;
   hostHasZoom: boolean;
   hostHasPersonalZoomRoom: boolean;
   hostHasPersonalTeamsRoom: boolean;
+  workspaceHasZoomRoom: boolean;
+  workspaceHasTeamsRoom: boolean;
 }) {
   const router = useRouter();
   const [name, setName] = useState("");
@@ -90,6 +96,12 @@ export function OneOffMeetingTypeForm({
     }
     if (conferencingProvider === "PERSONAL_TEAMS_ROOM" && !hostHasPersonalTeamsRoom) {
       return setError("Set your Teams room URL on your profile before using it here.");
+    }
+    if (conferencingProvider === "WORKSPACE_ZOOM_ROOM" && !workspaceHasZoomRoom) {
+      return setError("Set the workspace's Zoom room URL in Settings → Workspace first.");
+    }
+    if (conferencingProvider === "WORKSPACE_TEAMS_ROOM" && !workspaceHasTeamsRoom) {
+      return setError("Set the workspace's Teams room URL in Settings → Workspace first.");
     }
     if (slots.length < 1) return setError("Add at least one slot.");
 
@@ -203,12 +215,27 @@ export function OneOffMeetingTypeForm({
               Personal Teams room
               {hostHasPersonalTeamsRoom ? "" : " — set your Teams room URL on your profile first"}
             </option>
+            <option value="WORKSPACE_ZOOM_ROOM" disabled={!workspaceHasZoomRoom}>
+              Workspace Zoom room
+              {workspaceHasZoomRoom ? "" : " — set the workspace's Zoom room URL in Settings → Workspace"}
+            </option>
+            <option value="WORKSPACE_TEAMS_ROOM" disabled={!workspaceHasTeamsRoom}>
+              Workspace Teams room
+              {workspaceHasTeamsRoom ? "" : " — set the workspace's Teams room URL in Settings → Workspace"}
+            </option>
             <option value="NONE">None (no conferencing link)</option>
           </Select>
           {(conferencingProvider === "PERSONAL_ZOOM_ROOM" ||
             conferencingProvider === "PERSONAL_TEAMS_ROOM") && (
             <p className="text-xs text-muted-foreground pt-2">
               Bookings will hand your stored personal room URL to the invitee.
+            </p>
+          )}
+          {(conferencingProvider === "WORKSPACE_ZOOM_ROOM" ||
+            conferencingProvider === "WORKSPACE_TEAMS_ROOM") && (
+            <p className="text-xs text-muted-foreground pt-2">
+              Bookings will hand the workspace&apos;s shared room URL to the invitee. Manage it in
+              Settings → Workspace.
             </p>
           )}
           {conferencingProvider === "IN_PERSON" && (

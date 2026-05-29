@@ -16,7 +16,10 @@ export default async function EditProjectMeetingTypePage({
   const { projectSlug, id } = await params;
   const ctx = await getPageContextOrRedirect();
 
-  const project = await prisma.project.findUnique({ where: { slug: projectSlug } });
+  const project = await prisma.project.findUnique({
+    where: { slug: projectSlug },
+    include: { workspace: true },
+  });
   if (!project) notFound();
   const membership = await getProjectMembership(ctx.host, project.id);
   if (!membership || !canManageProject(membership.role)) notFound();
@@ -51,6 +54,8 @@ export default async function EditProjectMeetingTypePage({
         <ProjectMeetingTypeForm
           projectId={project.id}
           projectSlug={project.slug}
+          workspaceHasZoomRoom={!!project.workspace.sharedZoomRoomUrl}
+          workspaceHasTeamsRoom={!!project.workspace.sharedTeamsRoomUrl}
           members={members.map((m) => ({
             hostId: m.hostId,
             name: m.host.name,

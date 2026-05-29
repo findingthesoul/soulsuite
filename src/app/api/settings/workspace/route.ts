@@ -10,6 +10,24 @@ const bodySchema = z.object({
   name: z.string().trim().min(2).max(80),
   slug: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/),
   primaryEmailDomain: z.string().regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/),
+  // Shared meeting-room URLs — workspace-level persistent links. Optional so older clients
+  // that don't surface them don't trip validation. Same shape as the personal-room URLs.
+  sharedZoomRoomUrl: z
+    .string()
+    .trim()
+    .max(300)
+    .url()
+    .startsWith("https://")
+    .nullable()
+    .optional(),
+  sharedTeamsRoomUrl: z
+    .string()
+    .trim()
+    .max(300)
+    .url()
+    .startsWith("https://")
+    .nullable()
+    .optional(),
 });
 
 export async function PATCH(request: NextRequest) {
@@ -43,6 +61,10 @@ export async function PATCH(request: NextRequest) {
       name: parsed.data.name,
       slug,
       primaryEmailDomain: parsed.data.primaryEmailDomain,
+      // undefined leaves the column untouched; null clears it; string overwrites it. Matches the
+      // optional+nullable shape on the zod schema.
+      sharedZoomRoomUrl: parsed.data.sharedZoomRoomUrl,
+      sharedTeamsRoomUrl: parsed.data.sharedTeamsRoomUrl,
     },
   });
   revalidateWorkspaceForHost(host.id);

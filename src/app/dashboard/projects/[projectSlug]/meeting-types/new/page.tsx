@@ -14,7 +14,10 @@ export default async function NewProjectMeetingTypePage({
   const { projectSlug } = await params;
   const ctx = await getPageContextOrRedirect();
 
-  const project = await prisma.project.findUnique({ where: { slug: projectSlug } });
+  const project = await prisma.project.findUnique({
+    where: { slug: projectSlug },
+    include: { workspace: true },
+  });
   if (!project) notFound();
   const membership = await getProjectMembership(ctx.host, project.id);
   if (!membership || !canManageProject(membership.role)) notFound();
@@ -45,6 +48,8 @@ export default async function NewProjectMeetingTypePage({
           projectId={project.id}
           projectSlug={project.slug}
           members={serializeMembers(members)}
+          workspaceHasZoomRoom={!!project.workspace.sharedZoomRoomUrl}
+          workspaceHasTeamsRoom={!!project.workspace.sharedTeamsRoomUrl}
         />
       </div>
     </AppShell>

@@ -41,6 +41,8 @@ const bodySchema = z.object({
       "IN_PERSON",
       "PERSONAL_ZOOM_ROOM",
       "PERSONAL_TEAMS_ROOM",
+      "WORKSPACE_ZOOM_ROOM",
+      "WORKSPACE_TEAMS_ROOM",
       "NONE",
     ])
     .default("GOOGLE_MEET"),
@@ -128,9 +130,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
 
   // Resolve conferencing host. SINGLE: implicit (assignedHostIds[0]). COLLECTIVE: explicit pick
-  // from assignedHostIds. ROUND_ROBIN: not used (each booking uses its picked host).
+  // from assignedHostIds. ROUND_ROBIN: not used (each booking uses its picked host). Workspace
+  // rooms don't need a host since the URL lives on the workspace itself.
   let conferencingHostId: string | null = null;
-  if (data.routingMode === "COLLECTIVE" && data.conferencingProvider !== "NONE") {
+  if (
+    data.routingMode === "COLLECTIVE" &&
+    data.conferencingProvider !== "NONE" &&
+    data.conferencingProvider !== "WORKSPACE_ZOOM_ROOM" &&
+    data.conferencingProvider !== "WORKSPACE_TEAMS_ROOM"
+  ) {
     if (!data.conferencingHostId) {
       return new NextResponse("Pick a conferencing host from the assigned hosts.", { status: 400 });
     }
@@ -138,6 +146,27 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return new NextResponse("Conferencing host must be one of the assigned hosts.", { status: 400 });
     }
     conferencingHostId = data.conferencingHostId;
+  }
+
+  if (
+    data.conferencingProvider === "WORKSPACE_ZOOM_ROOM" ||
+    data.conferencingProvider === "WORKSPACE_TEAMS_ROOM"
+  ) {
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      include: { workspace: true },
+    });
+    const url =
+      data.conferencingProvider === "WORKSPACE_ZOOM_ROOM"
+        ? project?.workspace.sharedZoomRoomUrl
+        : project?.workspace.sharedTeamsRoomUrl;
+    if (!url) {
+      const label = data.conferencingProvider === "WORKSPACE_ZOOM_ROOM" ? "Zoom" : "Teams";
+      return new NextResponse(
+        `Set the workspace's ${label} room URL in Settings → Workspace before using it here.`,
+        { status: 400 },
+      );
+    }
   }
 
   // Pricing — paid MTs need a currency. STRIPE rail also needs every potential booking host

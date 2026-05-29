@@ -38,6 +38,8 @@ interface MeetingType {
     | "PERSONAL_ROOM"
     | "PERSONAL_ZOOM_ROOM"
     | "PERSONAL_TEAMS_ROOM"
+    | "WORKSPACE_ZOOM_ROOM"
+    | "WORKSPACE_TEAMS_ROOM"
     | "NONE";
   defaultLocation: string | null;
   priceCents: number | null;
@@ -1190,6 +1192,8 @@ function providerLabel(
     | "PERSONAL_ROOM"
     | "PERSONAL_ZOOM_ROOM"
     | "PERSONAL_TEAMS_ROOM"
+    | "WORKSPACE_ZOOM_ROOM"
+    | "WORKSPACE_TEAMS_ROOM"
     | "NONE",
 ): string {
   switch (p) {
@@ -1199,6 +1203,8 @@ function providerLabel(
     case "PERSONAL_ROOM": return "Personal room";
     case "PERSONAL_ZOOM_ROOM": return "Personal Zoom room";
     case "PERSONAL_TEAMS_ROOM": return "Personal Teams room";
+    case "WORKSPACE_ZOOM_ROOM": return "Workspace Zoom room";
+    case "WORKSPACE_TEAMS_ROOM": return "Workspace Teams room";
     case "NONE": return "No conferencing";
     default: return "Google Meet";
   }

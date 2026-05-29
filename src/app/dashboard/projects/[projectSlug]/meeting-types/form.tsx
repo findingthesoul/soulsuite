@@ -35,6 +35,8 @@ type ConferencingProvider =
   | "IN_PERSON"
   | "PERSONAL_ZOOM_ROOM"
   | "PERSONAL_TEAMS_ROOM"
+  | "WORKSPACE_ZOOM_ROOM"
+  | "WORKSPACE_TEAMS_ROOM"
   | "NONE";
 type RoutingMode = "SINGLE" | "ROUND_ROBIN" | "COLLECTIVE";
 type Fairness = "LEAST_RECENTLY_ASSIGNED" | "LEAST_LOADED" | "STRICT_ROTATION" | "RANDOM";
@@ -176,11 +178,15 @@ export function ProjectMeetingTypeForm({
   projectId,
   projectSlug,
   members,
+  workspaceHasZoomRoom,
+  workspaceHasTeamsRoom,
   initial,
 }: {
   projectId: string;
   projectSlug: string;
   members: ProjectMember[];
+  workspaceHasZoomRoom: boolean;
+  workspaceHasTeamsRoom: boolean;
   initial?: Initial;
 }) {
   const isEdit = Boolean(initial);
@@ -190,6 +196,8 @@ export function ProjectMeetingTypeForm({
         projectId={projectId}
         projectSlug={projectSlug}
         members={members}
+        workspaceHasZoomRoom={workspaceHasZoomRoom}
+        workspaceHasTeamsRoom={workspaceHasTeamsRoom}
         initial={initial}
       />
     );
@@ -199,6 +207,8 @@ export function ProjectMeetingTypeForm({
       projectId={projectId}
       projectSlug={projectSlug}
       members={members}
+      workspaceHasZoomRoom={workspaceHasZoomRoom}
+      workspaceHasTeamsRoom={workspaceHasTeamsRoom}
     />
   );
 }
@@ -211,11 +221,15 @@ function EditProjectMeetingTypeForm({
   projectId,
   projectSlug,
   members,
+  workspaceHasZoomRoom,
+  workspaceHasTeamsRoom,
   initial,
 }: {
   projectId: string;
   projectSlug: string;
   members: ProjectMember[];
+  workspaceHasZoomRoom: boolean;
+  workspaceHasTeamsRoom: boolean;
   initial: Initial;
 }) {
   const router = useRouter();
@@ -288,7 +302,7 @@ function EditProjectMeetingTypeForm({
 
   function save() {
     setError(null);
-    const errors = validateProjectDraft(draft, members);
+    const errors = validateProjectDraft(draft, members, workspaceHasZoomRoom, workspaceHasTeamsRoom);
     if (errors.length > 0) {
       setTabErrors(errors);
       const firstWithError = PROJECT_TAB_ORDER.find((t) =>
@@ -509,6 +523,8 @@ function EditProjectMeetingTypeForm({
                 draft={draft}
                 update={update}
                 members={members}
+                workspaceHasZoomRoom={workspaceHasZoomRoom}
+                workspaceHasTeamsRoom={workspaceHasTeamsRoom}
                 hideHostPicker
               />
             </CardContent>
@@ -586,10 +602,14 @@ function CreateProjectMeetingTypeForm({
   projectId,
   projectSlug,
   members,
+  workspaceHasZoomRoom,
+  workspaceHasTeamsRoom,
 }: {
   projectId: string;
   projectSlug: string;
   members: ProjectMember[];
+  workspaceHasZoomRoom: boolean;
+  workspaceHasTeamsRoom: boolean;
 }) {
   const router = useRouter();
   const draftDefault: DraftValues = {
@@ -693,7 +713,7 @@ function CreateProjectMeetingTypeForm({
 
   function submit() {
     setError(null);
-    const validation = validateDraft(draft, members);
+    const validation = validateDraft(draft, members, workspaceHasZoomRoom, workspaceHasTeamsRoom);
     if (validation) return setError(validation);
     const overridePayload = serialiseOverride(draft.workingHoursOverride);
     const pricing = pricingPayload(draft);
@@ -838,7 +858,13 @@ function CreateProjectMeetingTypeForm({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <ProjectConferencingEditor draft={draft} update={update} members={members} />
+          <ProjectConferencingEditor
+            draft={draft}
+            update={update}
+            members={members}
+            workspaceHasZoomRoom={workspaceHasZoomRoom}
+            workspaceHasTeamsRoom={workspaceHasTeamsRoom}
+          />
         </CardContent>
       </Card>
 
@@ -931,6 +957,8 @@ interface ProjectTabError {
 function validateProjectDraft(
   draft: DraftValues,
   members: ProjectMember[],
+  workspaceHasZoomRoom: boolean,
+  workspaceHasTeamsRoom: boolean,
 ): ProjectTabError[] {
   const errors: ProjectTabError[] = [];
   if (draft.name.trim().length < 2) {
@@ -1074,10 +1102,24 @@ function validateProjectDraft(
       }
     }
   }
+  if (draft.conferencingProvider === "WORKSPACE_ZOOM_ROOM" && !workspaceHasZoomRoom) {
+    errors.push({
+      tabKey: "conferencing",
+      message: "Set the workspace's Zoom room URL in Settings → Workspace before using it here.",
+    });
+  }
+  if (draft.conferencingProvider === "WORKSPACE_TEAMS_ROOM" && !workspaceHasTeamsRoom) {
+    errors.push({
+      tabKey: "conferencing",
+      message: "Set the workspace's Teams room URL in Settings → Workspace before using it here.",
+    });
+  }
   if (
     draft.routingMode === "COLLECTIVE" &&
     draft.conferencingProvider !== "NONE" &&
     draft.conferencingProvider !== "IN_PERSON" &&
+    draft.conferencingProvider !== "WORKSPACE_ZOOM_ROOM" &&
+    draft.conferencingProvider !== "WORKSPACE_TEAMS_ROOM" &&
     !draft.conferencingHostId
   ) {
     errors.push({
@@ -1129,7 +1171,12 @@ function validateProjectDraft(
   return errors;
 }
 
-function validateDraft(draft: DraftValues, members: ProjectMember[]): string | null {
+function validateDraft(
+  draft: DraftValues,
+  members: ProjectMember[],
+  workspaceHasZoomRoom: boolean,
+  workspaceHasTeamsRoom: boolean,
+): string | null {
   if (draft.name.trim().length < 2) return "Name is required.";
   if (!SLUG_RE.test(draft.slug)) return "Slug must be 2–40 chars, lowercase letters/digits/hyphens.";
   if (![15, 30, 45, 60, 90, 120].includes(draft.durationMinutes)) {
@@ -1176,10 +1223,18 @@ function validateDraft(draft: DraftValues, members: ProjectMember[]): string | n
       }
     }
   }
+  if (draft.conferencingProvider === "WORKSPACE_ZOOM_ROOM" && !workspaceHasZoomRoom) {
+    return "Set the workspace's Zoom room URL in Settings → Workspace before using it here.";
+  }
+  if (draft.conferencingProvider === "WORKSPACE_TEAMS_ROOM" && !workspaceHasTeamsRoom) {
+    return "Set the workspace's Teams room URL in Settings → Workspace before using it here.";
+  }
   if (
     draft.routingMode === "COLLECTIVE" &&
     draft.conferencingProvider !== "NONE" &&
     draft.conferencingProvider !== "IN_PERSON" &&
+    draft.conferencingProvider !== "WORKSPACE_ZOOM_ROOM" &&
+    draft.conferencingProvider !== "WORKSPACE_TEAMS_ROOM" &&
     !draft.conferencingHostId
   ) {
     return "Pick a conferencing host from the assigned hosts.";
@@ -1490,7 +1545,12 @@ function ProjectRoutingEditor({
   members: ProjectMember[];
 }) {
   const isCollective = draft.routingMode === "COLLECTIVE";
-  const showConfHostPicker = isCollective && draft.conferencingProvider !== "NONE";
+  const showConfHostPicker =
+    isCollective &&
+    draft.conferencingProvider !== "NONE" &&
+    draft.conferencingProvider !== "IN_PERSON" &&
+    draft.conferencingProvider !== "WORKSPACE_ZOOM_ROOM" &&
+    draft.conferencingProvider !== "WORKSPACE_TEAMS_ROOM";
   const assigned = draft.assignedHostIds
     .map((id) => members.find((m) => m.hostId === id))
     .filter((m): m is ProjectMember => Boolean(m));
@@ -1822,11 +1882,15 @@ function ProjectConferencingEditor({
   draft,
   update,
   members,
+  workspaceHasZoomRoom,
+  workspaceHasTeamsRoom,
   hideHostPicker = false,
 }: {
   draft: DraftValues;
   update: <K extends keyof DraftValues>(key: K, value: DraftValues[K]) => void;
   members: ProjectMember[];
+  workspaceHasZoomRoom: boolean;
+  workspaceHasTeamsRoom: boolean;
   // The Edit form moves the conferencing-host picker into the Routing tab; in that case
   // this provider editor should render the provider select only.
   hideHostPicker?: boolean;
@@ -1839,6 +1903,8 @@ function ProjectConferencingEditor({
     isCollective &&
     draft.conferencingProvider !== "NONE" &&
     draft.conferencingProvider !== "IN_PERSON" &&
+    draft.conferencingProvider !== "WORKSPACE_ZOOM_ROOM" &&
+    draft.conferencingProvider !== "WORKSPACE_TEAMS_ROOM" &&
     !hideHostPicker;
   // For COLLECTIVE only the conferencing host needs Zoom; otherwise every assigned host does.
   const confHost = isCollective
@@ -1904,6 +1970,17 @@ function ProjectConferencingEditor({
         : assigned.filter((m) => !m.hasPersonalTeamsRoom)
       : [];
 
+  // Workspace rooms aren't tied to any host — they're available whenever the workspace has
+  // the URL set on its settings page. No per-host validation needed.
+  const workspaceZoomRoomDisabled = !workspaceHasZoomRoom;
+  const workspaceTeamsRoomDisabled = !workspaceHasTeamsRoom;
+  const workspaceZoomRoomLabel = workspaceHasZoomRoom
+    ? ""
+    : " — set the workspace's Zoom room URL in Settings → Workspace";
+  const workspaceTeamsRoomLabel = workspaceHasTeamsRoom
+    ? ""
+    : " — set the workspace's Teams room URL in Settings → Workspace";
+
   return (
     <div className="space-y-3">
       <div className="space-y-1.5">
@@ -1927,6 +2004,12 @@ function ProjectConferencingEditor({
           <option value="PERSONAL_TEAMS_ROOM" disabled={personalTeamsRoomDisabled}>
             Personal Teams room{personalTeamsRoomLabel}
           </option>
+          <option value="WORKSPACE_ZOOM_ROOM" disabled={workspaceZoomRoomDisabled}>
+            Workspace Zoom room{workspaceZoomRoomLabel}
+          </option>
+          <option value="WORKSPACE_TEAMS_ROOM" disabled={workspaceTeamsRoomDisabled}>
+            Workspace Teams room{workspaceTeamsRoomLabel}
+          </option>
           <option value="NONE">None (no conferencing link)</option>
         </Select>
       </div>
@@ -1936,6 +2019,14 @@ function ProjectConferencingEditor({
         <p className="text-xs text-muted-foreground">
           Each booking hands the picked host&apos;s saved personal room URL to the invitee. Hosts
           set their URL on their <span className="text-foreground">Profile</span> page.
+        </p>
+      )}
+
+      {(draft.conferencingProvider === "WORKSPACE_ZOOM_ROOM" ||
+        draft.conferencingProvider === "WORKSPACE_TEAMS_ROOM") && (
+        <p className="text-xs text-muted-foreground">
+          Every booking hands the workspace&apos;s shared room URL to the invitee. Manage it in
+          <span className="text-foreground"> Settings → Workspace</span>.
         </p>
       )}
 

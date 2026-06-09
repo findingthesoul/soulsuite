@@ -20,6 +20,8 @@ type Conferencing = "GOOGLE_MEET" | "WORKSPACE_ZOOM_ROOM" | "WORKSPACE_TEAMS_ROO
 interface SlotSummary {
   startsAt: string;
   endsAt: string;
+  freeAttendeeIds: string[];
+  busyAttendeeIds: string[];
 }
 
 const DURATION_OPTIONS = [15, 30, 45, 60, 90, 120];
@@ -45,9 +47,15 @@ export function TeamMeetingForm({
   const [slots, setSlots] = useState<SlotSummary[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [missingGoogle, setMissingGoogle] = useState<string[]>([]);
-  const [selectedStartsAt, setSelectedStartsAt] = useState<string | null>(null);
+  // Multi-select picker: any number of candidate slots. 1 slot with everyone-free → direct book.
+  // 1 slot with conflicts OR 2+ slots → send as poll so attendees can negotiate.
+  const [pickedStartsAt, setPickedStartsAt] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<{ subject: string; startsAt: string; meetUrl: string | null } | null>(null);
+  const [success, setSuccess] = useState<
+    | { kind: "BOOK"; subject: string; startsAt: string; meetUrl: string | null }
+    | { kind: "POLL"; subject: string; pollId: string }
+    | null
+  >(null);
   const [pending, startTransition] = useTransition();
 
   // Lookup by id for chip rendering and missing-Google name resolution.
@@ -57,7 +65,13 @@ export function TeamMeetingForm({
     setPickedIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     );
-    setSelectedStartsAt(null);
+    setPickedStartsAt([]);
+  }
+
+  function toggleSlot(startsAt: string) {
+    setPickedStartsAt((prev) =>
+      prev.includes(startsAt) ? prev.filter((x) => x !== startsAt) : [...prev, startsAt],
+    );
   }
 
   // Fetch mutual availability whenever the selection or duration changes. Range: next 14 days
@@ -117,43 +131,99 @@ export function TeamMeetingForm({
     }
   }, [availableDates, selectedDate]);
 
+  // Decision rule for the submit button:
+  //   - 1 slot picked AND every attendee free at that slot → direct book (existing endpoint).
+  //   - Anything else (multiple slots, OR one slot with conflicts) → send as poll. The slots
+  //     become the poll's proposed_slots, attendees become invitees, the existing poll
+  //     finalize flow takes over once everyone's voted.
+  const pickedSlots = useMemo(
+    () => pickedStartsAt.map((s) => slots.find((x) => x.startsAt === s)).filter(Boolean) as SlotSummary[],
+    [pickedStartsAt, slots],
+  );
+  const mode: "BOOK" | "POLL" | "NONE" =
+    pickedSlots.length === 0
+      ? "NONE"
+      : pickedSlots.length === 1 && pickedSlots[0].busyAttendeeIds.length === 0
+        ? "BOOK"
+        : "POLL";
+
   function submit() {
     setError(null);
     setSuccess(null);
     if (pickedIds.length === 0) return setError("Pick at least one teammate.");
     if (!subject.trim()) return setError("Add a subject for the meeting.");
-    if (!selectedStartsAt) return setError("Pick a time.");
-    if (conferencing === "NONE" && !location.trim()) {
+    if (mode === "NONE") return setError("Pick at least one time.");
+    if (conferencing === "NONE" && !location.trim() && mode === "BOOK") {
       // Location is optional, but flag the common mistake: "None" without a location field set
-      // leaves the calendar event with no join hint at all. Confirm with the user via a soft
-      // error rather than a hard block.
+      // leaves the calendar event with no join hint at all. Soft confirm — not a hard block.
       if (!confirm("No conferencing and no location — invitees will see no join info. Continue?")) return;
     }
+    if (mode === "BOOK") {
+      const startsAt = pickedSlots[0].startsAt;
+      startTransition(async () => {
+        const res = await fetch("/api/team-meetings", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            attendeeIds: pickedIds,
+            startsAt,
+            durationMinutes,
+            subject: subject.trim(),
+            note: note.trim() || null,
+            conferencing,
+            location: conferencing === "NONE" ? location.trim() || null : null,
+          }),
+        });
+        if (!res.ok) {
+          setError((await res.text()) || "Couldn't create the meeting.");
+          return;
+        }
+        const data = (await res.json()) as { eventId: string | null; meetUrl: string | null };
+        setSuccess({ kind: "BOOK", subject: subject.trim(), startsAt, meetUrl: data.meetUrl });
+        setPickedIds([]);
+        setSubject("");
+        setNote("");
+        setLocation("");
+        setPickedStartsAt([]);
+        router.refresh();
+      });
+      return;
+    }
+    // POLL mode — send as a poll. Reuses /api/polls so the existing detail page + add-invitees
+    // flow + finalize flow all just work. Poll invitees are the attendees' emails; tokens get
+    // emailed to each so they can vote yes/maybe/no on every proposed slot.
+    const attendeeEmails = pickedIds
+      .map((id) => attendeesById.get(id)?.email)
+      .filter((e): e is string => Boolean(e));
+    const proposedSlots = pickedSlots.map((s, i) => ({
+      id: `slot-${i}-${Math.random().toString(36).slice(2, 8)}`,
+      startsAt: s.startsAt,
+      endsAt: s.endsAt,
+    }));
     startTransition(async () => {
-      const res = await fetch("/api/team-meetings", {
+      const res = await fetch("/api/polls", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          attendeeIds: pickedIds,
-          startsAt: selectedStartsAt,
+          name: subject.trim(),
           durationMinutes,
-          subject: subject.trim(),
-          note: note.trim() || null,
-          conferencing,
-          location: conferencing === "NONE" ? location.trim() || null : null,
+          proposedSlots,
+          inviteeEmails: attendeeEmails,
+          scope: "PERSONAL",
+          notifyMode: "FINAL_ONLY",
         }),
       });
       if (!res.ok) {
-        setError((await res.text()) || "Couldn't create the meeting.");
+        setError((await res.text()) || "Couldn't create the poll.");
         return;
       }
-      const data = (await res.json()) as { eventId: string | null; meetUrl: string | null };
-      setSuccess({ subject: subject.trim(), startsAt: selectedStartsAt, meetUrl: data.meetUrl });
+      const data = (await res.json()) as { id: string };
+      setSuccess({ kind: "POLL", subject: subject.trim(), pollId: data.id });
       setPickedIds([]);
       setSubject("");
       setNote("");
       setLocation("");
-      setSelectedStartsAt(null);
+      setPickedStartsAt([]);
       router.refresh();
     });
   }
@@ -234,7 +304,7 @@ export function TeamMeetingForm({
               value={String(durationMinutes)}
               onChange={(e) => {
                 setDurationMinutes(Number(e.target.value));
-                setSelectedStartsAt(null);
+                setPickedStartsAt([]);
               }}
             >
               {DURATION_OPTIONS.map((d) => (
@@ -298,8 +368,8 @@ export function TeamMeetingForm({
             </div>
           ) : availableDates.length === 0 ? (
             <p className="text-xs text-muted-foreground">
-              No mutual availability in the next 14 days at {durationMinutes} min. Try a shorter
-              duration or fewer attendees.
+              You have no free {durationMinutes}-min slot in the next 14 days. Try a shorter
+              duration.
             </p>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-[200px_1fr] gap-3">
@@ -314,7 +384,7 @@ export function TeamMeetingForm({
                       type="button"
                       onClick={() => {
                         setSelectedDate(dateKey);
-                        setSelectedStartsAt(null);
+                        setPickedStartsAt([]);
                       }}
                       className={`text-left rounded-md px-3 py-2 text-xs font-medium transition-colors flex items-center justify-between gap-3 ${
                         active
@@ -336,23 +406,52 @@ export function TeamMeetingForm({
               </div>
               <div className="flex flex-wrap gap-1.5 content-start">
                 {selectedDate && slotsByDate.get(selectedDate)?.map((s) => {
-                  const active = selectedStartsAt === s.startsAt;
+                  const active = pickedStartsAt.includes(s.startsAt);
                   const label = new Date(s.startsAt).toLocaleTimeString(undefined, {
                     hour: "2-digit",
                     minute: "2-digit",
                   });
+                  const freeCount = s.freeAttendeeIds.length;
+                  const totalOthers = pickedIds.length;
+                  const allFree = s.busyAttendeeIds.length === 0 && totalOthers > 0;
+                  const conflictNames = s.busyAttendeeIds
+                    .map((id) => attendeesById.get(id)?.name?.split(" ")[0])
+                    .filter(Boolean)
+                    .join(", ");
                   return (
                     <button
                       key={s.startsAt}
                       type="button"
-                      onClick={() => setSelectedStartsAt(s.startsAt)}
-                      className={`rounded-md px-3 py-1.5 text-sm font-medium tabular-nums transition-colors ${
+                      onClick={() => toggleSlot(s.startsAt)}
+                      title={
+                        allFree
+                          ? "Everyone is free"
+                          : conflictNames
+                            ? `Conflicts: ${conflictNames}`
+                            : "No teammates picked"
+                      }
+                      className={`flex flex-col items-start gap-0.5 rounded-md px-3 py-1.5 text-sm font-medium tabular-nums transition-colors ${
                         active
                           ? "bg-foreground text-background"
-                          : "border border-border bg-surface text-foreground hover:bg-surface-muted"
+                          : allFree
+                            ? "border border-foreground/40 bg-surface text-foreground hover:bg-surface-muted"
+                            : "border border-border bg-surface text-foreground hover:bg-surface-muted"
                       }`}
                     >
-                      {label}
+                      <span>{label}</span>
+                      {totalOthers > 0 && (
+                        <span
+                          className={`text-[10px] font-normal ${
+                            active
+                              ? "opacity-80"
+                              : allFree
+                                ? "text-foreground/70"
+                                : "text-muted-foreground"
+                          }`}
+                        >
+                          {allFree ? "all free" : `${freeCount}/${totalOthers} free`}
+                        </span>
+                      )}
                     </button>
                   );
                 })}
@@ -375,7 +474,7 @@ export function TeamMeetingForm({
         </div>
 
         {error && <p className="text-sm text-destructive">{error}</p>}
-        {success && (
+        {success && success.kind === "BOOK" && (
           <div className="rounded-md border border-border bg-surface-muted/40 p-3 text-sm space-y-1">
             <p className="text-foreground">
               <Check className="inline h-4 w-4 mr-1" />
@@ -399,11 +498,41 @@ export function TeamMeetingForm({
             )}
           </div>
         )}
+        {success && success.kind === "POLL" && (
+          <div className="rounded-md border border-border bg-surface-muted/40 p-3 text-sm space-y-1">
+            <p className="text-foreground">
+              <Check className="inline h-4 w-4 mr-1" />
+              Poll sent — &ldquo;{success.subject}&rdquo;. Each teammate got a vote link by
+              email.
+            </p>
+            <p className="text-xs text-muted-foreground">
+              <a href={`/dashboard/polls/${success.pollId}`} className="underline">
+                Open the poll
+              </a>{" "}
+              to watch responses and finalize once everyone&apos;s voted.
+            </p>
+          </div>
+        )}
 
-        <div className="flex justify-end pt-1">
-          <Button onClick={submit} disabled={pending || !selectedStartsAt}>
-            {pending ? "Creating…" : "Create meeting"}
-          </Button>
+        <div className="space-y-1 pt-1">
+          {mode !== "NONE" && (
+            <p className="text-xs text-muted-foreground text-right">
+              {mode === "BOOK"
+                ? "Everyone's free at this time — books directly."
+                : `Sends as a poll: ${pickedSlots.length} option${pickedSlots.length === 1 ? "" : "s"}, teammates pick what works.`}
+            </p>
+          )}
+          <div className="flex justify-end">
+            <Button onClick={submit} disabled={pending || mode === "NONE"}>
+              {pending
+                ? mode === "POLL"
+                  ? "Sending poll…"
+                  : "Creating…"
+                : mode === "POLL"
+                  ? `Send as poll (${pickedSlots.length})`
+                  : "Create meeting"}
+            </Button>
+          </div>
         </div>
       </CardContent>
     </Card>

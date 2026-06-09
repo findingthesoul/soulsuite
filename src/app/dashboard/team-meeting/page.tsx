@@ -34,8 +34,9 @@ export default async function TeamMeetingPage() {
         <header className="space-y-1">
           <h1 className="text-2xl font-semibold tracking-tight">Team meeting</h1>
           <p className="text-sm text-muted-foreground">
-            Pick teammates and a duration — we&apos;ll show times when everyone&apos;s free.
-            Booking creates a calendar event with everyone invited; Google sends the invites.
+            Pick teammates and a duration. Slots show how many people are free — pick one when
+            everyone&apos;s available to book directly, or pick a few to send as a poll and let
+            the team vote.
           </p>
         </header>
         <TeamMeetingForm

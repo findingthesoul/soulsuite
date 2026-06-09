@@ -1,13 +1,18 @@
 // GET /api/team-meetings/slots?attendeeIds=A,B,C&durationMinutes=30&from=ISO&to=ISO
 //
-// Returns mutual availability for an ad-hoc set of teammates over the requested range. Powers
-// the slot picker on /dashboard/team-meeting — the caller picks teammates and a duration, this
-// endpoint tells them which times work for everyone.
+// Returns conflict-annotated candidate slots for an ad-hoc team meeting. Powers the slot picker
+// on /dashboard/team-meeting — the caller picks teammates and a duration, this endpoint returns
+// every slot within the caller's working hours over the requested range, each tagged with the
+// list of attendees who are free vs. busy at that time.
 //
-// Algorithm: compute each attendee's own available slots using the same engine as the public
-// booking flow (working hours + buffers + freebusy), then intersect by exact (startsAt, endsAt)
-// match. Slots are 15-minute-grid aligned so the intersection is meaningful — we don't try to
-// find arbitrary mutual gaps, just slots everyone shares.
+// We don't intersect like a hard filter would, because for teams of 4-5 the intersection is
+// usually empty — strict mutual availability is the wrong default for internal meetings. By
+// surfacing conflicts as data instead, the caller can either book a slot where everyone is
+// free OR pick a handful of "best effort" slots and send them as a poll to negotiate.
+//
+// Slots are generated against the CALLER's working hours + freebusy (the caller is the
+// organiser; if they're busy at a slot it's not a useful candidate). Per-attendee free/busy
+// then comes from running the same engine on each attendee's calendar.
 //
 // Auth: signed-in host. The caller is implicitly added to the attendee set if they're not
 // already in it (you can't book a meeting you're not at). All attendees must share at least
@@ -90,26 +95,24 @@ export async function GET(request: NextRequest) {
     where: { id: { in: allIds } },
     include: { calendars: true },
   });
-
-  // Skip hosts without Google credentials — without freebusy we can't honestly say they're free.
-  // Returning empty in that case is the safest default (better than pretending they're always
-  // available and double-booking them). Surface the gap in the response so the UI can explain.
-  const noGoogle = hosts.filter((h) => !h.googleRefreshToken).map((h) => h.id);
-  if (noGoogle.length > 0) {
-    return NextResponse.json({
-      slots: [],
-      durationMinutes,
-      missingGoogle: noGoogle,
-    });
+  const callerHost = hosts.find((h) => h.id === caller.id);
+  if (!callerHost) return NextResponse.json({ error: "caller not found" }, { status: 404 });
+  if (!callerHost.googleRefreshToken) {
+    return NextResponse.json({ error: "Connect your Google Calendar first." }, { status: 503 });
   }
 
-  // Per-host availability computation. No meeting type — pass an empty stub object so the
-  // engine reads "no buffer, no min-notice, max-advance = the requested range" semantics. We
-  // do pass a min-notice of 15 minutes so back-to-back-with-now bookings aren't offered.
+  // Attendees without Google credentials surface in `missingGoogle` so the UI can warn. They
+  // do NOT contribute to free/busy data — they're left out of perHostSlots entirely and the
+  // UI shows them as "calendar unknown" rather than pretending they're free.
+  const missingGoogle = hosts.filter((h) => !h.googleRefreshToken && h.id !== caller.id).map((h) => h.id);
+
+  // Per-host availability — engine reads "no buffer, 15-min notice, max-advance=60d" as a
+  // generic stub since this isn't a meeting type. Returns the set of slots the host is free at.
+  const eligibleHosts = hosts.filter((h) => h.googleRefreshToken);
   const perHostSlots = await Promise.all(
-    hosts.map(async (h) => {
+    eligibleHosts.map(async (h) => {
       const busy = await fetchHostBusy(h, { from, to: effectiveTo });
-      return computeAvailableSlots({
+      const slots = computeAvailableSlots({
         host: {
           timezone: h.timezone,
           workingHours: effectiveWorkingHours({}, h, undefined),
@@ -125,24 +128,54 @@ export async function GET(request: NextRequest) {
         range: { from, to: effectiveTo },
         busy,
       });
+      return { hostId: h.id, freeKeys: new Set(slots.map((s) => s.startsAt.getTime())) };
     }),
   );
 
-  // Intersect across all attendees. We key by startsAt (slots are duration-locked so endsAt is
-  // implied) — every host's slot list comes from the same engine on the same grid, so equality
-  // by startsAt is exact, not best-effort.
-  let mutual = perHostSlots[0] ?? [];
-  for (let i = 1; i < perHostSlots.length; i++) {
-    const keys = new Set(perHostSlots[i].map((s) => s.startsAt.getTime()));
-    mutual = mutual.filter((s) => keys.has(s.startsAt.getTime()));
-    if (mutual.length === 0) break;
+  // Candidate slots = times the CALLER is free. The caller is the organiser, so a slot is
+  // useless if they can't attend. For each candidate we then check which other attendees are
+  // free vs. busy so the UI can show "3/4 free · Martijn busy" instead of a binary filter.
+  const callerEntry = perHostSlots.find((e) => e.hostId === caller.id);
+  if (!callerEntry) {
+    return NextResponse.json({ slots: [], durationMinutes, missingGoogle });
   }
+  const callerBusy = await fetchHostBusy(callerHost, { from, to: effectiveTo });
+  const callerSlots = computeAvailableSlots({
+    host: { timezone: callerHost.timezone, workingHours: effectiveWorkingHours({}, callerHost, undefined) },
+    meetingType: {
+      durationMinutes,
+      bufferBeforeMinutes: 0,
+      bufferAfterMinutes: 0,
+      minNoticeMinutes: 15,
+      maxAdvanceDays: 60,
+    },
+    range: { from, to: effectiveTo },
+    busy: callerBusy,
+  });
 
-  return NextResponse.json({
-    slots: mutual.map((s) => ({
+  const otherAttendeeIds = attendeeIds.filter((id) => id !== caller.id);
+  const slots = callerSlots.map((s) => {
+    const key = s.startsAt.getTime();
+    const freeAttendeeIds: string[] = [];
+    const busyAttendeeIds: string[] = [];
+    for (const other of otherAttendeeIds) {
+      const entry = perHostSlots.find((e) => e.hostId === other);
+      if (!entry) continue; // attendee missing Google — already in missingGoogle, skip here
+      if (entry.freeKeys.has(key)) freeAttendeeIds.push(other);
+      else busyAttendeeIds.push(other);
+    }
+    return {
       startsAt: s.startsAt.toISOString(),
       endsAt: s.endsAt.toISOString(),
-    })),
+      freeAttendeeIds,
+      busyAttendeeIds,
+    };
+  });
+
+  return NextResponse.json({
+    slots,
     durationMinutes,
+    missingGoogle,
+    totalAttendees: otherAttendeeIds.length,
   });
 }

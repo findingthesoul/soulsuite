@@ -126,5 +126,7 @@ function formatRange(startsAt: string, endsAt: string, tz: string): string {
     minute: "2-digit",
     hourCycle: "h23",
   });
-  return `${dateFmt.format(start)} · ${timeFmt.format(start)}–${timeFmt.format(end)}`;
+  // Append the timezone so the voter can tell at a glance which clock they're seeing. Matters
+  // when the browser tz isn't the user's usual tz (travel, VPN, shared device).
+  return `${dateFmt.format(start)} · ${timeFmt.format(start)}–${timeFmt.format(end)} (${tz})`;
 }

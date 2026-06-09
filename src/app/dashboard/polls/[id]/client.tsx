@@ -387,5 +387,5 @@ function formatRange(startsAt: string, endsAt: string, tz: string): string {
     minute: "2-digit",
     hourCycle: "h23",
   });
-  return `${dateFmt.format(start)} · ${timeFmt.format(start)}–${timeFmt.format(end)}`;
+  return `${dateFmt.format(start)} · ${timeFmt.format(start)}–${timeFmt.format(end)} (${tz})`;
 }

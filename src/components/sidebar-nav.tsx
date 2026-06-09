@@ -23,6 +23,7 @@ const NAV_ITEMS: {
 
 const PERSONAL_SETTINGS_ITEMS = [
   { href: "/dashboard/book", label: "Book a meeting", icon: Send, exact: false },
+  { href: "/dashboard/team-meeting", label: "Team meeting", icon: Users, exact: false },
   { href: "/settings/availability", label: "Availability", icon: Clock, exact: false },
   { href: "/dashboard/payments", label: "Payments", icon: CreditCard, exact: false },
 ];

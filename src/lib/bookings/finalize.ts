@@ -196,7 +196,7 @@ export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResul
       const altHosts =
         meetingType.routingMode === "COLLECTIVE" ? coHosts.map((h) => h.email) : [];
       const zoomArgs = {
-        topic: `${meetingType.name} — ${booking.inviteeName}`,
+        topic: `${meetingType.name} — ${host.name} & ${booking.inviteeName}`,
         startsAtIso: startsAt.toISOString(),
         durationMinutes: meetingType.durationMinutes,
         timezone: "UTC",
@@ -270,7 +270,11 @@ export async function finalizeBooking(args: FinalizeArgs): Promise<FinalizeResul
        // attendee's calendar, but doesn't email them about it — invitees get exactly one email.
        sendUpdates: "none",
       requestBody: {
-        summary: `${meetingType.name} — ${booking.inviteeName}`,
+        // Include BOTH names — looking at "Intro call — Bob" in your own calendar is confusing
+        // when you're Bob. "Intro call — Sjoerd & Bob" is unambiguous from either side. Same
+        // applies in reverse for the host (they already know who they are; the invitee name
+        // alone strips context). Coordination layer pays for both names; everyone wins.
+        summary: `${meetingType.name} — ${host.name} & ${booking.inviteeName}`,
         description,
         location: eventLocation,
         start: { dateTime: startsAt.toISOString(), timeZone: "UTC" },

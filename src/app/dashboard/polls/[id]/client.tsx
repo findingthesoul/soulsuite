@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import type { ProposedSlot, VoteMap } from "@/lib/polls";
@@ -222,7 +222,7 @@ export function PollDetailClient({
               : "Voting closed."}
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <ul className="divide-y divide-border -mx-1">
             {responses.map((r) => (
               <li key={r.email} className="flex items-center justify-between gap-3 px-1 py-3 text-sm">
@@ -236,11 +236,122 @@ export function PollDetailClient({
               </li>
             ))}
           </ul>
+          {isOpen && <AddInviteesForm pollId={pollId} />}
         </CardContent>
       </Card>
     </div>
   );
 }
+
+// Add-invitees form. Lives at the bottom of the Invitees card while the poll is open. Accepts
+// a mix of comma- / space- / newline-separated emails so a quick paste from a calendar invite
+// list works. Sends them to /api/polls/[id] with action=addInvitees; the server dedupes,
+// creates fresh PollResponse rows + tokens, and emails the new invitees their private link.
+function AddInviteesForm({ pollId }: { pollId: string }) {
+  const router = useRouter();
+  const [value, setValue] = useState("");
+  const [open, setOpen] = useState(false);
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  function parse(input: string): string[] {
+    return Array.from(
+      new Set(
+        input
+          .split(/[\s,;]+/)
+          .map((s) => s.trim())
+          .filter(Boolean),
+      ),
+    );
+  }
+
+  function submit() {
+    setError(null);
+    setNotice(null);
+    const emails = parse(value);
+    if (emails.length === 0) return setError("Enter at least one email.");
+    const badly = emails.find((e) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
+    if (badly) return setError(`"${badly}" doesn't look like an email.`);
+    if (emails.length > 50) return setError("Add at most 50 invitees at a time.");
+    startTransition(async () => {
+      const res = await fetch(`/api/polls/${pollId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "addInvitees", emails }),
+      });
+      if (!res.ok) {
+        setError((await res.text()) || "Couldn't add invitees.");
+        return;
+      }
+      const data = (await res.json()) as { added: number; skipped: number };
+      const added = data.added;
+      const skipped = data.skipped;
+      setNotice(
+        added === 0
+          ? "Everyone you added is already invited — no new invites sent."
+          : `${added} invite${added === 1 ? "" : "s"} sent${skipped > 0 ? ` (${skipped} were already invited)` : ""}.`,
+      );
+      setValue("");
+      if (added > 0) router.refresh();
+    });
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+      >
+        <Plus className="h-4 w-4" />
+        Add invitees
+      </button>
+    );
+  }
+
+  return (
+    <div className="space-y-2 rounded-md border border-border bg-surface-muted/40 p-3">
+      <label htmlFor="add-invitees" className="block text-xs font-medium text-foreground">
+        Add invitees
+      </label>
+      <textarea
+        id="add-invitees"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        rows={2}
+        placeholder="email@example.com, another@example.com"
+        className="flex w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      />
+      <p className="text-xs text-muted-foreground">
+        Separate with commas, spaces, or new lines. Each new invitee gets a private vote link by
+        email — anyone already on the poll is skipped silently.
+      </p>
+      {error && <p className="text-xs text-destructive">{error}</p>}
+      {notice && <p className="text-xs text-foreground">{notice}</p>}
+      <div className="flex justify-end gap-2 pt-1">
+        <Button
+          variant="ghost"
+          size="sm"
+          type="button"
+          onClick={() => {
+            setOpen(false);
+            setValue("");
+            setError(null);
+            setNotice(null);
+          }}
+          disabled={pending}
+        >
+          Close
+        </Button>
+        <Button size="sm" type="button" onClick={submit} disabled={pending}>
+          {pending ? "Sending…" : "Send invites"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 
 function CopyLinkButton({ url }: { url: string }) {
   const [copied, setCopied] = useState(false);

@@ -12,8 +12,10 @@ import { resolveRecipientTimezones } from "@/lib/recipient-timezone";
 import {
   appUrl,
   pollFinalizedInviteeTemplate,
+  pollInviteTemplate,
   sendEmailAfterResponse,
 } from "@/lib/email";
+import { newResponseToken } from "@/lib/polls";
 import { getEmailLogoUrl } from "@/lib/branding";
 
 const patchSchema = z.union([
@@ -27,6 +29,12 @@ const patchSchema = z.union([
   z.object({
     action: z.literal("updateSettings"),
     notifyMode: z.enum(["FINAL_ONLY", "EVERY_VOTE", "DAILY_DIGEST", "NEVER"]),
+  }),
+  z.object({
+    action: z.literal("addInvitees"),
+    // Up to 50 in one go — mirrors the public booking flow's invitee cap and stops a runaway
+    // paste from creating hundreds of PollResponse rows in a single PATCH.
+    emails: z.array(z.string().email().max(200)).min(1).max(50),
   }),
 ]);
 
@@ -65,6 +73,64 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       data: { notifyMode: body.notifyMode },
     });
     return NextResponse.json({ ok: true });
+  }
+
+  // Add more invitees to an OPEN poll. Skips emails already on the poll (the existing token
+  // still works — no point regenerating). Each fresh email gets its own PollResponse row +
+  // private vote link emailed out. Mirrors the create-poll send shape so the recipient sees
+  // the same template they would have on first invite.
+  if (body.action === "addInvitees") {
+    const existing = new Set(poll.inviteeEmails.map((e) => e.toLowerCase()));
+    const incoming = Array.from(
+      new Set(body.emails.map((e) => e.trim().toLowerCase()).filter(Boolean)),
+    );
+    const fresh = incoming.filter((e) => !existing.has(e));
+    if (fresh.length === 0) {
+      return NextResponse.json({ ok: true, added: 0, skipped: incoming.length });
+    }
+    const newResponses = fresh.map((email) => ({ email, token: newResponseToken() }));
+    await prisma.$transaction(async (tx) => {
+      await tx.pollResponse.createMany({
+        data: newResponses.map((r) => ({
+          pollId: poll.id,
+          inviteeEmail: r.email,
+          votes: {} as unknown as Prisma.InputJsonValue,
+          token: r.token,
+        })),
+      });
+      // Append, don't replace — keeps the original order stable so the dashboard list doesn't
+      // shuffle on every add. Postgres String[] semantics make concatenation atomic enough.
+      await tx.poll.update({
+        where: { id: poll.id },
+        data: { inviteeEmails: [...poll.inviteeEmails, ...fresh] },
+      });
+    });
+    const logoUrl = await getEmailLogoUrl();
+    sendEmailAfterResponse(
+      newResponses.map((r) => {
+        const tmpl = pollInviteTemplate({
+          ownerName: host.name,
+          pollName: poll.name,
+          durationMinutes: poll.durationMinutes,
+          voteUrl: appUrl(`/poll/respond/${r.token}`),
+          recipientEmail: r.email,
+          logoUrl,
+        });
+        return {
+          to: r.email,
+          subject: tmpl.subject,
+          html: tmpl.html,
+          text: tmpl.text,
+          fromName: host.name,
+          replyTo: host.email,
+        };
+      }),
+    );
+    return NextResponse.json({
+      ok: true,
+      added: fresh.length,
+      skipped: incoming.length - fresh.length,
+    });
   }
 
   // Finalize: create a Booking + Google event for the picked slot, then mark poll FINALIZED.

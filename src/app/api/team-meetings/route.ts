@@ -15,6 +15,8 @@ import { getCurrentHost } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { calendarFor, isGoogleAuthError } from "@/lib/google/client";
 import { bustFreebusyCacheForHost } from "@/lib/availability/freebusy";
+import { getZoomAccessTokenForHost } from "@/lib/zoom/host";
+import { createZoomMeeting, ZoomAlternativeHostsError } from "@/lib/zoom/client";
 
 const ALLOWED_DURATIONS = [15, 30, 45, 60, 90, 120] as const;
 
@@ -26,10 +28,23 @@ const bodySchema = z.object({
   }),
   subject: z.string().trim().min(1).max(200),
   note: z.string().trim().max(2000).optional().nullable(),
-  // Conferencing: GOOGLE_MEET creates a Meet link via conferenceData. NONE skips it (in-person
-  // or shared room described in `location`). The workspace-shared room options re-use the
-  // workspace's stored URLs and put them in the event's `location` field.
-  conferencing: z.enum(["GOOGLE_MEET", "WORKSPACE_ZOOM_ROOM", "WORKSPACE_TEAMS_ROOM", "NONE"]),
+  // Conferencing options mirror the meeting-type form's set:
+  //   GOOGLE_MEET            — auto-generates a Meet link via conferenceData
+  //   ZOOM                   — creates a fresh Zoom meeting on the caller's account via API
+  //   PERSONAL_ZOOM_ROOM     — uses caller's stored personalZoomRoomUrl
+  //   PERSONAL_TEAMS_ROOM    — uses caller's stored personalTeamsRoomUrl
+  //   WORKSPACE_ZOOM_ROOM    — uses workspace.sharedZoomRoomUrl
+  //   WORKSPACE_TEAMS_ROOM   — uses workspace.sharedTeamsRoomUrl
+  //   NONE                   — no link; optional location text
+  conferencing: z.enum([
+    "GOOGLE_MEET",
+    "ZOOM",
+    "PERSONAL_ZOOM_ROOM",
+    "PERSONAL_TEAMS_ROOM",
+    "WORKSPACE_ZOOM_ROOM",
+    "WORKSPACE_TEAMS_ROOM",
+    "NONE",
+  ]),
   // Free-text location, only used when conferencing=NONE. Empty string means "no location".
   location: z.string().trim().max(500).optional().nullable(),
 });
@@ -93,14 +108,65 @@ export async function POST(request: NextRequest) {
     return new NextResponse("You don't have a write-target calendar selected.", { status: 400 });
   }
 
-  // Resolve the conferencing target. For shared-room flavours we look up the workspace URL
-  // off the caller's primary workspace — same one that powers the workspace-room MTs. If it's
-  // unset, fail cleanly so the caller picks a different conferencing option.
+  // Resolve the conferencing target. Five flavours, in order of complexity:
+  //   - GOOGLE_MEET: handled in the event-insert body (conferenceData.createRequest).
+  //   - ZOOM: call the Zoom API on the caller's account here; the join URL goes into the event.
+  //   - PERSONAL_*_ROOM: read the caller's stored URL.
+  //   - WORKSPACE_*_ROOM: read the workspace's stored URL.
+  //   - NONE: nothing — optional location text from the body lands in event.location.
   let meetUrl: string | null = null;
   let useGoogleMeet = false;
   let conferencingLabel: string | null = null;
+  let zoomMeetingId: string | null = null;
+  let zoomPasscode: string | null = null;
   if (body.conferencing === "GOOGLE_MEET") {
     useGoogleMeet = true;
+  } else if (body.conferencing === "ZOOM") {
+    const accessToken = await getZoomAccessTokenForHost(caller.id);
+    if (!accessToken) {
+      return new NextResponse(
+        "Your Zoom account isn't connected. Connect under Settings → Connections.",
+        { status: 503 },
+      );
+    }
+    try {
+      const meeting = await createZoomMeeting(accessToken, {
+        topic: body.subject,
+        startsAtIso: startsAt.toISOString(),
+        durationMinutes: body.durationMinutes,
+        timezone: callerHost.timezone,
+        agenda: body.note ?? undefined,
+      });
+      meetUrl = meeting.joinUrl;
+      zoomMeetingId = meeting.meetingId;
+      zoomPasscode = meeting.passcode;
+      conferencingLabel = "Zoom";
+    } catch (err) {
+      if (err instanceof ZoomAlternativeHostsError) {
+        // We don't pass alternativeHosts on team meetings (everyone joins as a regular attendee),
+        // so this shouldn't fire — but treat it the same as a generic Zoom failure if it does.
+      }
+      console.error("[team-meeting] zoom create failed", err);
+      return new NextResponse(
+        "Couldn't create the Zoom meeting. Try again or pick a different conferencing option.",
+        { status: 502 },
+      );
+    }
+  } else if (body.conferencing === "PERSONAL_ZOOM_ROOM" || body.conferencing === "PERSONAL_TEAMS_ROOM") {
+    const url =
+      body.conferencing === "PERSONAL_TEAMS_ROOM"
+        ? callerHost.personalTeamsRoomUrl
+        : callerHost.personalZoomRoomUrl;
+    if (!url) {
+      const platform = body.conferencing === "PERSONAL_TEAMS_ROOM" ? "Teams" : "Zoom";
+      return new NextResponse(
+        `Your personal ${platform} room URL isn't set — add it on your Profile and try again.`,
+        { status: 400 },
+      );
+    }
+    meetUrl = url;
+    conferencingLabel =
+      body.conferencing === "PERSONAL_TEAMS_ROOM" ? "Personal Teams room" : "Personal Zoom room";
   } else if (body.conferencing === "WORKSPACE_ZOOM_ROOM" || body.conferencing === "WORKSPACE_TEAMS_ROOM") {
     const workspace = await prisma.workspace.findFirst({
       where: { id: { in: callerWorkspaceIds } },
@@ -134,7 +200,8 @@ export async function POST(request: NextRequest) {
     const description =
       (body.note ? `${body.note}\n\n` : "") +
       `Internal team meeting created via Soul Suite.\nAttendees: ${attendees.map((a) => a.email).join(", ")}` +
-      (meetUrl ? `\n${conferencingLabel ?? "Join"}: ${meetUrl}` : "");
+      (meetUrl ? `\n${conferencingLabel ?? "Join"}: ${meetUrl}` : "") +
+      (zoomPasscode ? `\nPasscode: ${zoomPasscode}` : "");
     const location =
       meetUrl ??
       (body.conferencing === "NONE" && body.location ? body.location : undefined);
@@ -189,5 +256,6 @@ export async function POST(request: NextRequest) {
     ok: true,
     eventId,
     meetUrl,
+    zoomMeetingId,
   });
 }

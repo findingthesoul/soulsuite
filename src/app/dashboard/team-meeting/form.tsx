@@ -15,7 +15,14 @@ interface Attendee {
   email: string;
 }
 
-type Conferencing = "GOOGLE_MEET" | "WORKSPACE_ZOOM_ROOM" | "WORKSPACE_TEAMS_ROOM" | "NONE";
+type Conferencing =
+  | "GOOGLE_MEET"
+  | "ZOOM"
+  | "PERSONAL_ZOOM_ROOM"
+  | "PERSONAL_TEAMS_ROOM"
+  | "WORKSPACE_ZOOM_ROOM"
+  | "WORKSPACE_TEAMS_ROOM"
+  | "NONE";
 
 interface SlotSummary {
   startsAt: string;
@@ -31,11 +38,17 @@ export function TeamMeetingForm({
   attendees,
   workspaceHasZoomRoom,
   workspaceHasTeamsRoom,
+  hostHasZoom,
+  hostHasPersonalZoomRoom,
+  hostHasPersonalTeamsRoom,
 }: {
   callerName: string;
   attendees: Attendee[];
   workspaceHasZoomRoom: boolean;
   workspaceHasTeamsRoom: boolean;
+  hostHasZoom: boolean;
+  hostHasPersonalZoomRoom: boolean;
+  hostHasPersonalTeamsRoom: boolean;
 }) {
   const router = useRouter();
   const [pickedIds, setPickedIds] = useState<string[]>([]);
@@ -324,6 +337,18 @@ export function TeamMeetingForm({
             onChange={(e) => setConferencing(e.target.value as Conferencing)}
           >
             <option value="GOOGLE_MEET">Google Meet (link auto-generated)</option>
+            <option value="ZOOM" disabled={!hostHasZoom}>
+              Zoom (fresh meeting per booking)
+              {hostHasZoom ? "" : " — connect in Settings → Connections"}
+            </option>
+            <option value="PERSONAL_ZOOM_ROOM" disabled={!hostHasPersonalZoomRoom}>
+              Personal Zoom room
+              {hostHasPersonalZoomRoom ? "" : " — set on your Profile"}
+            </option>
+            <option value="PERSONAL_TEAMS_ROOM" disabled={!hostHasPersonalTeamsRoom}>
+              Personal Teams room
+              {hostHasPersonalTeamsRoom ? "" : " — set on your Profile"}
+            </option>
             <option value="WORKSPACE_ZOOM_ROOM" disabled={!workspaceHasZoomRoom}>
               Workspace Zoom room
               {workspaceHasZoomRoom ? "" : " — set in Settings → Workspace"}

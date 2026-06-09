@@ -28,6 +28,13 @@ export default async function TeamMeetingPage() {
     select: { sharedZoomRoomUrl: true, sharedTeamsRoomUrl: true },
   });
 
+  // Personal-room + Zoom availability for the caller — mirrors the conferencing-provider gating
+  // on the meeting-type forms so the team-meeting dropdown offers the same set of options.
+  const me = await prisma.host.findUnique({
+    where: { id: ctx.host.id },
+    select: { zoomRefreshToken: true, personalZoomRoomUrl: true, personalTeamsRoomUrl: true },
+  });
+
   return (
     <AppShell {...shellProps(ctx)}>
       <div className="mx-auto w-full max-w-2xl space-y-6">
@@ -48,6 +55,9 @@ export default async function TeamMeetingPage() {
           }))}
           workspaceHasZoomRoom={!!workspace?.sharedZoomRoomUrl}
           workspaceHasTeamsRoom={!!workspace?.sharedTeamsRoomUrl}
+          hostHasZoom={!!me?.zoomRefreshToken}
+          hostHasPersonalZoomRoom={!!me?.personalZoomRoomUrl}
+          hostHasPersonalTeamsRoom={!!me?.personalTeamsRoomUrl}
         />
       </div>
     </AppShell>

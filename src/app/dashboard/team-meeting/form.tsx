@@ -372,6 +372,37 @@ export function TeamMeetingForm({
               duration.
             </p>
           ) : (
+            <>
+              {pickedSlots.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-border bg-surface-muted/40 px-3 py-2 mb-2">
+                  <span className="text-xs text-muted-foreground mr-1">Selected:</span>
+                  {pickedSlots
+                    .slice()
+                    .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
+                    .map((s) => {
+                      const d = new Date(s.startsAt);
+                      const label = d.toLocaleString(undefined, {
+                        weekday: "short",
+                        day: "numeric",
+                        month: "short",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      });
+                      return (
+                        <button
+                          key={s.startsAt}
+                          type="button"
+                          onClick={() => toggleSlot(s.startsAt)}
+                          className="inline-flex items-center gap-1 rounded-full bg-foreground text-background px-2 py-0.5 text-[11px] font-medium hover:opacity-90"
+                          title="Click to remove"
+                        >
+                          {label}
+                          <span aria-hidden>×</span>
+                        </button>
+                      );
+                    })}
+                </div>
+              )}
             <div className="grid grid-cols-1 sm:grid-cols-[200px_1fr] gap-3">
               <div className="flex flex-col gap-1.5 max-h-64 overflow-y-auto pr-1">
                 {availableDates.map((dateKey) => {
@@ -382,10 +413,7 @@ export function TeamMeetingForm({
                     <button
                       key={dateKey}
                       type="button"
-                      onClick={() => {
-                        setSelectedDate(dateKey);
-                        setPickedStartsAt([]);
-                      }}
+                      onClick={() => setSelectedDate(dateKey)}
                       className={`text-left rounded-md px-3 py-2 text-xs font-medium transition-colors flex items-center justify-between gap-3 ${
                         active
                           ? "bg-foreground text-background"
@@ -457,6 +485,7 @@ export function TeamMeetingForm({
                 })}
               </div>
             </div>
+            </>
           )}
         </div>
 
